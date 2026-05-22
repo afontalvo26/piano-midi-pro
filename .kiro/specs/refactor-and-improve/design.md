@@ -1,215 +1,131 @@
-# Design - Refactor & Improve Piano MIDI Pro
+# Design — Refactor & Improve Piano MIDI Pro
+
+> **Estado:** arquitectura implementada y verificada (May 22, 2026). Este documento describe el estado actual del código.
 
 ## Overview
 
-Refactor incremental con subagentes paralelos. La estrategia es:
-1. **Fase A (paralela, sin tocar App.tsx):** crear archivos nuevos en `hooks/`, `services/`, `contexts/`, `components/<dominio>/`, `game/<modulos>` + higiene de repo.
-2. **Fase B (secuencial):** integrar en App.tsx reemplazando bloques de estado por hooks/contextos hasta llevarlo a ≤ 800 líneas.
-3. **Fase C (verificación):** build + lint + commit.
+Refactorización incremental de Piano MIDI Pro completada en 4 commits + 2 commits de afinado:
 
-## Architecture
+1. **Fase A (paralela):** crear archivos nuevos en `hooks/`, `services/`, `contexts/`, `components/<dominio>/`, `game/<modulos>` + higiene de repo.
+2. **Fase B (visible):** integrar providers en `main.tsx`, extraer constantes/helpers/utilidades de App.tsx, code splitting Vite.
+3. **Fase C (audit):** Playwright MCP audit, lazy loading OSMD, yield to main thread, a11y completa.
+
+App.tsx queda como orquestador grande (5168 líneas) — la fase final de reducir a ≤ 800 líneas requiere reescribir el canvas loop y el scheduling de Tone.Transport, ambos profundamente acoplados a refs internos. Se aplazó como tarea futura para no introducir regresiones.
+
+## Architecture (estado real)
 
 ```
 app/src/
-├─ App.tsx                       (orquestador, ≤ 800 líneas)
-├─ main.tsx
+├─ App.tsx                         5168 líneas — orquestador con state local + refs
+├─ main.tsx                        Providers montados (Settings → Audio → Profile → Score)
 │
-├─ contexts/                     (NUEVO)
-│  ├─ AudioContext.tsx
-│  ├─ GameContext.tsx
-│  ├─ ProfileContext.tsx
-│  ├─ SettingsContext.tsx
+├─ contexts/                       ✅ creados, en uso vía main.tsx (consumo opcional)
+│  ├─ AudioContext.tsx             wraps useAudioEngine + persistencia de masterVolume/reverb/chorus/sustain/latency
+│  ├─ ProfileContext.tsx           wraps useProfile
+│  ├─ ScoreContext.tsx             wraps useScoreReader
+│  ├─ SettingsContext.tsx          UI/playback settings persistidos
 │  └─ index.ts
 │
-├─ hooks/                        (NUEVO)
-│  ├─ useAudioEngine.ts          (Tone.Sampler, effects, master)
-│  ├─ useGameState.ts            (chart, stats, status)
-│  ├─ useProfile.ts              (XP, achievements, level)
-│  ├─ useTransport.ts            (play/pause/seek)
-│  ├─ useMidiInput.ts            (devices, velocity, pitch bend)
-│  ├─ useScoreReader.ts          (parse, analyze, parts)
-│  ├─ useKeyboardRange.ts        (rangeStart, snapToC, shifts)
+├─ hooks/                          ✅ creados como capa pública
+│  ├─ useAudioEngine.ts            Tone graph completo + lifecycle
+│  ├─ useTransport.ts              play/pause/seek + rAF loop
+│  ├─ useKeyboardRange.ts          rangeStart con snapToC + persistencia
+│  ├─ useMidiInput.ts              WebMIDI + device routing + velocity curves
+│  ├─ useProfile.ts                XP, achievements, level-up
+│  ├─ useScoreReader.ts            MusicXML import + análisis + parts
 │  └─ index.ts
 │
-├─ services/                     (NUEVO)
-│  ├─ audioService.ts
-│  ├─ gameService.ts             (delega a game/*)
-│  ├─ profileService.ts          (delega a utils/profile)
-│  ├─ scoreService.ts            (delega a parsers/, analysis/)
-│  ├─ transportService.ts
-│  ├─ storageService.ts
+├─ services/                       ✅ sin React
+│  ├─ storageService.ts            localStorage + fallback in-memory
+│  ├─ audioService.ts              salamanderSamples + setMasterVolume/reverb/chorus
+│  ├─ gameService.ts               re-export de game/
+│  ├─ profileService.ts            re-export de utils/profile + utils/achievements
+│  ├─ scoreService.ts              re-export de parsers + analysis
+│  ├─ transportService.ts          wrapper de Tone.Transport
 │  └─ index.ts
 │
 ├─ components/
-│  ├─ common/                    (NUEVO)
-│  │  ├─ Button.tsx
-│  │  ├─ Modal.tsx
-│  │  ├─ Slider.tsx
-│  │  ├─ Toast.tsx
-│  │  ├─ Tabs.tsx
-│  │  ├─ IconButton.tsx
+│  ├─ common/                      ✅ 8 componentes accesibles auto-contenidos
+│  │  ├─ Button, Modal, Slider, Toast, Tabs, IconButton, Spinner
+│  │  ├─ Icons.tsx                 SVG inline reutilizables (extraídos de App.tsx)
 │  │  └─ index.ts
-│  ├─ game/                      (mover GameHUD, GameResultsModal)
-│  ├─ gamification/              (mover ProfilePanel, NeonRunnerAvatar)
-│  ├─ score/                     (mover ScoreViewer, PartMixer, ScoreInfoBar, ImportPanel)
-│  ├─ studio/                    (KeyFxPanel, InstrumentControls)
-│  └─ layout/
-│     └─ AppShell.tsx
+│  ├─ game/                        ✅ GameHUD, GameResultsModal
+│  ├─ gamification/                ✅ ProfilePanel, NeonRunnerAvatar, PianoPet, PianoPetRive
+│  ├─ score/                       ✅ ScoreViewer (lazy), ScoreInfoBar, PartMixer, ImportPanel, scoreCache
+│  └─ studio/                      ✅ InstrumentControls, KeyFxPanel
 │
-├─ game/
-│  ├─ engine.ts                  (mantener barrel para no romper imports)
-│  ├─ timing.ts                  (NUEVO)
-│  ├─ scoring.ts                 (NUEVO)
-│  ├─ chart.ts                   (NUEVO)
-│  ├─ difficulty.ts              (NUEVO)
-│  ├─ starPower.ts               (NUEVO)
+├─ game/                           ✅ modular
+│  ├─ engine.ts                    barrel de compatibilidad → re-exporta de index.ts
+│  ├─ index.ts                     barrel principal
+│  ├─ types.ts                     GameMode, GameDifficulty, GameStatus, HitGrade, etc.
+│  ├─ timing.ts                    getTimingWindows, classifyHit
+│  ├─ chart.ts                     buildGameChart, computeAutoShiftTarget
+│  ├─ scoring.ts                   applyHit, applyMiss, calculateMaxScore, getComboMultiplier
+│  ├─ starPower.ts                 init/add/activate/update star power
+│  └─ renderer.ts                  computeKeyPositions (extraído de App.tsx)
+│
+├─ utils/
+│  ├─ audioMidiUtils.ts            ✅ NUEVO: hexToRgba, lightenHex, midiToLabel, isBlackKey, clamp
+│  ├─ instrumentMapping.ts         ✅ NUEVO: getInstrumentSynthSettings, gmProgramToInstrument
+│  ├─ midiFileParser.ts            ✅ NUEVO: parseMidiFile (puro, sin side effects React)
+│  ├─ profile.ts                   pre-existente
+│  ├─ achievements.ts              pre-existente
+│  ├─ songRatings.ts               pre-existente
+│  └─ settings.ts                  useLocalStorageState
+│
+├─ constants/
+│  ├─ piano.ts                     PIANO_MIN/MAX_MIDI, RANGE_KEY_COUNT, INSTRUMENT_FAMILIES
+│  ├─ ui.ts                        TRACK_COLORS, hexToRgba, lightenHex, clamp
+│  ├─ audio.ts
+│  ├─ game.ts
+│  ├─ demoSongs.ts                 ✅ NUEVO: catálogo de demos extraído de App.tsx
 │  └─ index.ts
 │
-├─ constants/                    (ya existe — solo asegurar barrel)
-├─ analysis/  parsers/  engine/  types/  utils/   (sin cambios)
+├─ types/
+│  ├─ song.ts                      ✅ NUEVO: SongNote, SongTrack, SongData
+│  ├─ score.ts                     ScoreDocument + tipos MusicXML completos
+│  └─ gamification.ts              PlayerProfile, Achievement, etc.
+│
+├─ analysis/  parsers/  engine/    sin cambios (ya estaban modulares)
+│
+└─ vite.config.ts                  ✅ MEJORADO: code splitting manual de vendors
 ```
 
-## Components and Interfaces
+## Build & Bundle
 
-### Hooks
-
-```typescript
-// hooks/useAudioEngine.ts
-export interface AudioEngineState {
-  isAudioReady: boolean;
-  isSamplerActive: boolean;
-  isAudioLoading: boolean;
-  audioStatusMessage: string;
-}
-
-export interface AudioEngineRefs {
-  samplerRef: React.MutableRefObject<Tone.Sampler | null>;
-  fallbackSynthsRef: React.MutableRefObject<Record<number, Tone.PolySynth> | null>;
-  reverbRef: React.MutableRefObject<Tone.Reverb | null>;
-  chorusRef: React.MutableRefObject<Tone.Chorus | null>;
-  volNodeRef: React.MutableRefObject<Tone.Volume | null>;
-  compressorRef: React.MutableRefObject<Tone.Compressor | null>;
-  metronomeRef: React.MutableRefObject<Tone.MetalSynth | null>;
-}
-
-export function useAudioEngine(opts: {
-  reverbDecay: number;
-  chorusDepth: number;
-  masterVolume: number;
-  latencyMode: "ultra" | "balanced";
-  sustainTime: number;
-}): AudioEngineState & AudioEngineRefs & {
-  initAudio: () => Promise<void>;
-  disposeAudio: () => void;
-};
+```
+dist/index.html                                  1.49 kB
+dist/assets/index-*.js                         222 kB     (app code)
+dist/assets/vendor-*.js                        431 kB     (deps misc)
+dist/assets/vendor-tone-*.js                   156 kB     (Tone.js)
+dist/assets/vendor-rive-*.js                   140 kB     (Rive)
+dist/assets/vendor-zip-*.js                     96 kB
+dist/assets/vendor-gsap-*.js                    70 kB
+dist/assets/vendor-tonal-*.js                   25 kB
+dist/assets/vendor-midi-*.js                    21 kB     (@tonejs/midi)
+dist/assets/ScoreViewer-*.js                     5 kB     ← lazy
+dist/assets/vendor-osmd-*.js                  1205 kB     ← lazy (solo se descarga en pantalla score)
 ```
 
-```typescript
-// hooks/useGameState.ts
-export function useGameState(opts: {
-  song: SongData;
-  rangeStart: number;
-  difficulty: GameDifficulty;
-  mode: GameMode;
-}) {
-  // returns chart, stats, status, countdown, handlers
-}
-```
+## Deuda técnica conocida
 
-```typescript
-// hooks/useMidiInput.ts
-export function useMidiInput(opts: {
-  selectedInputId: string;
-  velocityCurve: VelocityCurve;
-  onNoteOn: (midi: number, velocity: number) => void;
-  onNoteOff: (midi: number) => void;
-  onPitchBend: (value: number) => void;
-  onSustain: (down: boolean) => void;
-}) {
-  // returns devices, permission, lastVelocity, calibrating
-}
-```
+1. **App.tsx aún en 5168 líneas** — la reducción a ≤ 800 requiere reescribir:
+   - `scheduleSongOnTransport` (~170 líneas) — fuertemente acoplado a `engineRegistryRef`, `samplerRef`, `gmDestRef`, `triggerAttack/Release`, `scoreDocument`.
+   - El `useEffect` del canvas visualizer (~400 líneas) — ciclo rAF que lee 30+ valores de `stateRef`.
+   - `handleMidiMessage` (~134 líneas) — depende de `triggerAttack/Release`, `registerGameHit`, `initializeAudio`.
+   - Estos bloques están listos para extraer a hooks especializados (`useScoreScheduler`, `useCanvasVisualizer`, `useMidiHandler`) cuando convenga.
 
-### Services
+2. **`useGameState` no se creó** — la lógica de juego usa refs profundos (`gameChartRef`, `gameStatsRef`, `prevGameTimeRef`, `updateGameRuntimeRef`, `finishGameRoundRef`) que requiere un diseño cuidadoso para no perder rendimiento.
 
-```typescript
-// services/storageService.ts
-export const storage = {
-  get<T>(key: string, defaultValue: T): T,
-  set<T>(key: string, value: T): void,
-  remove(key: string): void,
-};
-```
+3. **Contexts disponibles pero no consumidos** — los providers están montados en `main.tsx` pero App.tsx sigue declarando sus propios `useState`/`useLocalStorageState` para los mismos valores. Migrar a contexts es trivial pero hay que validar uno por uno que no se rompa el flujo.
 
-```typescript
-// services/audioService.ts
-export const audioService = {
-  init(opts): Promise<AudioEngineHandles>,
-  playNote(handles, midi, velocity, instrument): void,
-  stopNote(handles, midi): void,
-  setMasterVolume(handles, db: number): void,
-  // ...
-};
-```
+4. **Canvas siempre activo** — el rAF loop corre incluso sin canción cargada. Pendiente: pausar cuando `song.notes.length === 0` y la pestaña está en background.
 
-### Game Modules
+## Decisiones tomadas
 
-```typescript
-// game/timing.ts
-export type TimingWindows = { perfectPlus: number; perfect: number; great: number; good: number };
-export const TIMING_WINDOWS_BY_DIFFICULTY: Record<GameDifficulty, TimingWindows>;
-export function getTimingWindows(d: GameDifficulty): TimingWindows;
-export function classifyHit(deltaMs: number, windows: TimingWindows): HitGrade | null;
-```
-
-```typescript
-// game/scoring.ts
-export const COMBO_TIERS: ComboMultiplier[];
-export function getComboMultiplier(combo: number): number;
-export function applyEnhancedGameHit(stats, grade, deltaMs, opts): EnhancedGameStats;
-export function applyEnhancedGameMiss(stats, opts): EnhancedGameStats;
-export function calculateMaxScore(noteCount: number, difficulty: GameDifficulty): number;
-```
-
-```typescript
-// game/chart.ts
-export function buildGameChart(song: SongData, opts): GameChartNote[];
-export function computeAutoShiftTarget(notes: GameChartNote[], cursor: number, currentRange: number): number;
-```
-
-## Data Models
-
-Sin cambios en los modelos existentes (`SongData`, `ScoreDocument`, `EnhancedGameStats`, `PlayerProfile`). Solo se reorganiza dónde viven y cómo se accede.
-
-## Error Handling
-
-- Cada hook captura errores en sus efectos y los expone en el estado (`error: string | null`).
-- `services/storageService` maneja `QuotaExceededError` con un fallback a in-memory map.
-- `audioService.init` falla suave: si Salamander no carga, fallback synths siempre disponibles.
-
-## Testing Strategy
-
-- Verificación manual end-to-end después de cada fase: cargar canción demo, reproducir, conectar MIDI, jugar.
-- `npm run build` + `npm run lint` después de cada fase.
-- No se introducen tests automatizados en este refactor (queda para una fase posterior).
-
-## Plan de Subagentes (paralelización)
-
-| Subagente | Tarea | Alcance | Conflicto con otros |
-|---|---|---|---|
-| **AGENT-1** | Modularizar `game/engine.ts` | Crea `timing.ts`, `scoring.ts`, `chart.ts`, `difficulty.ts`, `starPower.ts`, mantiene `engine.ts` como barrel | Ninguno |
-| **AGENT-2** | Crear hooks (sin tocar App.tsx) | `useAudioEngine`, `useTransport`, `useKeyboardRange`, `useMidiInput`, `useGameState`, `useProfile`, `useScoreReader` | Ninguno |
-| **AGENT-3** | Crear services + storage | `audioService`, `gameService`, `profileService`, `scoreService`, `transportService`, `storageService` | Ninguno |
-| **AGENT-4** | Crear componentes comunes + reorganizar carpetas | `common/Button`, `common/Modal`, `common/Slider`, `common/Toast`, `common/Tabs`, `common/IconButton` + mover existentes a subcarpetas con `smartRelocate` | Modifica imports en App.tsx → debe ejecutarse antes que AGENT-INTEGRATE |
-| **AGENT-5** | Crear contexts | `AudioContext`, `GameContext`, `ProfileContext`, `SettingsContext` | Ninguno |
-| **AGENT-6** | Higiene de repo | `.gitignore`, mover demos a `app/public/demo/`, eliminar binarios pesados de raíz, primer commit | Ninguno |
-| **AGENT-INTEGRATE** | Integrar en App.tsx | Reemplazar bloques de estado por hooks/contexts, reducir a ≤ 800 líneas | Secuencial, después de A1-A6 |
-
-## Decisions
-
-1. **Mantener `game/engine.ts` como barrel** — evita romper imports existentes mientras se hace la migración.
+1. **Mantener `engine.ts` como barrel** — evita romper imports `from "./game/engine"` existentes mientras se completa la migración.
 2. **`smartRelocate` para mover componentes** — actualiza imports automáticamente.
-3. **Hooks expuestos vía contexts** — los contexts envuelven los hooks para que App.tsx solo necesite providers.
-4. **No introducir Zustand/Redux** — el plan actual usa contexts + hooks, suficiente para el alcance.
-5. **No tocar `analysis/`, `parsers/`, `engine/` (Tone.js)** — ya están modularizados.
-6. **No introducir tests automatizados** — fuera del alcance de este refactor.
+3. **Hooks expuestos vía contexts** — permite consumo opcional sin obligar refactor masivo de App.tsx.
+4. **No introducir Zustand/Redux** — contexts + hooks alcanzan para el alcance.
+5. **Lazy load solo OSMD** — los demás vendors son necesarios desde el primer render. OSMD justifica lazy porque pesa 1.2 MB y solo se usa en una pantalla.
+6. **`scheduler.yield` con fallback** — yield to main funciona en Chrome 129+ y degrada bien.
