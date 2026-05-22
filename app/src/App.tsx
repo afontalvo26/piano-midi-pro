@@ -102,6 +102,11 @@ import {
   gmProgramToInstrument,
 } from "./utils/instrumentMapping";
 import { getDeviceProfile } from "./utils/deviceCapabilities";
+import {
+  applyVelocityCurve,
+  VELOCITY_CURVE_DESCRIPTORS,
+  type VelocityCurve,
+} from "./utils/velocity";
 
 type NavScreen =
   | "studio"
@@ -402,9 +407,17 @@ export default function App() {
     2,
   ); // semitones
   const [lastVelocity, setLastVelocity] = useState<number>(0);
-  const [velocityCurve, setVelocityCurve] = useLocalStorageState<
-    "linear" | "logarithmic" | "exponential"
-  >("piano_velocity_curve", "exponential");
+  const [velocityCurve, setVelocityCurve] = useLocalStorageState<VelocityCurve>(
+    "piano_velocity_curve",
+    "piano",
+  );
+  // Migrate legacy curve names from previous app versions
+  useEffect(() => {
+    const cur = velocityCurve as string;
+    if (cur === "logarithmic") setVelocityCurve("soft");
+    else if (cur === "exponential") setVelocityCurve("piano");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [mouseVelocity, setMouseVelocity] = useLocalStorageState<number>(
     "piano_mouse_velocity",
     0.75,
@@ -705,7 +718,7 @@ export default function App() {
     // Audio state refs to break circular deps
     pitchBend: 0,
     pitchBendRange: 2,
-    velocityCurve: "linear" as "linear" | "logarithmic" | "exponential",
+    velocityCurve: "piano" as VelocityCurve,
     midiMode: "shift" as "anchor" | "shift",
     midiPhysicalBase: 48,
     isAudioReady: false,
@@ -3123,13 +3136,9 @@ export default function App() {
       // Read current values from ref (stable, no deps needed)
       const { velocityCurve: vc } = stateRef.current;
 
-      // Apply velocity curves
-      let velocity = rawVelocity / 127;
-      if (vc === "logarithmic") {
-        velocity = Math.log1p(velocity * 1.718);
-      } else if (vc === "exponential") {
-        velocity = Math.pow(velocity, 2);
-      }
+      // Apply velocity curve (mathematically correct gain mapping)
+      // GM spec default = "piano" (gain = (v/127)²) — see utils/velocity.ts
+      const velocity = applyVelocityCurve(rawVelocity / 127, vc);
 
       // Mostrar nota física real en el panel MIDI
       if (isNoteOn) setLastPhysicalMidi(incomingMidi);
@@ -5181,20 +5190,25 @@ export default function App() {
                   <div className="settings-col">
                     <label>Curva de Velocidad (Fuerza)</label>
                     <span>
-                      Determina la respuesta de volumen según la intensidad del
-                      toque.
+                      Mapea la velocidad MIDI (0-127) a ganancia de salida. La
+                      curva &quot;Piano (GM)&quot; sigue la spec MIDI: dB = 40·log₁₀(127/v),
+                      equivalente a (v/127)². &quot;Natural&quot; usa una curva piecewise
+                      con más resolución en mp..mf, como un piano acústico real.
                     </span>
                   </div>
                   <select
                     className="track-instrument-select"
+                    aria-label="Curva de velocidad MIDI"
                     value={velocityCurve}
-                    onChange={(e) => setVelocityCurve(e.target.value as "linear" | "logarithmic" | "exponential")}
+                    onChange={(e) =>
+                      setVelocityCurve(e.target.value as VelocityCurve)
+                    }
                   >
-                    <option value="linear">Lineal (Standard)</option>
-                    <option value="logarithmic">Logarítmica (Más suave)</option>
-                    <option value="exponential">
-                      Exponencial (Más acentuada)
-                    </option>
+                    {(Object.values(VELOCITY_CURVE_DESCRIPTORS)).map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.label} — {d.description}
+                      </option>
+                    ))}
                   </select>
                 </div>
 

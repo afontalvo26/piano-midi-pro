@@ -1,9 +1,10 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, type ReactNode, useEffect } from "react";
 import { useLocalStorageState } from "../utils/settings";
+import type { VelocityCurve } from "../utils/velocity";
 
 export type ShowNoteNamesMode = "none" | "name" | "binding";
-export type VelocityCurve = "linear" | "logarithmic" | "exponential";
+export type { VelocityCurve };
 
 interface SettingsApi {
   showNoteNames: ShowNoteNamesMode;
@@ -37,7 +38,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [showParticles, setShowParticles] = useLocalStorageState<boolean>("piano_show_particles", true);
   const [pitchPractice, setPitchPractice] = useLocalStorageState<boolean>("piano_pitch_practice", false);
   const [scrollSensitivity, setScrollSensitivity] = useLocalStorageState<number>("piano_scroll_sensitivity", 1.2);
-  const [velocityCurve, setVelocityCurve] = useLocalStorageState<VelocityCurve>("piano_velocity_curve", "exponential");
+  const [velocityCurve, setVelocityCurve] = useLocalStorageState<VelocityCurve>("piano_velocity_curve", "piano");
+
+  // Migrate legacy curve names ("logarithmic"/"exponential") → new schema
+  useEffect(() => {
+    const v = velocityCurve as string;
+    if (v === "logarithmic") setVelocityCurve("soft");
+    else if (v === "exponential") setVelocityCurve("piano");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [mouseVelocity, setMouseVelocity] = useLocalStorageState<number>("piano_mouse_velocity", 0.75);
   const [pitchBendRange, setPitchBendRange] = useLocalStorageState<number>("piano_pitch_bend_range", 2);
   const [transpose, setTranspose] = useLocalStorageState<number>("piano_transpose", 0);

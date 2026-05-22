@@ -96,10 +96,15 @@
 - [x] C.1 Tipografía unificada
   - `.metric-card strong` ahora usa `font-family: inherit` (Outfit) con `font-variant-numeric: tabular-nums`
   - Adiós al choque de monospace
-- [ ] C.2 Animaciones / micro-interacciones (pendiente)
-  - Transiciones GSAP suaves en hover de teclas
-  - Feedback visual al presionar tecla (ripple, glow pulse)
-  - Animaciones de transición entre pantallas (cross-fade 200ms)
+- [x] C.2 Animaciones / micro-interacciones (premium feel)
+  - Hover lift de teclas blancas/negras (translateY + glow)
+  - Press scale-down 0.985 con cubic-bezier
+  - Pulse animation en active-press (220ms)
+  - Cross-fade entre pantallas (.panel-screen)
+  - Hover scale en rail-btn, transport buttons, keyfx swatches
+  - Range slider thumbs glow on hover
+  - Todas respetan `prefers-reduced-motion`
+  - Compositor-only (transform + opacity) → 60 FPS sin layout invalidation
 
 - [x] C.3 Canvas optimizado
   - Page Visibility API: `requestAnimationFrame` se pausa cuando la pestaña/ventana está oculta
@@ -133,7 +138,37 @@
   - Manifiesto + iconos
   - Cache de samples Salamander
 
-## Fase E — Performance turbo (low-end + GPU + offline) ✅ COMPLETADO
+## Fase F — Velocity matemáticamente correcta ✅ COMPLETADO
+
+**Investigación**: la spec MIDI 2 define dB = 40·log₁₀(127/v) para volume/expression CC, equivalente a `gain = (v/127)²` en amplitud lineal. Estudio Burred (ICMC 2006) confirma que sintetizadores comerciales siguen ~x² (no exp puro). Pianos acústicos varían loudness Y brightness con velocity.
+
+- [x] F.1 Módulo `utils/velocity.ts`
+  - 6 curvas matemáticamente bien definidas:
+    - `linear` (γ=1) — referencia técnica
+    - `soft` (γ=0.6) — realza piano/pianissimo
+    - `piano` (γ=2) — **GM spec default**, gain = (v/127)²
+    - `hard` (γ=3) — demanda fuerza, mucho rango dinámico
+    - `natural` — piecewise tipo Yamaha CFX, más resolución en mp..mf
+    - `fixed` — sin sensibilidad (constante 0.78)
+  - `midiVelocityToBrightness(v)` con γ=0.7 (timbral, independiente de gain)
+  - `midiVelocityToCutoffHz(v, min=800, max=18000)` interpolación log perceptual
+  - `computeVelocityExpression(v, curve)` → { gain, brightness, cutoffHz, raw }
+
+- [x] F.2 Integración
+  - App.tsx usa `applyVelocityCurve(rawV/127, curve)` en handleMidiMessage
+  - Default cambiado de `"exponential"` a `"piano"` (GM-compliant)
+  - Migración automática de valores legacy en localStorage:
+    `"logarithmic"` → `"soft"`, `"exponential"` → `"piano"`
+  - SettingsContext + useMidiInput refactorizados al nuevo schema
+
+- [x] F.3 UI
+  - Dropdown de Curva de Velocidad ahora muestra etiqueta + descripción técnica de cada curva
+  - 6 opciones con descripciones matemáticas precisas
+
+- [x] F.4 Verificación matemática (Playwright in-browser)
+  - v=64 con curve "piano" → gain = 0.253953 ≡ (64/127)² = 0.253953 ✓
+  - Todas las curvas son monotónicamente crecientes
+  - Convergencia a 100% en v=127
 
 - [x] E.1 Device-aware quality presets (`utils/deviceCapabilities.ts`)
   - Tiers: `low` / `medium` / `high` basado en `hardwareConcurrency`, `deviceMemory`, `connection.effectiveType`, `prefers-reduced-motion`, `connection.saveData`

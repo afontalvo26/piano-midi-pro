@@ -3728,3 +3728,174 @@ input:checked + .switch-slider:before {
 .songs-section {
     contain: layout;
 }
+
+
+/* ──────────────────────────────────────────────────────────
+   Micro-interactions (premium feel, 60 FPS, GPU-only)
+
+   Uses transforms + opacity changes that run on the
+   compositor thread without invalidating layout.
+   ────────────────────────────────────────────────────────── */
+
+/* Hover lift on white keys: gentle 1px lift + slight glow */
+@media (hover: hover) and (pointer: fine) {
+    .piano-key-element.white:hover:not(.active-press):not(.game-hit-ready):not(.practice-target) {
+        transform: translateZ(0) translateY(-1px);
+        box-shadow:
+            0 2px 8px rgba(167, 139, 250, 0.15),
+            inset 0 0 0 1px rgba(167, 139, 250, 0.18);
+        transition:
+            transform 120ms cubic-bezier(0.2, 0.8, 0.2, 1),
+            box-shadow 200ms ease;
+    }
+
+    .piano-key-element.black:hover:not(.active-press):not(.game-hit-ready):not(.practice-target) {
+        transform: translateZ(0) translateY(-1px);
+        box-shadow:
+            0 4px 12px rgba(167, 139, 250, 0.35),
+            inset 0 0 0 1px rgba(167, 139, 250, 0.4);
+        transition:
+            transform 120ms cubic-bezier(0.2, 0.8, 0.2, 1),
+            box-shadow 200ms ease;
+    }
+}
+
+/* Press feedback: instant scale-down for responsiveness */
+.piano-key-element.active-press {
+    transform: translateZ(0) translateY(0) scale(0.985);
+    transition:
+        transform 50ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        background 80ms ease;
+}
+
+/* Soft press feedback for low velocity (set via inline --press-depth var) */
+.piano-key-element[style*="--press-depth"] {
+    transform: translateZ(0) scale(calc(1 - var(--press-depth, 0) * 0.018));
+}
+
+/* Default tween for state changes */
+.piano-key-element {
+    transition:
+        background 100ms ease,
+        border-color 120ms ease,
+        box-shadow 200ms ease;
+}
+
+/* Cross-fade between screens — apply to .main-content or screen container */
+.panel-screen {
+    animation: pmp-screen-enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes pmp-screen-enter {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Hover scale on the rail nav buttons */
+@media (hover: hover) and (pointer: fine) {
+    .rail-btn {
+        transition:
+            transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
+            background 160ms ease,
+            color 160ms ease;
+    }
+    .rail-btn:hover {
+        transform: translateY(-1px);
+    }
+    .rail-btn:active {
+        transform: translateY(0) scale(0.97);
+        transition: transform 80ms ease;
+    }
+}
+
+/* Buttons in the controls bar — subtle lift */
+@media (hover: hover) and (pointer: fine) {
+    .controls-left button:hover,
+    .controls-right button:hover,
+    .btn:hover {
+        transform: translateY(-1px);
+        transition: transform 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .controls-left button:active,
+    .controls-right button:active,
+    .btn:active {
+        transform: translateY(0) scale(0.98);
+        transition: transform 60ms ease;
+    }
+}
+
+/* Range slider thumbs glow on hover */
+@media (hover: hover) and (pointer: fine) {
+    .slider-custom:hover::-webkit-slider-thumb,
+    .ic-slider:hover::-webkit-slider-thumb,
+    .keyfx-slider:hover::-webkit-slider-thumb {
+        filter: brightness(1.15) drop-shadow(0 0 6px currentColor);
+        transition: filter 120ms ease;
+    }
+}
+
+/* Particle burst overlay class — applied programmatically when a key is hit */
+@keyframes pmp-key-pulse {
+    0% {
+        transform: translateZ(0) scale(1);
+        filter: brightness(1) saturate(1);
+    }
+    30% {
+        transform: translateZ(0) scale(1.012);
+        filter: brightness(1.15) saturate(1.2);
+    }
+    100% {
+        transform: translateZ(0) scale(1);
+        filter: brightness(1) saturate(1);
+    }
+}
+
+.piano-key-element.active-press {
+    animation: pmp-key-pulse 220ms ease-out;
+}
+
+/* Sustain pedal active visual (when key is sustained) */
+.piano-key-element.sustained {
+    box-shadow: inset 0 -4px 0 rgba(167, 139, 250, 0.45);
+}
+
+/* Snappy feedback for keyfx swatches */
+.keyfx-swatch {
+    transition:
+        transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        box-shadow 200ms ease;
+}
+.keyfx-swatch:hover {
+    transform: scale(1.08);
+}
+.keyfx-swatch:active {
+    transform: scale(0.94);
+    transition: transform 80ms ease;
+}
+
+/* Modal / panel entrance — soft slide-up */
+@keyframes pmp-modal-enter {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* When the user prefers-reduced-motion, kill these too */
+@media (prefers-reduced-motion: reduce) {
+    .piano-key-element.active-press,
+    .panel-screen,
+    .keyfx-swatch {
+        animation: none !important;
+    }
+}

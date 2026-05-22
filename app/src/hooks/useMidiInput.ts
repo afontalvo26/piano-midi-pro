@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocalStorageState } from "../utils/settings";
+import {
+  applyVelocityCurve,
+  type VelocityCurve as VelocityCurveType,
+} from "../utils/velocity";
 
-export type VelocityCurveType = "linear" | "logarithmic" | "exponential";
+export type { VelocityCurveType };
 
 export interface MidiDevice {
   id: string;
@@ -66,11 +70,8 @@ export function useMidiInput(options: UseMidiInputOptions = {}): UseMidiInputApi
   const optionsRef = useRef(options);
   useEffect(() => { optionsRef.current = options; }, [options]);
 
-  const applyVelocityCurve = (raw: number, curve: VelocityCurveType): number => {
-    const v = raw / 127;
-    if (curve === "logarithmic") return Math.log(1 + v * 9) / Math.log(10);
-    if (curve === "exponential") return v * v;
-    return v;
+  const applyCurve = (raw: number, curve: VelocityCurveType): number => {
+    return applyVelocityCurve(raw / 127, curve);
   };
 
   const handleMessage = useCallback((event: MIDIMessageEvent) => {
@@ -81,7 +82,7 @@ export function useMidiInput(options: UseMidiInputOptions = {}): UseMidiInputApi
     if (type === 0x90 && data2 > 0) {
       // Note On
       setLastPhysicalMidi(data1);
-      const velocity = applyVelocityCurve(data2, "exponential");
+      const velocity = applyCurve(data2, "piano");
       optionsRef.current.onNoteOn?.(data1, velocity, event.timeStamp);
     } else if (type === 0x80 || (type === 0x90 && data2 === 0)) {
       // Note Off
