@@ -308,6 +308,32 @@ Acceso de un clic desde el escritorio que arranca el dev server (si no está cor
   - Segundo doble-click (server ya corriendo) → log "Server already running on port 5173; opening browser"
   - Logs en `%TEMP%\piano-midi-pro-launcher.log` y `%TEMP%\piano-midi-pro-server.log`
 
+## Fase J — Calidad continua (May 22, 2026 sesión 2) ✅ COMPLETADO
+
+Tres mejoras puntuales tras audit con Playwright sobre la app real, en chromium bundled (no Brave/Chrome del sistema).
+
+- [x] J.1 Canvas idle pause adaptativo (`App.tsx`)
+  - `drawLoop` detecta estado idle (no `isPlaying`, 0 `activeNotes`, no game playing, no practice targets) y baja a **4 FPS** en vez de 60/30
+  - ~94% menos trabajo de canvas en idle, sin sacrificar UX (no hay nada animando)
+  - Lee `stateRef.current` para no invalidar el `useEffect`
+
+- [x] J.2 BrassSampler probe + content-type check (`engine/BrassSamplerEngine.ts`)
+  - Antes: el sampler intentaba cargar 70+ samples de trumpet/trombone que no existen en `public/samples/`, generando un warning por cada fallo
+  - Ahora: HEAD request al primer sample con verificación de `content-type` (Vite SPA dev devuelve 200+`text/html` para rutas inexistentes, así que `r.ok` no basta). Si el content-type no es `audio/*`, retorna `null` y los engines se quedan con síntesis sin spam
+  - `getTrumpetSampler/getTromboneSampler` ahora son async; `InstrumentEngineRegistry` wirea los samplers a engines existentes cuando llegan
+  - **De 73 warnings a 2** (las 2 restantes son de Tone.js esperando user gesture, fuera de nuestro control)
+
+- [x] J.3 Bottom navigation bar en mobile (`App.css`)
+  - `@media (max-width: 768px)`: sidebar vertical 80px → dock horizontal pegado al fondo (mejor UX touch — cae bajo el pulgar)
+  - `position: fixed; bottom: 0` con `safe-area-inset-bottom` para notch
+  - 7 items distribuidos uniformemente, tap targets 49×48px (≥44px)
+  - `@media (max-width: 380px)`: oculta labels para que solo queden iconos
+  - Desktop intacto (sigue siendo column 80px)
+
+- [x] J.4 Desktop shortcut con chromium bundled (Playwright MCP)
+  - User-level `mcp.json` actualizado: `--executable-path` apuntando a `~/AppData/Local/ms-playwright/chromium-1224/chrome-win64/chrome.exe`
+  - Esto evita que el MCP use Chrome/Brave del sistema, que estorba al usuario al testear
+
 ## Métricas finales (May 22, 2026 — fase E)
 
 | Métrica | Inicial | Actual | Δ |
