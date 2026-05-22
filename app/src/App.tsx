@@ -107,6 +107,7 @@ import {
   VELOCITY_CURVE_DESCRIPTORS,
   type VelocityCurve,
 } from "./utils/velocity";
+import { parseDemoInWorker } from "./utils/midiWorkerClient";
 
 type NavScreen =
   | "studio"
@@ -207,12 +208,9 @@ export default function App() {
   // Auto-load demo songs on first visit
   useEffect(() => {
     if (demoSongsLoaded) return;
-    const loaded = localStorage.getItem("demo_songs_loaded");
-    if (loaded) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setDemoSongsLoaded(true);
-      return;
-    }
+    // Note: we don't persist parsed demos to localStorage because the data
+    // is too large (~5MB). Re-parsing on each cold start is acceptable —
+    // the worker keeps it off the main thread.
 
     let cancelled = false;
 
@@ -236,6 +234,24 @@ export default function App() {
         const res = await fetch(ds.path);
         if (!res.ok) return null;
         const bytes = await res.arrayBuffer();
+
+        // Try Web Worker first (zero main-thread cost)
+        try {
+          const id = `${ds.artist}-${ds.title}`;
+          // We must clone the buffer since postMessage transfers it
+          const bufferCopy = bytes.slice(0);
+          return await parseDemoInWorker({
+            id,
+            buffer: bufferCopy,
+            title: ds.title,
+            artist: ds.artist,
+            defaultBpm: ds.bpm,
+            source: "Demo incluida",
+          });
+        } catch {
+          // Fallback: in-thread parse
+        }
+
         const midi = new Midi(bytes);
 
         const parsedTracks: SongTrack[] = [];
@@ -306,12 +322,17 @@ export default function App() {
         await yieldToMain();
       }
       if (!cancelled && loadedSongs.length > 0) {
+        // Note: localStorage is too small (~5MB) to hold parsed MIDI note
+        // data, so we don't try to persist it. Each session re-parses demos
+        // off the main thread via Worker (fast, ~600ms total). The state
+        // setter populates the in-memory list which the UI consumes.
         setSongsList((prev) => {
           const existing = new Set(prev.map((s) => s.title));
           const newOnes = loadedSongs.filter((s) => !existing.has(s.title));
           return [...newOnes, ...prev];
         });
-        localStorage.setItem("demo_songs_loaded", "1");
+        // Don't set demo_songs_loaded flag — we always want to reload demos
+        // on cold start since localStorage can't hold them.
       }
       if (!cancelled) setDemoSongsLoaded(true);
     }
@@ -620,6 +641,8 @@ export default function App() {
   >([]);
   const sustainedNotesRef = useRef<Set<number>>(new Set());
   const mousePressedKeysRef = useRef<Set<number>>(new Set());
+  // velocity per active note (0..1 normalized) — drives visual press depth
+  const activeNoteVelocitiesRef = useRef<Map<number, number>>(new Map());
   const activePlaybackNotesRef = useRef<Map<number, number>>(new Map()); // MIDI -> count
   const minimapDragRef = useRef<{ startX: number; startRange: number } | null>(
     null,
@@ -3167,6 +3190,7 @@ export default function App() {
 
       if (isNoteOn) {
         activePhysicalNotesRef.current.set(incomingMidi, mapped);
+        activeNoteVelocitiesRef.current.set(mapped, velocity);
         setLastVelocity(rawVelocity);
         setActiveMidiNotes((prev) => {
           const next = new Set(prev);
@@ -3186,6 +3210,7 @@ export default function App() {
         const releaseMapped =
           activePhysicalNotesRef.current.get(incomingMidi) ?? mapped;
         activePhysicalNotesRef.current.delete(incomingMidi);
+        activeNoteVelocitiesRef.current.delete(releaseMapped);
         setActiveMidiNotes((prev) => {
           const next = new Set(prev);
           next.delete(releaseMapped);
@@ -3460,6 +3485,7 @@ export default function App() {
           return next;
         });
         const vel = stateRef.current.mouseVelocity ?? 0.75;
+        activeNoteVelocitiesRef.current.set(midi, vel);
         setLastVelocity(Math.round(vel * 127));
         triggerAttack(midi, vel);
         registerGameHit(midi);
@@ -3495,6 +3521,7 @@ export default function App() {
       const midi = keyboardActiveRef.current.get(key);
       if (midi !== undefined) {
         keyboardActiveRef.current.delete(key);
+        activeNoteVelocitiesRef.current.delete(midi);
         setActiveMidiNotes((prev) => {
           const next = new Set(prev);
           next.delete(midi);
@@ -3522,6 +3549,7 @@ export default function App() {
       return next;
     });
     const vel = stateRef.current.mouseVelocity ?? 0.75;
+    activeNoteVelocitiesRef.current.set(midi, vel);
     setLastVelocity(Math.round(vel * 127));
     triggerAttack(midi, vel);
     registerGameHit(midi);
@@ -3556,6 +3584,7 @@ export default function App() {
 
   const handleKeyMouseUp = (midi: number) => {
     mousePressedKeysRef.current.delete(midi);
+    activeNoteVelocitiesRef.current.delete(midi);
     setActiveMidiNotes((prev) => {
       const next = new Set(prev);
       next.delete(midi);
@@ -4397,6 +4426,9 @@ export default function App() {
                                 flexGrow: 1,
                                 "--active-key-color": keyFxColor,
                                 "--active-key-glow": `${Math.round(keyFxGlow * 30)}px`,
+                                "--press-depth": isActive
+                                  ? activeNoteVelocitiesRef.current.get(midi) ?? 0.75
+                                  : 0,
                               } as React.CSSProperties
                             }
                             onMouseDown={() => handleKeyMouseDown(midi)}
@@ -4486,6 +4518,9 @@ export default function App() {
                                 pointerEvents: "auto",
                                 "--active-key-color": keyFxColor,
                                 "--active-key-glow": `${Math.round(keyFxGlow * 30)}px`,
+                                "--press-depth": isActive
+                                  ? activeNoteVelocitiesRef.current.get(midi) ?? 0.75
+                                  : 0,
                               } as React.CSSProperties
                             }
                             onMouseDown={() => handleKeyMouseDown(midi)}

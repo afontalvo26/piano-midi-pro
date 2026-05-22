@@ -154,6 +154,46 @@
   - `midiVelocityToCutoffHz(v, min=800, max=18000)` interpolación log perceptual
   - `computeVelocityExpression(v, curve)` → { gain, brightness, cutoffHz, raw }
 
+- [x] F.2 Integración en App.tsx + hooks + contexts
+- [x] F.3 UI dropdown con descripciones técnicas
+- [x] F.4 Verificación matemática in-browser (v=64 → 0.253953 = (64/127)²)
+
+## Fase G — Web Worker MIDI parsing + visual velocity feedback ✅ COMPLETADO
+
+- [x] G.1 Web Worker para parsing MIDI (`workers/midiParser.worker.ts`)
+  - Worker dedicado parsea MIDI completamente fuera del main thread
+  - Cliente con caché del worker singleton (`utils/midiWorkerClient.ts`)
+  - Transfer ownership del ArrayBuffer (zero-copy)
+  - Fallback graceful a in-thread si Worker no disponible
+  - Bundle separado de 33 kB (lazy)
+  - Resultado: 0 long tasks de parsing en el main thread durante carga inicial
+
+- [x] G.2 Hot-fix de bug critical
+  - **QuotaExceededError**: localStorage tiene ~5 MB de cuota; las 13 demos parseadas pesan 5.7 MB → fallaba silenciosamente y dejaba `[]` corrupto
+  - Solución: NO persistir las notas a localStorage. Se reparsean en cada cold start (ahora rápido gracias al worker)
+  - `useLocalStorageState` mejorado: solo escribe si el valor difiere del valor leído inicialmente (evita clobbering)
+
+- [x] G.3 Visual feedback proporcional a velocity
+  - Nuevo ref `activeNoteVelocitiesRef` mapea midi → velocity (0..1)
+  - CSS variable `--press-depth` aplicada a cada tecla activa según su velocity
+  - Tecla con velocity 30 → escala 0.994 + glow tenue
+  - Tecla con velocity 127 → escala 0.978 + glow intenso + box-shadow inset
+  - Implementación con `color-mix(in srgb)` + `calc()` — todo GPU compositor
+
+**Investigación**: la spec MIDI 2 define dB = 40·log₁₀(127/v) para volume/expression CC, equivalente a `gain = (v/127)²` en amplitud lineal. Estudio Burred (ICMC 2006) confirma que sintetizadores comerciales siguen ~x² (no exp puro). Pianos acústicos varían loudness Y brightness con velocity.
+
+- [x] F.1 Módulo `utils/velocity.ts`
+  - 6 curvas matemáticamente bien definidas:
+    - `linear` (γ=1) — referencia técnica
+    - `soft` (γ=0.6) — realza piano/pianissimo
+    - `piano` (γ=2) — **GM spec default**, gain = (v/127)²
+    - `hard` (γ=3) — demanda fuerza, mucho rango dinámico
+    - `natural` — piecewise tipo Yamaha CFX, más resolución en mp..mf
+    - `fixed` — sin sensibilidad (constante 0.78)
+  - `midiVelocityToBrightness(v)` con γ=0.7 (timbral, independiente de gain)
+  - `midiVelocityToCutoffHz(v, min=800, max=18000)` interpolación log perceptual
+  - `computeVelocityExpression(v, curve)` → { gain, brightness, cutoffHz, raw }
+
 - [x] F.2 Integración
   - App.tsx usa `applyVelocityCurve(rawV/127, curve)` en handleMidiMessage
   - Default cambiado de `"exponential"` a `"piano"` (GM-compliant)

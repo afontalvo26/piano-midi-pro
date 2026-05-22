@@ -3761,16 +3761,36 @@ input:checked + .switch-slider:before {
 }
 
 /* Press feedback: instant scale-down for responsiveness */
+/* Soft press feedback for low velocity (set via inline --press-depth var) */
 .piano-key-element.active-press {
-    transform: translateZ(0) translateY(0) scale(0.985);
+    /* Velocity-driven press depth: a soft tap (depth=0.3) → scale 0.994
+       a hard hit (depth=1.0) → scale 0.978
+       Multiplied by additional translateY for white keys to feel hammer impact */
+    transform:
+        translateZ(0)
+        translateY(calc(var(--press-depth, 0.5) * 1.5px))
+        scale(calc(1 - var(--press-depth, 0.5) * 0.022));
     transition:
-        transform 50ms cubic-bezier(0.2, 0.8, 0.2, 1),
-        background 80ms ease;
+        transform 60ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        background 80ms ease,
+        box-shadow 100ms ease;
 }
 
-/* Soft press feedback for low velocity (set via inline --press-depth var) */
-.piano-key-element[style*="--press-depth"] {
-    transform: translateZ(0) scale(calc(1 - var(--press-depth, 0) * 0.018));
+.piano-key-element.white.active-press {
+    /* Stronger glow on white keys when struck hard */
+    box-shadow:
+        inset 0 calc(var(--press-depth, 0.5) * -8px) calc(var(--press-depth, 0.5) * 16px)
+            color-mix(in srgb, var(--active-key-color, #8b5cf6) calc(var(--press-depth, 0.5) * 100%), transparent),
+        0 0 calc(var(--press-depth, 0.5) * 18px)
+            color-mix(in srgb, var(--active-key-color, #8b5cf6) calc(var(--press-depth, 0.5) * 60%), transparent);
+}
+
+.piano-key-element.black.active-press {
+    box-shadow:
+        inset 0 calc(var(--press-depth, 0.5) * -6px) calc(var(--press-depth, 0.5) * 14px)
+            color-mix(in srgb, var(--active-key-color, #8b5cf6) calc(var(--press-depth, 0.5) * 100%), transparent),
+        0 0 calc(var(--press-depth, 0.5) * 22px)
+            color-mix(in srgb, var(--active-key-color, #8b5cf6) calc(var(--press-depth, 0.5) * 70%), transparent);
 }
 
 /* Default tween for state changes */
