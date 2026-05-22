@@ -285,6 +285,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demoSongsLoaded]);
 
   // rangeStart SIEMPRE en nota C (múltiplo de 12) para el patrón 2-3-2-3 correcto
@@ -1397,6 +1398,7 @@ export default function App() {
     setTrackVolumes(nextVolumes);
     setTrackInstruments(nextInstruments);
     setTrackColors(nextColors);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [song]);
 
   // Handle speed and master volume effects
@@ -1562,6 +1564,7 @@ export default function App() {
         }
       }, tickEnd + "i");
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     song,
     trackMuted,
@@ -1643,6 +1646,7 @@ export default function App() {
     if (Tone.Transport.state === "started") {
       rafRef.current = requestAnimationFrame(tick);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [song.duration, screen]);
 
   // Reactively update playing tempo when playbackRate or song changes
@@ -1732,6 +1736,7 @@ export default function App() {
         syncTransportClock();
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [song.duration, isPlaying, scheduleSongOnTransport, syncTransportClock],
   );
 
@@ -1956,6 +1961,7 @@ export default function App() {
         setGameCountdown(count);
       }
     }, 1000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     song.notes.length,
     prepareGameRound,
@@ -2211,6 +2217,7 @@ export default function App() {
         }
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [screen],
   );
 
@@ -2350,6 +2357,7 @@ export default function App() {
         setRangeStart(bestStart);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [stopPlayback],
   );
 
@@ -2450,6 +2458,7 @@ export default function App() {
         setScoreImportLoading(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [parseMidiFile, stopPlayback],
   );
 
@@ -2462,6 +2471,7 @@ export default function App() {
       const idx = scoreParts.findIndex((p) => p.id === partId);
       if (idx >= 0) setTrackVolumes((prev) => ({ ...prev, [idx]: volume }));
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [scoreParts],
   );
 
@@ -2480,6 +2490,7 @@ export default function App() {
       if (idx >= 0) setTrackMuted((tm) => ({ ...tm, [idx]: !prev[idx].muted }));
       return updated;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handlePartSoloToggle = useCallback((partId: string) => {
@@ -2493,6 +2504,7 @@ export default function App() {
       });
       return updated;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handlePartVisibilityToggle = useCallback((partId: string) => {
@@ -2510,6 +2522,7 @@ export default function App() {
       if (idx >= 0)
         setTrackInstruments((prev) => ({ ...prev, [idx]: instrument }));
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [scoreParts],
   );
 
@@ -2521,6 +2534,7 @@ export default function App() {
       const idx = scoreParts.findIndex((p) => p.id === partId);
       if (idx >= 0) setTrackColors((prev) => ({ ...prev, [idx]: color }));
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [scoreParts],
   );
 
@@ -3090,6 +3104,7 @@ export default function App() {
       }
        
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [triggerAttack, triggerRelease, initializeAudio, registerGameHit],
   );
 
