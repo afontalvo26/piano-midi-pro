@@ -68,3 +68,6 @@ coverage/
 *.pem
 *.key
 secrets.json
+
+# Kiro per-user settings (machine-specific MCP config etc.)
+.kiro/settings/mcp.json
