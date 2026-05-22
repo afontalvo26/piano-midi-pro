@@ -158,6 +158,43 @@
 - [x] F.3 UI dropdown con descripciones técnicas
 - [x] F.4 Verificación matemática in-browser (v=64 → 0.253953 = (64/127)²)
 
+## Fase H — Sincronización rigurosa de tracks ✅ COMPLETADO
+
+**Problema raíz**: cada lugar que decidía "este track suena/no suena" tenía su propia lógica con bugs sutiles (e.g. iterar `Object.values(trackMuted)` con índice de `trackSolo`). Cuando el usuario cambiaba mute/solo durante playback, las notas ya programadas en `Tone.Transport` ignoraban el cambio.
+
+- [x] H.1 Módulo central `utils/trackFilter.ts`
+  - `isTrackActive(trackIndex, state, nonPianoSet)` — única fuente de verdad
+  - `hasAnySolo(solo)` — detecta modo solo activo
+  - `buildNonPianoTrackSet(tracks, instruments)` — para Solo Piano
+  - `getTrackGain(trackIndex, volumes, state, ...)` — combina filtro + volumen
+
+- [x] H.2 Scheduler runtime-aware (Tone.Transport)
+  - El check de mute/solo/pianoOnly se hace **al ejecutar** la nota, no al programarla
+  - Lee `stateRef.current.trackMuted/Solo/Volumes/Instruments/pianoOnlyMode`
+  - Toggle mid-playback toma efecto en la siguiente nota inmediatamente
+  - Note-off solo libera si la note-on triggereó (evita decrementar contadores fantasma)
+
+- [x] H.3 Effect que silencia voces ya sonando al togglear
+  - Cuando cambia muted/solo/pianoOnly mientras `isPlaying`, recorre `activeVoicesRef`
+  - Llama `triggerRelease` en voces que ya no deberían oírse
+  - Live MIDI input (trackIndex=-1) nunca se silencia
+
+- [x] H.4 Visual sincronizado con audio
+  - Canvas drawer usa el mismo `isTrackActive` con `stateRef.current.trackSolo` 
+  - Falling notes desaparecen exactamente cuando el audio se silencia
+
+- [x] H.5 Game chart usa el mismo filtro
+  - `prepareGameRound` consulta `isTrackActive` para construir el set de targets
+  - Los targets del juego siempre coinciden con los notas que están sonando
+
+- [x] H.6 Practice mode (`songOnsets`) usa el mismo filtro
+  - Las notas-objetivo de pitch practice respetan mute/solo/pianoOnly
+  - Si el usuario muta un track, el practice mode no espera notas de ese track
+
+- [x] H.7 Reset inteligente al cambiar canción
+  - Track config solo se resetea cuando cambia `song.title` (no en cada re-render)
+  - El usuario no pierde sus mutes/solos al ajustar otras settings
+
 ## Fase G — Web Worker MIDI parsing + visual velocity feedback ✅ COMPLETADO
 
 - [x] G.1 Web Worker para parsing MIDI (`workers/midiParser.worker.ts`)

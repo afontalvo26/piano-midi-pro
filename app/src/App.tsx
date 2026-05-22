@@ -108,6 +108,10 @@ import {
   type VelocityCurve,
 } from "./utils/velocity";
 import { parseDemoInWorker } from "./utils/midiWorkerClient";
+import {
+  buildNonPianoTrackSet,
+  isTrackActive,
+} from "./utils/trackFilter";
 
 type NavScreen =
   | "studio"
@@ -664,12 +668,18 @@ export default function App() {
   // Find notes in the song that are currently at the playhead
   // Group song notes by start time to detect chords and note onsets (with a 30ms tolerance)
   const songOnsets = useMemo(() => {
-    const activeNotes = song.notes.filter((note) => {
-      const isMuted = trackMuted[note.trackIndex];
-      const hasSolo = Object.values(trackSolo).some(Boolean);
-      const isOutSolo = hasSolo && !trackSolo[note.trackIndex];
-      return !isMuted && !isOutSolo;
-    });
+    const trackState = {
+      muted: trackMuted,
+      solo: trackSolo,
+      instruments: trackInstruments,
+      pianoOnlyMode,
+    };
+    const nonPiano = pianoOnlyMode
+      ? buildNonPianoTrackSet(song.tracks, trackInstruments)
+      : undefined;
+    const activeNotes = song.notes.filter((note) =>
+      isTrackActive(note.trackIndex, trackState, nonPiano),
+    );
 
     interface PracticeOnset {
       time: number;
@@ -692,7 +702,7 @@ export default function App() {
 
     onsets.sort((a, b) => a.time - b.time);
     return onsets;
-  }, [song.notes, trackMuted, trackSolo]);
+  }, [song.notes, song.tracks, trackMuted, trackSolo, trackInstruments, pianoOnlyMode]);
 
   const lastPlayedTimeRef = useRef<number>(-1);
 
@@ -727,6 +737,8 @@ export default function App() {
     playbackNotes: new Set<number>(),
     midiNotes: new Set<number>(),
     trackMuted,
+    trackSolo,
+    trackVolumes: {} as Record<number, number>,
     trackColors,
     scrollSensitivity,
     showParticles,
@@ -780,6 +792,8 @@ export default function App() {
   stateRef.current.playbackNotes = activePlaybackNotes;
   stateRef.current.midiNotes = activeMidiNotes;
   stateRef.current.trackMuted = trackMuted;
+  stateRef.current.trackSolo = trackSolo;
+  stateRef.current.trackVolumes = trackVolumes;
   stateRef.current.trackColors = trackColors;
   stateRef.current.scrollSensitivity = scrollSensitivity;
   stateRef.current.showParticles = showParticles;
@@ -1441,8 +1455,13 @@ export default function App() {
     }
   }, [metronomeVolume]);
 
-  // Track settings mapping changes
+  // Track settings mapping changes — runs only when the SONG itself changes
+  // (title/source). Avoids resetting user choices on incidental updates.
+  const lastSongTitleRef = useRef<string | null>(null);
   useEffect(() => {
+    if (lastSongTitleRef.current === song.title) return;
+    lastSongTitleRef.current = song.title;
+
     const nextMuted: Record<number, boolean> = {};
     const nextSolo: Record<number, boolean> = {};
     const nextVolumes: Record<number, number> = {};
@@ -1471,6 +1490,36 @@ export default function App() {
     Tone.Transport.bpm.value = song.bpm * playbackRate;
   }, [playbackRate, song.bpm]);
 
+  // When mute/solo/pianoOnly toggles DURING playback, immediately silence
+  // any voices that are no longer "active" per the new track config. This
+  // makes the audio sync with the visual filtering on the very same frame
+  // a user toggles a track. Notes scheduled in the future will pick up the
+  // new state at trigger time (see scheduleSongOnTransport).
+  useEffect(() => {
+    if (!isPlaying) return;
+    const trackState = {
+      muted: trackMuted,
+      solo: trackSolo,
+      instruments: trackInstruments,
+      pianoOnlyMode,
+    };
+    const nonPiano = pianoOnlyMode
+      ? buildNonPianoTrackSet(song.tracks, trackInstruments)
+      : undefined;
+
+    // Walk currently sounding voices; release any that belong to a now-
+    // inactive track. We iterate a copy because triggerRelease mutates the
+    // underlying array.
+    const voices = [...activeVoicesRef.current];
+    voices.forEach((v) => {
+      if (v.trackIndex === -1) return; // live MIDI input, never auto-mute
+      if (!isTrackActive(v.trackIndex, trackState, nonPiano)) {
+        triggerRelease(v.midi, v.trackIndex);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackMuted, trackSolo, pianoOnlyMode, isPlaying]);
+
   // Setup song loop scheduler
   const scheduleSongOnTransport = useCallback(() => {
     Tone.Transport.cancel(0);
@@ -1484,45 +1533,14 @@ export default function App() {
     }
     activeFreqsRef.current.clear();
     activeVoicesRef.current = [];
-    activePlaybackNotesRef.current.clear(); // ← add this
+    activePlaybackNotesRef.current.clear();
     setActivePlaybackNotes(new Set());
 
-    // Encontrar si hay algún track en modo Solo
-    const hasSolo = Object.values(stateRef.current.trackMuted).some(
-      (_, idx) => trackSolo[idx],
-    );
-
-    // Piano-only mode: build set of non-piano track indices for fast lookup
-    const nonPianoTrackIndices = new Set<number>();
-    if (pianoOnlyMode) {
-      song.tracks.forEach((t) => {
-        const inst = (trackInstruments[t.index] ?? t.instrument).toLowerCase();
-        if (
-          !inst.includes("piano") &&
-          !inst.includes("harpsichord") &&
-          !inst.includes("clavinet")
-        ) {
-          nonPianoTrackIndices.add(t.index);
-        }
-      });
-    }
-
+    // Schedule ALL notes regardless of current mute/solo. The actual
+    // mute/solo/pianoOnly check happens AT TRIGGER TIME via stateRef so
+    // toggling tracks during playback takes effect immediately for
+    // upcoming notes (no re-scheduling needed).
     song.notes.forEach((note) => {
-      // Filtrar tracks muteados o fuera de solo
-      const isMuted = trackMuted[note.trackIndex];
-      const isOutSolo = hasSolo && !trackSolo[note.trackIndex];
-      if (isMuted || isOutSolo) return;
-
-      // Piano-only mode: skip non-piano tracks
-      if (nonPianoTrackIndices.has(note.trackIndex)) return;
-
-      const trackInst =
-        trackInstruments[note.trackIndex] || "Acoustic Grand Piano";
-      const trackVol =
-        trackVolumes[note.trackIndex] !== undefined
-          ? trackVolumes[note.trackIndex]
-          : 0.8;
-
       const duration = Math.max(0.04, note.duration);
       const tickStart = Math.round(
         (note.time / 60) * song.bpm * Tone.Transport.PPQ,
@@ -1531,8 +1549,41 @@ export default function App() {
         ((note.time + duration) / 60) * song.bpm * Tone.Transport.PPQ,
       );
 
-      // Programar inicio de nota — solo muta el ref, sin React setState
+      // Track which scheduled notes actually triggered (for note-off
+      // pairing). We use a closed-over flag per note so that mute/solo
+      // changes mid-playback don't cause stranded note-off calls or
+      // mismatched activePlaybackNotes counts.
+      let triggered = false;
+
+      // Schedule note-on
       Tone.Transport.schedule((audioTime) => {
+        // Read latest mute/solo/pianoOnly state from ref so changes during
+        // playback take effect on subsequent notes.
+        const trackState = {
+          muted: stateRef.current.trackMuted,
+          solo: stateRef.current.trackSolo,
+          instruments: stateRef.current.trackInstruments,
+          pianoOnlyMode: stateRef.current.pianoOnlyMode,
+        };
+        const nonPiano = trackState.pianoOnlyMode
+          ? buildNonPianoTrackSet(song.tracks, trackState.instruments)
+          : undefined;
+
+        if (!isTrackActive(note.trackIndex, trackState, nonPiano)) {
+          // Don't trigger anything for muted / soloed-out / hidden tracks.
+          triggered = false;
+          return;
+        }
+        triggered = true;
+
+        const trackInst =
+          trackState.instruments[note.trackIndex] || "Acoustic Grand Piano";
+        const liveVolumes = stateRef.current.trackVolumes;
+        const trackVol =
+          liveVolumes[note.trackIndex] !== undefined
+            ? liveVolumes[note.trackIndex]
+            : 0.8;
+
         const registry = engineRegistryRef.current;
         const instType = registry?.getType(trackInst);
 
@@ -1617,8 +1668,9 @@ export default function App() {
         activePlaybackNotesRef.current.set(note.midi, currentCount + 1);
       }, tickStart + "i");
 
-      // Programar fin de nota
+      // Schedule note-off (only releases if note-on actually triggered)
       Tone.Transport.schedule(() => {
+        if (!triggered) return;
         triggerRelease(note.midi, note.trackIndex);
         // Decrement count, remove if reaches 0
         const currentCount = activePlaybackNotesRef.current.get(note.midi) || 0;
@@ -1629,14 +1681,13 @@ export default function App() {
         }
       }, tickEnd + "i");
     });
+    // Reads runtime mute/solo/pianoOnly/volumes from stateRef inside the
+    // schedule callback, so toggling them mid-playback affects subsequent
+    // notes immediately without rescheduling. Only re-schedules when the
+    // song or playback transport itself changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     song,
-    trackMuted,
-    trackSolo,
-    trackInstruments,
-    trackVolumes,
-    pianoOnlyMode,
     triggerAttack,
     triggerRelease,
   ]);
@@ -1823,12 +1874,18 @@ export default function App() {
   }, []);
 
   const prepareGameRound = useCallback(() => {
-    const hasSolo = Object.values(trackSolo).some(Boolean);
-    const source = song.notes.filter((note) => {
-      const isMuted = trackMuted[note.trackIndex];
-      const isOutSolo = hasSolo && !trackSolo[note.trackIndex];
-      return !isMuted && !isOutSolo;
-    }) as RhythmSourceNote[];
+    const trackState = {
+      muted: trackMuted,
+      solo: trackSolo,
+      instruments: trackInstruments,
+      pianoOnlyMode,
+    };
+    const nonPiano = pianoOnlyMode
+      ? buildNonPianoTrackSet(song.tracks, trackInstruments)
+      : undefined;
+    const source = song.notes.filter((note) =>
+      isTrackActive(note.trackIndex, trackState, nonPiano),
+    ) as RhythmSourceNote[];
 
     const chart = buildGameChart(source, {
       difficulty: gameDifficulty,
@@ -1848,7 +1905,7 @@ export default function App() {
     setGameShiftLabel("");
 
     return chart;
-  }, [gameDifficulty, gameMode, rangeStart, song.notes, trackMuted, trackSolo]);
+  }, [gameDifficulty, gameMode, rangeStart, song.notes, song.tracks, trackMuted, trackSolo, trackInstruments, pianoOnlyMode]);
 
   const persistGameBest = useCallback(
     (stats: EnhancedGameStats) => {
@@ -2834,22 +2891,18 @@ export default function App() {
       }
 
       // Linear scan from startIdx — break early when note.time > windowEnd
-      // Pre-build non-piano track indices set for piano-only mode
-      const nonPianoTrackSet = new Set<number>();
-      if (localPianoOnly) {
-        localSong.tracks.forEach((t) => {
-          const inst = (
-            localTrackInstruments[t.index] ?? t.instrument
-          ).toLowerCase();
-          if (
-            !inst.includes("piano") &&
-            !inst.includes("harpsichord") &&
-            !inst.includes("clavinet")
-          ) {
-            nonPianoTrackSet.add(t.index);
-          }
-        });
-      }
+      // Build the full track-state snapshot from stateRef so muted/soloed
+      // tracks disappear from the falling notes view IMMEDIATELY, in sync
+      // with the audio scheduler's trigger-time check.
+      const drawTrackState = {
+        muted: stateRef.current.trackMuted,
+        solo: stateRef.current.trackSolo,
+        instruments: localTrackInstruments,
+        pianoOnlyMode: localPianoOnly,
+      };
+      const nonPianoTrackSet = localPianoOnly
+        ? buildNonPianoTrackSet(localSong.tracks, localTrackInstruments)
+        : undefined;
 
       const visibleNotes: {
         time: number;
@@ -2860,8 +2913,10 @@ export default function App() {
       for (let ni = startIdx; ni < noteSource.length; ni++) {
         const note = noteSource[ni];
         if (note.time > windowEnd) break;
-        // Skip non-piano tracks in piano-only mode
-        if (localPianoOnly && nonPianoTrackSet.has(note.trackIndex)) continue;
+        // Skip muted, soloed-out, or non-piano (when pianoOnly) tracks
+        if (!isTrackActive(note.trackIndex, drawTrackState, nonPianoTrackSet)) {
+          continue;
+        }
         if (
           note.midi >= localRangeStart &&
           note.midi < localRangeStart + RANGE_KEY_COUNT
