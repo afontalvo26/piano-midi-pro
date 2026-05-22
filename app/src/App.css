@@ -3626,3 +3626,105 @@ input:checked + .switch-slider:before {
         transform: scale(1);
     }
 }
+
+
+/* ──────────────────────────────────────────────────────────
+   Performance optimizations
+   GPU/composition hints + browser-level layout containment.
+   These are layered on top of existing rules without
+   modifying them.
+   ────────────────────────────────────────────────────────── */
+
+/* Canvas: hardware-accelerated layer + no painting outside its box */
+.visualizer-canvas {
+    contain: strict;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    image-rendering: optimizeSpeed;
+}
+
+/* Sidebars / panels — paint independently from main content */
+.sidebar-rail,
+.panel-left,
+.panel-right {
+    contain: layout paint;
+}
+
+/* Side panels for score screen — defer rendering when off-viewport */
+.score-screen-sidebar,
+.score-screen-mixer {
+    contain: layout paint;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 800px;
+}
+
+/* Songs grid: huge list, isolate paints */
+.songs-grid,
+.songs-list {
+    contain: layout paint;
+}
+
+/* Each card paints independently */
+.songs-grid > * {
+    contain: layout paint style;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 280px;
+}
+
+/* Track rows — same trick for big track lists */
+.track-instrument-select {
+    contain: layout style;
+}
+
+/* Metric cards — isolate from main paint */
+.metric-card {
+    contain: layout paint style;
+}
+
+/* Unify metric typography (was monospace, now matches body Outfit) */
+.metric-card strong {
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+}
+
+/* Piano keys — promote to compositor layer for ultra-smooth animation */
+.piano-key-element,
+.piano-key-element.white,
+.piano-key-element.black {
+    will-change: transform;
+    transform: translateZ(0);
+    contain: layout paint;
+}
+
+/* When the user prefers reduced motion, kill all transitions/animations
+   that aren't essential. Browsers natively respect this for many things,
+   but some libs (gsap, custom CSS) need this hint. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* Mobile-first tap targets: minimum 44×44 hit area on touch devices */
+@media (pointer: coarse) {
+    button,
+    .rail-btn,
+    .keyfx-swatch,
+    .track-instrument-select {
+        min-height: 44px;
+        min-width: 44px;
+    }
+}
+
+/* Eliminate paint on offscreen content during scroll on long screens */
+.score-screen-body,
+.panel-screen,
+.songs-section {
+    contain: layout;
+}

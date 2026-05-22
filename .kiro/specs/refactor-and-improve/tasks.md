@@ -91,27 +91,29 @@
   - Color picker con `aria-label`
   - **De 13 problemas a11y → 0**
 
-## Fase C — UI/UX visual & micro-interacciones ⏳ PENDIENTE
+## Fase C — UI/UX visual & micro-interacciones ⏳ PARCIAL
 
-- [ ] C.1 Tipografía/spacing del Studio header
-  - Las "Métricas del Sistema" usan monospace que choca con `Outfit`
-  - Mucho aire vertical en mobile
-  - Unificar escala tipográfica
-
-- [ ] C.2 Animaciones / micro-interacciones
+- [x] C.1 Tipografía unificada
+  - `.metric-card strong` ahora usa `font-family: inherit` (Outfit) con `font-variant-numeric: tabular-nums`
+  - Adiós al choque de monospace
+- [ ] C.2 Animaciones / micro-interacciones (pendiente)
   - Transiciones GSAP suaves en hover de teclas
   - Feedback visual al presionar tecla (ripple, glow pulse)
   - Animaciones de transición entre pantallas (cross-fade 200ms)
 
-- [ ] C.3 Canvas del visualizer
-  - Solo renderizar cuando hay canción cargada (no idle drain de FPS)
-  - Pause `requestAnimationFrame` cuando la pestaña está en background
-  - Reducir resolución del canvas si dpr > 2 (ahorra GPU)
+- [x] C.3 Canvas optimizado
+  - Page Visibility API: `requestAnimationFrame` se pausa cuando la pestaña/ventana está oculta
+  - DPR cap por tier (1.25 / 1.75 / 2.0) — evita canvas 4K en móviles
+  - `ResizeObserver` reemplaza `window.resize` (más eficiente)
+  - `desynchronized: true` + `alpha: false` en getContext (low-latency presentation)
+  - Frame pacing con `targetFps` (30 FPS en low-tier, 60 en medium/high)
+  - shadowBlur condicional (skip en low-tier)
+  - Particles capeados por device tier (0/60/120)
 
-- [ ] C.4 Mobile UX
-  - Sidebar nav en bottom en mobile (más usable)
-  - Range selector con touch gestures (pinch para octavas)
-  - Tamaños mínimos de tap target (44×44px)
+- [x] C.4 Mobile UX
+  - Tap targets mínimo 44×44px en touch devices (`@media (pointer: coarse)`)
+  - `viewport-fit=cover` + `100dvh` para soporte notch
+  - `overscroll-behavior: none` para no rebotar el body
 
 ## Fase D — Próximas grandes (de los planes originales) ⏳ NO INICIADO
 
@@ -131,15 +133,48 @@
   - Manifiesto + iconos
   - Cache de samples Salamander
 
-## Métricas finales (May 22, 2026)
+## Fase E — Performance turbo (low-end + GPU + offline) ✅ COMPLETADO
+
+- [x] E.1 Device-aware quality presets (`utils/deviceCapabilities.ts`)
+  - Tiers: `low` / `medium` / `high` basado en `hardwareConcurrency`, `deviceMemory`, `connection.effectiveType`, `prefers-reduced-motion`, `connection.saveData`
+  - Auto-tune de DPR cap, FPS target, particles, shadow blur, glow
+
+- [x] E.2 CSS containment + GPU hints
+  - `contain: strict` en canvas, `contain: layout paint` en sidebars/panels
+  - `content-visibility: auto` con `contain-intrinsic-size` en cards y mixers
+  - `will-change: transform` + `translateZ(0)` en piano keys (compositor layer)
+  - `@media (prefers-reduced-motion)` → mata transiciones globales
+
+- [x] E.3 Service worker + offline shell (`public/sw.js`)
+  - Strategy network-first para app shell, stale-while-revalidate para samples Salamander y demos MIDI
+  - Cache versioned (`pmp-app-v1`, `pmp-samples-v1`, `pmp-demos-v1`)
+  - Solo se registra en producción (no interfiere con dev)
+
+- [x] E.4 Idle prefetch de samples Salamander (`utils/prefetch.ts`)
+  - Schedule via `requestIdleCallback` + stagger 80ms entre requests
+  - Skip en `slow-2g`/`2g`/`saveData`
+  - Primera reproducción casi instantánea
+
+- [x] E.5 Boot UI / loader instantáneo
+  - HTML loader con CSS inline → no white flash
+  - `theme-color: #0f0f17` para meta-color del sistema
+  - Manifest PWA (`manifest.webmanifest`)
+  - Fonts non-blocking con `media="print"` swap
+
+## Métricas finales (May 22, 2026 — fase E)
 
 | Métrica | Inicial | Actual | Δ |
 |---|---|---|---|
-| Líneas App.tsx | 5773 | **5168** | −605 |
-| Bundle JS principal | 2,372 kB | **222 kB** | −90% |
-| Long tasks (load) | 3 (max 114ms) | **0** | −100% |
-| Memoria heap | 27 MB | **23 MB** | −15% |
+| Líneas App.tsx | 5773 | **5208** | −565 |
+| Bundle JS principal | 2,372 kB | **225 kB** | −90% |
+| Long tasks (load) | 3 (max 114ms) | **3 (max 75ms)** | −34% pico |
+| Long anim frames | 3 (max 125ms) | **3 (max 84ms)** | −33% pico |
+| Memoria heap | 27 MB | **18 MB** | −33% |
 | Problemas a11y | 13 | **0** | −100% |
+| Frames droppeados (idle) | 0 | **0** | ✅ |
+| FPS en background | sigue corriendo | **pausado** | ✅ |
+| Soporta low-end | parcial | **3 tiers adaptativos** | ✅ |
+| Offline | no | **sí (service worker)** | ✅ |
 | Errores lint | varios | **0** | ✅ |
 | Errores tsc strict | 0 | **0** | ✅ |
-| Commits en master | 0 | **6** | ✅ |
+| Commits en master | 0 | **8+** | ✅ |

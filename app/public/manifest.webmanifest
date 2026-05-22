@@ -1,0 +1,20 @@
+{
+  "name": "Piano MIDI Pro",
+  "short_name": "Piano MIDI Pro",
+  "description": "Piano virtual con sampler real, partituras MusicXML y modo juego",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0f17",
+  "theme_color": "#0f0f17",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["music", "education", "entertainment"],
+  "lang": "es"
+}

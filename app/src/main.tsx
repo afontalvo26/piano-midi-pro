@@ -8,6 +8,19 @@ import {
   ScoreProvider,
   SettingsProvider,
 } from "./contexts";
+import { schedulePianoPrefetch } from "./utils/prefetch";
+
+// Register service worker for offline support — non-blocking, only in production
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      /* SW registration is optional — silently ignore failures (private mode, etc.) */
+    });
+  });
+}
+
+// Idle-prefetch piano samples so the first Play feels instant
+schedulePianoPrefetch();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

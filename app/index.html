@@ -2,16 +2,94 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f0f17" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="Piano MIDI Pro — toca y aprende canciones MIDI con sampler real, partituras, y modo juego. Funciona en cualquier dispositivo." />
+
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
     <title>Piano MIDI Pro</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Fonts: preconnect + non-blocking load -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
+
+    <!-- DNS prefetch for the Salamander piano sample server (warm cache without blocking) -->
+    <link rel="dns-prefetch" href="https://tonejs.github.io" />
+    <link rel="preconnect" href="https://tonejs.github.io" crossorigin />
+
+    <style>
+      /* Critical CSS: paint a dark background instantly so users don't see white flash */
+      html,
+      body {
+        margin: 0;
+        background: #0f0f17;
+        color: #e5e7eb;
+        font-family: "Outfit", -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+        overscroll-behavior: none;
+      }
+      #root {
+        min-height: 100vh;
+        min-height: 100dvh;
+      }
+      /* Initial loader (replaced once React mounts) */
+      .pmp-boot {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 16px;
+        background: #0f0f17;
+        color: #a78bfa;
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+      }
+      .pmp-boot-logo {
+        font-size: 36px;
+      }
+      .pmp-boot-spinner {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 3px solid rgba(167, 139, 250, 0.18);
+        border-top-color: #a78bfa;
+        animation: pmp-rotate 0.8s linear infinite;
+      }
+      @keyframes pmp-rotate {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="pmp-boot" aria-label="Cargando Piano MIDI Pro">
+        <span class="pmp-boot-logo" aria-hidden="true">🎹</span>
+        <span class="pmp-boot-spinner" aria-hidden="true"></span>
+        <span>Cargando Piano MIDI Pro...</span>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

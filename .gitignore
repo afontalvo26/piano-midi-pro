@@ -71,3 +71,9 @@ secrets.json
 
 # Kiro per-user settings (machine-specific MCP config etc.)
 .kiro/settings/mcp.json
+
+# AWS Bedrock credentials (NEVER commit)
+*-api-key.csv
+*-api-key.json
+bedrock-*.csv
+*.aws-credentials

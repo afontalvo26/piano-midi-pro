@@ -101,6 +101,7 @@ import {
   getInstrumentSynthSettings,
   gmProgramToInstrument,
 } from "./utils/instrumentMapping";
+import { getDeviceProfile } from "./utils/deviceCapabilities";
 
 type NavScreen =
   | "studio"
@@ -2566,34 +2567,79 @@ export default function App() {
     [scoreParts],
   );
 
-  // 60 FPS Canvas visualizer loop
+  // 60 FPS Canvas visualizer loop (with device-aware adaptive quality)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
     if (!ctx) return;
 
     let localRafId: number;
+    const profile = getDeviceProfile();
+    const targetFrameMs = 1000 / profile.targetFps;
+    let lastDrawAt = 0;
+    let isPageVisible = !document.hidden;
+    let isWindowFocused = document.hasFocus();
 
-    // Resize handler
+    // Effective DPR — capped to avoid 4K canvas on 6 GB phones
+    const dpr = Math.min(window.devicePixelRatio || 1, profile.maxDpr);
+
+    // Resize handler with DPR cap
     const resizeCanvas = () => {
       const targetWidth = canvas.clientWidth;
       const targetHeight = canvas.clientHeight;
       if (!targetWidth || !targetHeight) return;
 
-      const dw = Math.floor(targetWidth * window.devicePixelRatio);
-      const dh = Math.floor(targetHeight * window.devicePixelRatio);
+      const dw = Math.floor(targetWidth * dpr);
+      const dh = Math.floor(targetHeight * dpr);
 
       if (canvas.width !== dw || canvas.height !== dh) {
         canvas.width = dw;
         canvas.height = dh;
-        ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
     };
     resizeCanvas();
-    window.addEventListener("resize", resizeCanvas);
 
-    const drawLoop = () => {
+    // Use ResizeObserver instead of resize event for more accuracy + less work
+    const ro = new ResizeObserver(resizeCanvas);
+    ro.observe(canvas);
+
+    // Page Visibility — pause loop in background to save CPU/battery
+    const onVisibility = () => {
+      isPageVisible = !document.hidden;
+      if (isPageVisible && isWindowFocused && localRafId === 0) {
+        localRafId = requestAnimationFrame(drawLoop);
+      }
+    };
+    const onFocus = () => {
+      isWindowFocused = true;
+      if (isPageVisible && localRafId === 0) {
+        localRafId = requestAnimationFrame(drawLoop);
+      }
+    };
+    const onBlur = () => {
+      isWindowFocused = false;
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+
+    const drawLoop = (now?: number) => {
+      // Pause if hidden / blurred
+      if (!isPageVisible || !isWindowFocused) {
+        localRafId = 0;
+        return;
+      }
+
+      // Frame pacing: skip if last draw too recent (target FPS cap)
+      const ts = now ?? performance.now();
+      if (ts - lastDrawAt < targetFrameMs - 1) {
+        localRafId = requestAnimationFrame(drawLoop);
+        return;
+      }
+      lastDrawAt = ts;
+
       const {
         currentTime: localTime,
         rangeStart: localRangeStart,
@@ -2601,7 +2647,7 @@ export default function App() {
         song: localSong,
         trackColors: localColors,
         scrollSensitivity: localSens,
-        showParticles: localPart,
+        showParticles: localPartUser,
         practiceTargets: localPractice,
         keyFxColor: fxColor,
         keyFxGlow: fxGlow,
@@ -2613,8 +2659,11 @@ export default function App() {
         trackInstruments: localTrackInstruments,
       } = stateRef.current;
 
-      const width = canvas.width / window.devicePixelRatio;
-      const height = canvas.height / window.devicePixelRatio;
+      // Device-tier override: low-tier disables particles regardless of user setting
+      const localPart = localPartUser && profile.enableParticles;
+
+      const width = canvas.width / dpr;
+      const height = canvas.height / dpr;
 
       // Clear visualizer
       ctx.fillStyle = "#040406";
@@ -2807,9 +2856,11 @@ export default function App() {
         ctx.fillStyle = noteGrad;
         ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
         ctx.lineWidth = 1.5;
-        // Glow
-        ctx.shadowBlur = fxGlow * 22;
-        ctx.shadowColor = trackColor;
+        // Glow (skipped on low-tier devices to save GPU)
+        if (profile.enableShadowBlur) {
+          ctx.shadowBlur = fxGlow * 22 * profile.effectsScale;
+          ctx.shadowColor = trackColor;
+        }
 
         const radius = Math.max(0, Math.min(6, rectWidth / 2, rectHeight / 2));
         ctx.beginPath();
@@ -2832,14 +2883,16 @@ export default function App() {
         ctx.stroke();
         ctx.shadowBlur = 0;
 
-        // Create particles on Note hits — ONLY during playback and capped at 50
+        // Create particles on Note hits — ONLY during playback, capped by device profile
         if (
           localPart &&
           localTime > 0 &&
           note.time <= localTime &&
           note.time + note.duration >= localTime
         ) {
-          const particleCap = Math.round(30 + fxIntensity * 70); // 30-100 based on intensity
+          // 30-100 based on intensity, but never above device-tier max
+          const baseCap = Math.round(30 + fxIntensity * 70);
+          const particleCap = Math.min(baseCap, profile.maxParticles);
           if (
             particlesRef.current.length < particleCap &&
             Math.random() < 0.1 + fxIntensity * 0.15
@@ -2941,8 +2994,10 @@ export default function App() {
       lineGrad.addColorStop(1, hexToRgba(fxColor, 0));
       ctx.strokeStyle = lineGrad;
       ctx.lineWidth = 2.5;
-      ctx.shadowBlur = fxGlow * 18;
-      ctx.shadowColor = fxColor;
+      if (profile.enableShadowBlur) {
+        ctx.shadowBlur = fxGlow * 18 * profile.effectsScale;
+        ctx.shadowColor = fxColor;
+      }
       ctx.beginPath();
       ctx.moveTo(0, height - 2);
       ctx.lineTo(width, height - 2);
@@ -2970,7 +3025,10 @@ export default function App() {
 
     return () => {
       cancelAnimationFrame(localRafId);
-      window.removeEventListener("resize", resizeCanvas);
+      ro.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
     };
   }, [screen]);
 
