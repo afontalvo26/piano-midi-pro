@@ -643,7 +643,7 @@ export default function App() {
       );
     });
     return upcoming || null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [songOnsets, currentTime, pitchPractice]);
   /* eslint-enable react-hooks/refs */
 
@@ -768,7 +768,7 @@ export default function App() {
   // Calculate key positions for NeonRunnerAvatar
   /* eslint-disable react-hooks/refs */
   const keyPositions = useMemo(() => {
-    // eslint-disable-next-line react-hooks/refs
+     
     const canvas = canvasRef.current;
     if (!canvas) return new Map();
 
@@ -813,7 +813,7 @@ export default function App() {
     });
 
     return positions;
-    // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/refs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleNotes, canvasRef.current?.width]);
   /* eslint-enable react-hooks/refs */
 
@@ -1177,7 +1177,7 @@ export default function App() {
         instrument,
       );
       synth?.triggerAttack(bentFreq, audioTime, velocity);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+       
     },
     [getOrCreateSynthForTrack],
   );
@@ -3088,7 +3088,7 @@ export default function App() {
           triggerRelease(releaseMapped);
         }
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+       
     },
     [triggerAttack, triggerRelease, initializeAudio, registerGameHit],
   );
@@ -3462,10 +3462,10 @@ export default function App() {
   }, [songsList, searchQuery]);
 
   const gameAssistNotes =
-    // eslint-disable-next-line react-hooks/refs
+     
     screen === "game" ? gameAssistNotesState : emptyAssistNotesRef.current;
   const gameHitReady =
-    // eslint-disable-next-line react-hooks/refs
+     
     screen === "game" ? gameHitReadyNotes : emptyAssistNotesRef.current;
 
   return (
