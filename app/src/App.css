@@ -3722,6 +3722,79 @@ input:checked + .switch-slider:before {
     }
 }
 
+/* ──────────────────────────────────────────────────────────
+   Mobile layout: bottom navigation bar
+   ────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .app-container {
+        flex-direction: column;
+    }
+
+    .sidebar-rail {
+        /* Switch from vertical rail to horizontal bottom bar */
+        width: 100%;
+        height: auto;
+        flex-direction: row;
+        justify-content: space-around;
+        align-items: center;
+        padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+        gap: 4px;
+        border-right: none;
+        border-top: 1px solid var(--border-color);
+        /* Pin to bottom and stack above content */
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 200;
+    }
+
+    /* Logo doesn't fit in a horizontal bar with 7 items, hide on mobile */
+    .logo-container {
+        display: none;
+    }
+
+    .rail-item {
+        /* Compact items so all 7 fit on a 320px+ screen */
+        width: auto;
+        height: 48px;
+        min-width: 44px;
+        flex: 1 1 0;
+        font-size: 0.62rem;
+        padding: 4px 2px;
+        gap: 2px;
+        border-radius: 10px;
+    }
+
+    .rail-item svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .rail-item:hover svg {
+        /* Disable hover-lift on mobile */
+        transform: none;
+    }
+
+    /* Pad the main content so it doesn't get hidden behind the bottom bar */
+    .main-workspace,
+    main {
+        padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+/* On very small screens, hide labels under icons to save horizontal space */
+@media (max-width: 380px) {
+    .rail-item {
+        font-size: 0;
+        gap: 0;
+    }
+    .rail-item svg {
+        width: 22px;
+        height: 22px;
+    }
+}
+
 /* Eliminate paint on offscreen content during scroll on long screens */
 .score-screen-body,
 .panel-screen,
