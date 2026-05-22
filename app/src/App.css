@@ -3919,3 +3919,182 @@ input:checked + .switch-slider:before {
         animation: none !important;
     }
 }
+
+
+/* ──────────────────────────────────────────────────────────
+   Solo Piano toggle button — matches .btn dimensions exactly
+   so the controls bar stays aligned. The "active" state uses
+   the violet accent without breaking the shared height.
+   ────────────────────────────────────────────────────────── */
+.piano-only-toggle {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.piano-only-toggle.active {
+    background: rgba(139, 92, 246, 0.18);
+    border-color: rgba(139, 92, 246, 0.5);
+    color: #f5f3ff;
+}
+
+.piano-only-toggle.active:hover:not(:disabled) {
+    background: rgba(139, 92, 246, 0.28);
+    border-color: rgba(167, 139, 250, 0.7);
+}
+
+/* Force consistent height across all controls bar items */
+.controls-left .btn,
+.controls-left .btn-file,
+.controls-left .piano-only-toggle {
+    height: 36px;
+    padding: 0 14px;
+    box-sizing: border-box;
+}
+
+/* Tap target rule was forcing height: 44px on all buttons across all
+   media. Restrict it to actual touch contexts only via the existing
+   @media (pointer: coarse) block. The .btn rules above already give
+   adequate tap area on touch via padding. */
+
+
+/* ──────────────────────────────────────────────────────────
+   Form controls — unified appearance for native select / input
+   so the Game setup panel and Settings forms don't show raw
+   browser styling that breaks the dark theme.
+   ────────────────────────────────────────────────────────── */
+
+.input-custom,
+select.input-custom,
+input.input-custom {
+    background: rgba(255, 255, 255, 0.05);
+    color: #f5f3ff;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    height: 36px;
+    box-sizing: border-box;
+    width: 100%;
+    transition: border-color 160ms ease, background 160ms ease;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+}
+
+select.input-custom {
+    /* Custom dropdown chevron */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a78bfa' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 32px;
+    cursor: pointer;
+}
+
+select.input-custom option {
+    background: #1c1c2a;
+    color: #f5f3ff;
+}
+
+.input-custom:hover:not(:disabled) {
+    border-color: rgba(167, 139, 250, 0.4);
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.input-custom:focus-visible {
+    outline: 2px solid #a78bfa;
+    outline-offset: 2px;
+    border-color: rgba(167, 139, 250, 0.6);
+}
+
+.input-custom:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Number inputs with fixed width override the auto width from above */
+input.input-custom[type="number"] {
+    width: auto;
+}
+
+/* Game row labels: render with min height for visual consistency */
+.game-row label {
+    line-height: 1.4;
+    min-height: 14px;
+}
+
+/* Game toggle row labels: ensure clickable area has comfortable size */
+.game-toggle-row label {
+    min-height: 24px;
+    cursor: pointer;
+    padding: 4px 0;
+}
+
+.game-toggle-row label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #8b5cf6;
+    cursor: pointer;
+}
+
+.game-toggle-row label:has(input:disabled) {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+/* ──────────────────────────────────────────────────────────
+   Settings rows — fix label/select stacking and spacing
+   ────────────────────────────────────────────────────────── */
+.settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.settings-row:last-child {
+    border-bottom: none;
+}
+
+.settings-col {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+
+.settings-col label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #f5f3ff;
+}
+
+.settings-col span {
+    font-size: 0.75rem;
+    color: rgba(229, 231, 235, 0.55);
+    line-height: 1.4;
+}
+
+.settings-row select.input-custom,
+.settings-row .track-instrument-select {
+    flex-shrink: 0;
+    min-width: 200px;
+    max-width: 320px;
+    width: auto;
+}
+
+.settings-group h3 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #f5f3ff;
+    margin: 24px 0 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.settings-group:first-child h3 {
+    margin-top: 0;
+}

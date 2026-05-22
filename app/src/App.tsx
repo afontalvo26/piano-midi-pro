@@ -3766,72 +3766,58 @@ export default function App() {
               >
                 🪘 Metrónomo
               </button>
-              <label
-                className="switch piano-only-switch"
+              <button
+                type="button"
+                className={`btn piano-only-toggle ${pianoOnlyMode ? "active" : ""}`}
+                aria-pressed={pianoOnlyMode}
                 title={
                   pianoOnlyMode
                     ? "Mostrar todos los instrumentos"
                     : "Solo piano (ocultar otros)"
                 }
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  cursor: "pointer",
-                  padding: "6px 12px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--border)",
-                  background: pianoOnlyMode
-                    ? "rgba(139, 92, 246, 0.12)"
-                    : "rgba(255, 255, 255, 0.04)",
-                  fontSize: "0.85rem",
-                  fontWeight: 500,
-                  color: "var(--text-primary)",
-                  userSelect: "none",
-                }}
+                onClick={() => setPianoOnlyMode(!pianoOnlyMode)}
               >
-                <span>🎹 Solo Piano</span>
-                <input
-                  type="checkbox"
-                  checked={pianoOnlyMode}
-                  onChange={(e) => setPianoOnlyMode(e.target.checked)}
-                  style={{ display: "none" }}
-                />
+                <span aria-hidden style={{ fontSize: "1rem", lineHeight: 1 }}>🎹</span>
+                <span>Solo Piano</span>
                 <span
-                  className="switch-slider"
+                  className="piano-only-toggle-track"
+                  aria-hidden
                   style={{
                     position: "relative",
                     display: "inline-block",
-                    width: "36px",
-                    height: "20px",
+                    width: "30px",
+                    height: "16px",
                     background: pianoOnlyMode
-                      ? "var(--accent-primary)"
-                      : "rgba(255,255,255,0.15)",
+                      ? "var(--accent-primary, #8b5cf6)"
+                      : "rgba(255,255,255,0.18)",
                     borderRadius: "10px",
-                    transition: "background 0.2s",
+                    transition: "background 160ms ease",
                     flexShrink: 0,
+                    marginLeft: "2px",
                   }}
                 >
                   <span
                     style={{
                       position: "absolute",
                       top: "2px",
-                      left: pianoOnlyMode ? "18px" : "2px",
-                      width: "16px",
-                      height: "16px",
+                      left: pianoOnlyMode ? "16px" : "2px",
+                      width: "12px",
+                      height: "12px",
                       background: "#fff",
                       borderRadius: "50%",
-                      transition: "left 0.2s",
+                      transition: "left 160ms cubic-bezier(0.2, 0.8, 0.2, 1)",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
                     }}
                   />
                 </span>
-              </label>
+              </button>
               <label className="btn btn-file">
                 <Icons.Upload />
-                Cargar MIDI
+                <span>Cargar MIDI</span>
                 <input
                   type="file"
                   accept=".mid,.midi"
+                  style={{ display: "none" }}
                   onChange={handleFileUpload}
                   onClick={(e) => {
                     (e.target as HTMLInputElement).value = "";
