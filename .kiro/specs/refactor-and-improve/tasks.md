@@ -273,6 +273,41 @@
   - Manifest PWA (`manifest.webmanifest`)
   - Fonts non-blocking con `media="print"` swap
 
+## Fase I — Desktop shortcut + icono nativo ✅ COMPLETADO
+
+Acceso de un clic desde el escritorio que arranca el dev server (si no está corriendo) y abre el browser, sin ventanas de consola ni dependencias adicionales.
+
+- [x] I.1 Generador de ícono multi-resolución (`scripts/generate-icon.ps1`)
+  - Vector-style con GDI+: piano body + 8 teclas blancas + 5 negras + 3 lights LED + scanline púrpura
+  - Salida: `app/public/piano-midi-pro.ico` (16/32/48/64/128/256) y `app/public/piano-midi-pro.png` (256×256)
+  - ASCII puro para evitar problemas de encoding en cmd/PowerShell
+
+- [x] I.2 Launcher PowerShell silencioso (`scripts/launch-piano-midi-pro.ps1`)
+  - `Test-PortReachable` resuelve `localhost` con `Dns.GetHostAddresses` (cubre IPv4 + IPv6 — Vite 8 bindea solo a `[::1]:5173`)
+  - Si el puerto ya responde → solo abre el browser
+  - Si no → spawn de `cmd /c npm run dev` redirigiendo stdout/stderr a `%TEMP%\piano-midi-pro-server.log` (evita bloqueo por buffer lleno)
+  - `CreateNoWindow + WindowStyle = Hidden`
+  - Polling hasta 90 s, fallback con MessageBox si falla
+  - PID guardado en `%TEMP%\piano-midi-pro-launcher.pid`
+
+- [x] I.3 Wrapper VBScript silencioso (`scripts/launch-piano-midi-pro.vbs`)
+  - `WScript.Shell.Run` con WindowStyle 0 → cero parpadeo de ventana
+  - El shortcut apunta a `wscript.exe` para que Windows respete WindowStyle
+
+- [x] I.4 Instalador del shortcut (`scripts/install-desktop-shortcut.ps1`)
+  - Crea `%USERPROFILE%\Desktop\Piano MIDI Pro.lnk`
+  - Target = `wscript.exe`, args = ruta al `.vbs`, icon = `piano-midi-pro.ico,0`
+  - WindowStyle = 7 (minimized)
+
+- [x] I.5 Favicon PNG en index.html
+  - Añadido `<link rel="icon" type="image/png" href="/piano-midi-pro.png" />` y `apple-touch-icon`
+  - El SVG sigue como icon principal para devices que lo soportan
+
+- [x] I.6 Verificación funcional end-to-end
+  - Doble-click en `Piano MIDI Pro.lnk` → server arranca → browser abre `http://localhost:5173/` en ~1 s tras el spawn
+  - Segundo doble-click (server ya corriendo) → log "Server already running on port 5173; opening browser"
+  - Logs en `%TEMP%\piano-midi-pro-launcher.log` y `%TEMP%\piano-midi-pro-server.log`
+
 ## Métricas finales (May 22, 2026 — fase E)
 
 | Métrica | Inicial | Actual | Δ |
