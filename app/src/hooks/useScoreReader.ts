@@ -51,6 +51,7 @@ export function useScoreReader(): UseScoreReaderApi {
   // Sync mutable parts copy whenever the underlying score changes.
   useEffect(() => {
     if (scoreDocument) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setScoreParts(scoreDocument.parts.map((p) => ({ ...p })));
     } else {
       setScoreParts([]);

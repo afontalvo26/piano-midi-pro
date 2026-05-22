@@ -527,7 +527,7 @@ function buildScoreDocument(
       // divisions = ticks per quarter note in this measure
       let divisions = 1;
       let voice1Beat = 0; // running time within measure for voice 1
-      let voiceTime: Record<number, number> = {};
+      const voiceTime: Record<number, number> = {};
       let currentDynamic: DynamicType = "mf";
       const isPickup = mIdx === 0 && getAttr(measureEl, "implicit") === "yes";
 

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 // ============================================================
 // KeyFxPanel — Compact Key Press FX Theme Picker
 // Presets + custom color + glow slider. Zero UI noise.

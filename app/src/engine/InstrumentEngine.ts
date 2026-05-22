@@ -809,7 +809,7 @@ export class StringEngine {
     }
 
     // ---- Bowing type → attack + duration ----
-    let attack = 0.12;
+    let attack: number;
     let bowDur = dur;
     let tremoloOn = false;
     let colLegno = false;

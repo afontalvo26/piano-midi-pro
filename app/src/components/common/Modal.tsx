@@ -50,6 +50,7 @@ export function Modal({
   // Mount / unmount with fade transition
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMounted(true);
       // next tick → trigger fade-in
       const id = window.requestAnimationFrame(() => setVisible(true));

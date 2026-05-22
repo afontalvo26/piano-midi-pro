@@ -8,4 +8,23 @@ export default defineConfig({
     // Pre-bundle react-canvas-lite as ESM (it uses WASM embedded inline — no separate fetch needed)
     include: ["@rive-app/react-canvas-lite"],
   },
+  build: {
+    // Raise warning limit — the bundle is large due to opensheetmusicdisplay and tone.js
+    chunkSizeWarningLimit: 800,
+    rollupOptions: {
+      output: {
+        // Split out large vendor libs for better caching
+        manualChunks(id: string) {
+          if (id.includes("opensheetmusicdisplay")) return "vendor-osmd";
+          if (id.includes("@rive-app")) return "vendor-rive";
+          if (id.includes("/tone/") || id.includes("/tone@")) return "vendor-tone";
+          if (id.includes("@tonejs/midi")) return "vendor-midi";
+          if (id.includes("gsap")) return "vendor-gsap";
+          if (id.includes("jszip")) return "vendor-zip";
+          if (id.includes("tonal")) return "vendor-tonal";
+          if (id.includes("node_modules")) return "vendor";
+        },
+      },
+    },
+  },
 });

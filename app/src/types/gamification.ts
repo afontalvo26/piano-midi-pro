@@ -4,7 +4,6 @@
 // ============================================================
 
 import type { GameDifficulty } from "../game/engine";
-import type { HitGrade as _HitGrade } from "../game/engine";
 
 // ============================================================
 // PLAYER PROFILE
@@ -269,7 +268,7 @@ export interface GameNotification {
   icon?: string;
   duration: number; // Display duration in ms
   timestamp: string;
-  data?: any; // Additional data for the notification
+  data?: unknown; // Additional data for the notification
 }
 
 // ============================================================

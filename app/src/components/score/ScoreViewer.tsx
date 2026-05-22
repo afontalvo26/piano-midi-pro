@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 // ============================================================
 // ScoreViewer - OpenSheetMusicDisplay wrapper
 // Renders MusicXML as professional sheet music with live cursor
@@ -109,6 +110,50 @@ export function ScoreViewer({
 </score-partwise>`;
   }, []);
 
+  // Handle click to seek
+  const handleContainerClick = useCallback(
+    (e: MouseEvent) => {
+      if (!osmdRef.current || !score || !onMeasureClick) return;
+      // Find which measure was clicked using OSMD's graphic objects
+      try {
+        const cursor = osmdRef.current.cursor;
+        if (cursor) {
+          // Simple approach: find the nearest measure based on x position
+          const container = containerRef.current;
+          if (!container) return;
+          const rect = container.getBoundingClientRect();
+          const relX = e.clientX - rect.left;
+          void (e.clientY - rect.top); // relY unused but kept for future hit-test
+
+          // Walk through measures to find clicked one
+          let closestMeasure = 1;
+          let closestDist = Infinity;
+          score.parts[0]?.measures.forEach((m) => {
+            // This is a heuristic since we can't easily get measure screen positions from OSMD
+            // without diving deep into internal API
+            const dist = Math.abs(
+              relX - (m.number / score.metadata.totalMeasures) * rect.width,
+            );
+            if (dist < closestDist) {
+              closestDist = dist;
+              closestMeasure = m.number;
+            }
+          });
+
+          const measureData = score.parts[0]?.measures.find(
+            (m) => m.number === closestMeasure,
+          );
+          if (measureData) {
+            onMeasureClick(closestMeasure, measureData.startTime);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    },
+    [score, onMeasureClick],
+  );
+
   // Load score into OSMD
   useEffect(() => {
     if (!score || !containerRef.current) return;
@@ -178,50 +223,6 @@ export function ScoreViewer({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [score?.id]);
-
-  // Handle click to seek
-  const handleContainerClick = useCallback(
-    (e: MouseEvent) => {
-      if (!osmdRef.current || !score || !onMeasureClick) return;
-      // Find which measure was clicked using OSMD's graphic objects
-      try {
-        const cursor = osmdRef.current.cursor;
-        if (cursor) {
-          // Simple approach: find the nearest measure based on x position
-          const container = containerRef.current;
-          if (!container) return;
-          const rect = container.getBoundingClientRect();
-          const relX = e.clientX - rect.left;
-          void (e.clientY - rect.top); // relY unused but kept for future hit-test
-
-          // Walk through measures to find clicked one
-          let closestMeasure = 1;
-          let closestDist = Infinity;
-          score.parts[0]?.measures.forEach((m) => {
-            // This is a heuristic since we can't easily get measure screen positions from OSMD
-            // without diving deep into internal API
-            const dist = Math.abs(
-              relX - (m.number / score.metadata.totalMeasures) * rect.width,
-            );
-            if (dist < closestDist) {
-              closestDist = dist;
-              closestMeasure = m.number;
-            }
-          });
-
-          const measureData = score.parts[0]?.measures.find(
-            (m) => m.number === closestMeasure,
-          );
-          if (measureData) {
-            onMeasureClick(closestMeasure, measureData.startTime);
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-    },
-    [score, onMeasureClick],
-  );
 
   // Update cursor position based on currentTime
   useEffect(() => {

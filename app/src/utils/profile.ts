@@ -443,7 +443,7 @@ export function getRankTitle(level: number): string {
  */
 export function getProfileCompletion(profile: PlayerProfile): number {
   let completed = 0;
-  let total = 10;
+  const total = 10;
 
   // Basic info
   if (profile.username !== "Player") completed++;

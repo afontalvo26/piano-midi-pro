@@ -409,7 +409,7 @@ function shouldUnlockAchievement(
   const { requirement } = achievement;
   const { type, target, metric } = requirement;
 
-  let currentValue = 0;
+  let currentValue: number;
 
   // Get current value based on metric
   switch (metric) {
@@ -487,7 +487,7 @@ export function getAchievementProgress(
   const { requirement } = achievement;
   const { target, metric } = requirement;
 
-  let currentValue = 0;
+  let currentValue: number;
 
   switch (metric) {
     case "notes_hit":

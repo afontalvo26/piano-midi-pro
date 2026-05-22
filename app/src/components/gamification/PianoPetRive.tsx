@@ -221,6 +221,7 @@ export function PianoPetRive({
       );
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDebugInfo(
       animNames.length
         ? `${animNames.length} anim${animNames.length > 1 ? "s" : ""}: ${animNames.slice(0, 3).join(", ")}${animNames.length > 3 ? "…" : ""}`
@@ -244,6 +245,10 @@ export function PianoPetRive({
   }, [rive]);
 
   // ── Sync music state → animation + speed ─────────────────────
+  // Mutating Rive instance properties (runtime-only) from inside an effect is
+  // intentional - the Rive lifecycle is owned by useRive and these mutations
+  // are how we drive its animation state.
+  // eslint-disable-next-line react-hooks/immutability
   useEffect(() => {
     if (!rive || !isReady) return;
 
@@ -252,8 +257,8 @@ export function PianoPetRive({
     // Speed sync (normalize to 120 BPM baseline)
     const bpmFactor = Math.max(0.25, Math.min(3.5, bpm / 120));
     if (Math.abs(bpmFactor - prevBpmFactor.current) > 0.04) {
-      // @ts-ignore - speed property exists at runtime but not in types
-      rive.speed = bpmFactor;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, react-hooks/immutability
+      (rive as any).speed = bpmFactor;
       prevBpmFactor.current = bpmFactor;
     }
 

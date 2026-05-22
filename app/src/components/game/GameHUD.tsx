@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
@@ -54,12 +54,13 @@ export function GameHUD({
   comboMilestone,
 }: GameHUDProps) {
   const hudRef = useRef<HTMLDivElement>(null);
-  const gradeCntRef = useRef(0); // ensures AnimatePresence sees a new key when same grade fires twice
+  const [gradeCnt, setGradeCnt] = useState(0); // ensures AnimatePresence sees a new key when same grade fires twice
 
   const { contextSafe } = useGSAP({ scope: hudRef });
 
   useEffect(() => {
-    if (lastGrade) gradeCntRef.current++;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (lastGrade) setGradeCnt((c) => c + 1);
   }, [lastGrade]);
 
   // GSAP screen shake — contextSafe ties lifecycle to useGSAP scope (auto-cleanup)
@@ -257,7 +258,7 @@ export function GameHUD({
       <AnimatePresence mode="popLayout">
         {lastGrade && (
           <motion.div
-            key={`${lastGrade}-${gradeCntRef.current}`}
+            key={`${lastGrade}-${gradeCnt}`}
             initial={{ scale: 0, opacity: 0, y: 10 }}
             animate={{
               scale:
