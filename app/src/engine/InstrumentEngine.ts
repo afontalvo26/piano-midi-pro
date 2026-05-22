@@ -1443,13 +1443,30 @@ export class InstrumentEngineRegistry {
 
   constructor(destination: Tone.ToneAudioNode) {
     this.destination = destination;
-    // Precargar samplers reales de brass si existen los archivos
-    try {
-      this.trumpetSampler = getTrumpetSampler(this.destination);
-      this.tromboneSampler = getTromboneSampler(this.destination);
-    } catch {
-      // Si no hay samples, el fallback a síntesis sigue funcionando
-    }
+    // Precargar samplers reales de brass si existen los archivos.
+    // probeSamplesAvailable hace un HEAD request: si los archivos no
+    // estan en /public, se queda con sintesis y no genera ~70 warnings.
+    void getTrumpetSampler(this.destination)
+      .then((s) => {
+        this.trumpetSampler = s;
+        if (s) {
+          // Conectar a engines ya creados
+          this.trumpetEngines.forEach((eng) => eng.setRealSampler(s));
+        }
+      })
+      .catch(() => {
+        // Fallback a sintesis (silencioso)
+      });
+    void getTromboneSampler(this.destination)
+      .then((s) => {
+        this.tromboneSampler = s;
+        if (s) {
+          this.tromboneEngines.forEach((eng) => eng.setRealSampler(s));
+        }
+      })
+      .catch(() => {
+        // Fallback a sintesis (silencioso)
+      });
   }
 
   getPiano(id: string): PianoEngine {

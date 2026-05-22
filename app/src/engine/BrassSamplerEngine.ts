@@ -137,11 +137,40 @@ export function createBrassSampler(
 let trumpetSampler: Tone.Sampler | null = null;
 let tromboneSampler: Tone.Sampler | null = null;
 
-/** Obtiene o crea sampler de trompeta */
-export function getTrumpetSampler(
+// Cache de probe — un solo HEAD request por instrumento por sesión.
+// Si los samples no están en /public, evitamos crear el Sampler y por
+// tanto los ~70 warnings "EncodingError: Unable to decode audio data".
+const probeCache = new Map<string, Promise<boolean>>();
+
+async function probeSamplesAvailable(
+  instrument: "trumpet" | "trombone",
+): Promise<boolean> {
+  if (probeCache.has(instrument)) return probeCache.get(instrument)!;
+  const probeUrl =
+    instrument === "trumpet"
+      ? "/samples/trumpet/A4.ogg"
+      : "/samples/trombone/A3.ogg";
+  // Vite dev (and many SPA hosts) return 200 + index.html for unknown routes,
+  // so a plain `r.ok` check isn't enough — verify the content-type is audio
+  // (or at least not text/html).
+  const promise = fetch(probeUrl, { method: "HEAD" })
+    .then((r) => {
+      if (!r.ok) return false;
+      const ct = r.headers.get("content-type") || "";
+      return ct.startsWith("audio/") || ct === "application/ogg";
+    })
+    .catch(() => false);
+  probeCache.set(instrument, promise);
+  return promise;
+}
+
+/** Obtiene o crea sampler de trompeta. Retorna null si no hay samples disponibles. */
+export async function getTrumpetSampler(
   destination: Tone.ToneAudioNode,
-): Tone.Sampler {
+): Promise<Tone.Sampler | null> {
   if (!trumpetSampler) {
+    const available = await probeSamplesAvailable("trumpet");
+    if (!available) return null;
     trumpetSampler = createBrassSampler("trumpet", destination);
   } else {
     // Reconectar si fue desconectado
@@ -154,11 +183,13 @@ export function getTrumpetSampler(
   return trumpetSampler;
 }
 
-/** Obtiene o crea sampler de trombón */
-export function getTromboneSampler(
+/** Obtiene o crea sampler de trombón. Retorna null si no hay samples disponibles. */
+export async function getTromboneSampler(
   destination: Tone.ToneAudioNode,
-): Tone.Sampler {
+): Promise<Tone.Sampler | null> {
   if (!tromboneSampler) {
+    const available = await probeSamplesAvailable("trombone");
+    if (!available) return null;
     tromboneSampler = createBrassSampler("trombone", destination);
   }
   return tromboneSampler;

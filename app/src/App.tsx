@@ -2739,8 +2739,18 @@ export default function App() {
       }
 
       // Frame pacing: skip if last draw too recent (target FPS cap)
+      // Idle detection: if nothing is happening, throttle to ~4 FPS to save CPU/battery.
+      // We still need *some* frames so screen-resize/keyFx changes get rendered,
+      // but at idle there's nothing animating worth 60 fps.
+      const idleState = stateRef.current;
+      const isIdle =
+        !idleState.isPlaying &&
+        idleState.activeNotes.size === 0 &&
+        idleState.gameStatus !== "playing" &&
+        (!idleState.practiceTargets || idleState.practiceTargets.size === 0);
+      const effectiveFrameMs = isIdle ? 250 : targetFrameMs;
       const ts = now ?? performance.now();
-      if (ts - lastDrawAt < targetFrameMs - 1) {
+      if (ts - lastDrawAt < effectiveFrameMs - 1) {
         localRafId = requestAnimationFrame(drawLoop);
         return;
       }
