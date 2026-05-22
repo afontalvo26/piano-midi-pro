@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
 import { useLocalStorageState } from "./utils/settings";
 import { Midi } from "@tonejs/midi";
 import * as Tone from "tone";
 import "./App.css";
 import { parseMusicXML, scoreToParts } from "./parsers/MusicXMLParser";
 import { analyzeScore } from "./analysis/MusicAnalyzer";
-import { ScoreViewer, cacheScoreXML } from "./components/score";
-import { PartMixer } from "./components/score";
-import { ImportPanel } from "./components/score";
-import { ScoreInfoBar } from "./components/score";
+import { cacheScoreXML } from "./components/score/scoreCache";
+import { PartMixer } from "./components/score/PartMixer";
+import { ImportPanel } from "./components/score/ImportPanel";
+import { ScoreInfoBar } from "./components/score/ScoreInfoBar";
+const ScoreViewer = lazy(() =>
+  import("./components/score/ScoreViewer").then((m) => ({ default: m.ScoreViewer })),
+);
 import type { ScoreDocument, ScorePart } from "./types/score";
 import type { AnalysisResult } from "./analysis/MusicAnalyzer";
 import {
@@ -206,70 +209,95 @@ export default function App() {
     }
 
     let cancelled = false;
+
+    // Yield to the browser so we don't block the main thread between heavy
+    // sync MIDI parses. Uses scheduler.yield when available, falls back to
+    // requestIdleCallback / setTimeout.
+    const yieldToMain = () =>
+      new Promise<void>((resolve) => {
+        const sched = (window as unknown as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+        if (sched?.yield) {
+          sched.yield().then(() => resolve());
+        } else if (typeof window.requestIdleCallback === "function") {
+          window.requestIdleCallback(() => resolve(), { timeout: 50 });
+        } else {
+          setTimeout(resolve, 0);
+        }
+      });
+
+    async function parseDemoSong(ds: typeof DEMO_SONGS[number]): Promise<SongData | null> {
+      try {
+        const res = await fetch(ds.path);
+        if (!res.ok) return null;
+        const bytes = await res.arrayBuffer();
+        const midi = new Midi(bytes);
+
+        const parsedTracks: SongTrack[] = [];
+        const parsedNotes: SongNote[] = [];
+
+        const validTracks = midi.tracks
+          .map((track, i) => ({ track, origIdx: i }))
+          .filter(({ track }) => {
+            if (track.notes.length === 0) return false;
+            if (track.channel === 9) return false;
+            return true;
+          })
+          .slice(0, 8);
+
+        validTracks.forEach(({ track, origIdx }, newIdx) => {
+          const color = TRACK_COLORS[newIdx % TRACK_COLORS.length];
+          const noteCount = track.notes.length;
+          parsedTracks.push({
+            index: newIdx,
+            name: track.name?.trim() || `Pista ${newIdx + 1}`,
+            instrument: gmProgramToInstrument(
+              track.instrument?.number ?? 0,
+              track.name,
+            ),
+            noteCount,
+            color,
+          });
+          track.notes.forEach((note, noteIndex) => {
+            parsedNotes.push({
+              id: `demo-${ds.title}-${origIdx}-${noteIndex}`,
+              midi: note.midi,
+              time: note.time,
+              duration: Math.max(0.04, note.duration),
+              velocity: note.velocity || 0.75,
+              trackIndex: newIdx,
+            });
+          });
+        });
+
+        parsedNotes.sort((a, b) => a.time - b.time);
+        const duration = parsedNotes.reduce(
+          (max, note) => Math.max(max, note.time + note.duration),
+          0,
+        );
+        const bpm = Math.round(midi.header.tempos[0]?.bpm || ds.bpm);
+
+        return {
+          title: `${ds.artist} - ${ds.title}`,
+          source: "Demo incluida",
+          duration,
+          bpm,
+          notes: parsedNotes,
+          tracks: parsedTracks,
+        };
+      } catch {
+        return null;
+      }
+    }
+
     async function loadDemoSongs() {
+      // Fetch + parse in parallel (network is mostly the bottleneck), but
+      // yield to the main thread between each so React/canvas stay responsive.
       const loadedSongs: SongData[] = [];
       for (const ds of DEMO_SONGS) {
-        try {
-          const res = await fetch(ds.path);
-          if (!res.ok) continue;
-          const bytes = await res.arrayBuffer();
-          const midi = new Midi(bytes);
-
-          const parsedTracks: SongTrack[] = [];
-          const parsedNotes: SongNote[] = [];
-
-          const validTracks = midi.tracks
-            .map((track, i) => ({ track, origIdx: i }))
-            .filter(({ track }) => {
-              if (track.notes.length === 0) return false;
-              if (track.channel === 9) return false;
-              return true;
-            })
-            .slice(0, 8);
-
-          validTracks.forEach(({ track, origIdx }, newIdx) => {
-            const color = TRACK_COLORS[newIdx % TRACK_COLORS.length];
-            const noteCount = track.notes.length;
-            parsedTracks.push({
-              index: newIdx,
-              name: track.name?.trim() || `Pista ${newIdx + 1}`,
-              instrument: gmProgramToInstrument(
-                track.instrument?.number ?? 0,
-                track.name,
-              ),
-              noteCount,
-              color,
-            });
-            track.notes.forEach((note, noteIndex) => {
-              parsedNotes.push({
-                id: `demo-${ds.title}-${origIdx}-${noteIndex}`,
-                midi: note.midi,
-                time: note.time,
-                duration: Math.max(0.04, note.duration),
-                velocity: note.velocity || 0.75,
-                trackIndex: newIdx,
-              });
-            });
-          });
-
-          parsedNotes.sort((a, b) => a.time - b.time);
-          const duration = parsedNotes.reduce(
-            (max, note) => Math.max(max, note.time + note.duration),
-            0,
-          );
-          const bpm = Math.round(midi.header.tempos[0]?.bpm || ds.bpm);
-
-          loadedSongs.push({
-            title: `${ds.artist} - ${ds.title}`,
-            source: "Demo incluida",
-            duration,
-            bpm,
-            notes: parsedNotes,
-            tracks: parsedTracks,
-          });
-        } catch {
-          // skip failed loads silently
-        }
+        if (cancelled) return;
+        const song = await parseDemoSong(ds);
+        if (song) loadedSongs.push(song);
+        await yieldToMain();
       }
       if (!cancelled && loadedSongs.length > 0) {
         setSongsList((prev) => {
@@ -3737,6 +3765,7 @@ export default function App() {
                   <input
                     type="number"
                     className="input-custom"
+                    aria-label="BPM (tempo)"
                     style={{
                       width: "70px",
                       padding: "4px",
@@ -3781,6 +3810,7 @@ export default function App() {
                 <input
                   type="range"
                   className="slider-custom"
+                  aria-label="Posición de la canción"
                   min={0}
                   max={song.duration || 0}
                   step={0.05}
@@ -4882,14 +4912,28 @@ export default function App() {
                     </button>
                   </div>
 
-                  <ScoreViewer
-                    score={scoreDocument}
-                    currentTime={currentTime}
-                    onMeasureClick={(_, time) => seekTo(time)}
-                    visiblePartIds={scoreParts
-                      .filter((p) => p.visible)
-                      .map((p) => p.id)}
-                  />
+                  <Suspense
+                    fallback={
+                      <div
+                        style={{
+                          padding: 40,
+                          textAlign: "center",
+                          color: "var(--text-secondary, #94a3b8)",
+                        }}
+                      >
+                        Cargando partitura...
+                      </div>
+                    }
+                  >
+                    <ScoreViewer
+                      score={scoreDocument}
+                      currentTime={currentTime}
+                      onMeasureClick={(_, time) => seekTo(time)}
+                      visiblePartIds={scoreParts
+                        .filter((p) => p.visible)
+                        .map((p) => p.id)}
+                    />
+                  </Suspense>
                 </div>
 
                 {/* Right panel: Part mixer */}

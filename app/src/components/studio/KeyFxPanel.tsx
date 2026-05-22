@@ -69,6 +69,8 @@ export function KeyFxPanel({
                 : `0 0 8px ${p.color}44`,
             }}
             title={p.name}
+            aria-label={`Tema de color ${p.name}`}
+            aria-pressed={themeId === p.id}
             onClick={() => onTheme(p.id, p.color, p.glow)}
           />
         ))}
@@ -77,6 +79,8 @@ export function KeyFxPanel({
         <button
           className={`keyfx-swatch keyfx-swatch--custom ${themeId === "custom" ? "keyfx-swatch--active" : ""}`}
           title="Color personalizado"
+          aria-label="Elegir color personalizado"
+          aria-pressed={themeId === "custom"}
           style={{
             background: themeId === "custom"
               ? color
@@ -95,6 +99,7 @@ export function KeyFxPanel({
           <input
             ref={colorInputRef}
             type="color"
+            aria-label="Selector de color personalizado"
             value={color}
             style={{ position: "absolute", opacity: 0, width: 0, height: 0, pointerEvents: "none" }}
             onChange={(e) => {
@@ -113,6 +118,7 @@ export function KeyFxPanel({
             type="range" min={0} max={1} step={0.05}
             value={glow}
             className="slider-custom keyfx-slider"
+            aria-label="Brillo del efecto Key FX"
             style={{ "--slider-color": color } as React.CSSProperties}
             onChange={(e) => onGlow(Number(e.target.value))}
           />
@@ -128,6 +134,7 @@ export function KeyFxPanel({
             type="range" min={0} max={1} step={0.05}
             value={intensity}
             className="slider-custom keyfx-slider"
+            aria-label="Intensidad del efecto Key FX"
             style={{ "--slider-color": color } as React.CSSProperties}
             onChange={(e) => onIntensity(Number(e.target.value))}
           />

@@ -1,4 +1,3 @@
-/* eslint-disable react-refresh/only-export-components */
 // ============================================================
 // ScoreViewer - OpenSheetMusicDisplay wrapper
 // Renders MusicXML as professional sheet music with live cursor
@@ -308,17 +307,4 @@ export function ScoreViewer({
       />
     </div>
   );
-}
-
-// ---- Cache helper: store original XML for faithful rendering ----
-export function cacheScoreXML(scoreId: string, xml: string) {
-  try {
-    sessionStorage.setItem(`score-xml-${scoreId}`, xml);
-  } catch {
-    /* storage full */
-  }
-}
-
-export function getCachedScoreXML(scoreId: string): string | null {
-  return sessionStorage.getItem(`score-xml-${scoreId}`);
 }

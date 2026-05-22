@@ -82,6 +82,7 @@ export function PianoControls({
           onChange={e => onHalfPedalChange(parseFloat(e.target.value))}
           className="ic-slider"
           title="Half-pedaling — blur armónico controlado"
+          aria-label="Half-pedaling — blur armónico controlado"
         />
         <div className="ic-half-pedal-hints">
           <span>Silencio</span><span>Blur</span><span>Full</span>
