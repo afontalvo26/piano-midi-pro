@@ -1,0 +1,70 @@
+# Dependencies
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+**/dist/
+**/build/
+*.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+nul
+
+# Heavy binaries (do not commit)
+*.exe
+*.dmg
+*.msi
+*.deb
+*.rpm
+*.AppImage
+
+# Screenshots & test artifacts (root only)
+/*.png
+/screenshots/
+/.playwright-mcp/
+
+# Demo MIDI / RIVE files at root (use app/public/demo/ instead)
+/*.mid
+/*.riv
+
+# One-off scripts at root
+/fix-*.js
+/fix-*.py
+/test-*.js
+/test-*.html
+
+# Coverage
+coverage/
+
+# Vite logs
+**/vite*.log
+
+# Sensitive files
+*.pem
+*.key
+secrets.json

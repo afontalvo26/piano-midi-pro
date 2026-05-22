@@ -1,0 +1,2057 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Piano MIDI Pro UI Prototype</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23080a0c'/%3E%3Cpath d='M16 46V18h32v28M24 18v28M32 18v28M40 18v28' stroke='%234ddbb8' stroke-width='4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080a0c;
+      --bg-2: #0d1114;
+      --surface: #12171b;
+      --surface-2: #171f24;
+      --surface-3: #202a30;
+      --line: #2d3941;
+      --line-strong: #41505a;
+      --text: #f4f7f4;
+      --muted: #9aa7ae;
+      --soft: #c8d3d2;
+      --teal: #4ddbb8;
+      --teal-2: #1aa989;
+      --blue: #6ea6ff;
+      --violet: #a478ff;
+      --gold: #f2c75c;
+      --coral: #ff7a66;
+      --rose: #ff5f8e;
+      --green: #62d887;
+      --shadow: 0 24px 80px rgba(0, 0, 0, .42);
+      --radius: 8px;
+      --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(180deg, rgba(77, 219, 184, .05), transparent 320px),
+        radial-gradient(circle at 10% 10%, rgba(255, 122, 102, .12), transparent 310px),
+        radial-gradient(circle at 90% 0%, rgba(164, 120, 255, .14), transparent 360px),
+        var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      letter-spacing: 0;
+      overflow-x: hidden;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+      color: inherit;
+    }
+
+    .prototype-shell {
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      min-height: 100vh;
+    }
+
+    .prototype-rail {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 14px 10px;
+      background: rgba(7, 9, 10, .88);
+      border-right: 1px solid rgba(255, 255, 255, .08);
+      backdrop-filter: blur(18px);
+      z-index: 10;
+    }
+
+    .brand-mark {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      margin: 0 auto 18px;
+      border-radius: 8px;
+      background: linear-gradient(145deg, #16211e, #0d1114);
+      border: 1px solid rgba(77, 219, 184, .35);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 14px 28px rgba(0,0,0,.42);
+    }
+
+    .rail-button {
+      width: 70px;
+      min-height: 60px;
+      display: grid;
+      place-items: center;
+      gap: 5px;
+      margin-bottom: 7px;
+      padding: 8px 4px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .rail-button svg { width: 20px; height: 20px; }
+    .rail-button span { font-size: 10px; line-height: 1; }
+    .rail-button:hover { background: rgba(255,255,255,.06); color: var(--text); }
+    .rail-button.active {
+      color: var(--teal);
+      border-color: rgba(77, 219, 184, .35);
+      background: rgba(77, 219, 184, .1);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+    }
+
+    .prototype-main {
+      padding: 20px 22px 44px;
+      min-width: 0;
+    }
+
+    .prototype-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .prototype-title h1 {
+      font-size: 20px;
+      line-height: 1.1;
+      margin: 0 0 5px;
+      font-weight: 760;
+    }
+
+    .prototype-title p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .prototype-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .screen {
+      display: none;
+      animation: enter .22s ease-out;
+    }
+
+    .screen.active { display: block; }
+
+    @keyframes enter {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .artboard {
+      max-width: 1540px;
+      margin: 0 auto 28px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.08);
+      background:
+        linear-gradient(135deg, rgba(255,255,255,.055), transparent 28%),
+        linear-gradient(180deg, rgba(18,23,27,.98), rgba(9,11,13,.98));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .app-frame {
+      min-height: 860px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      background:
+        linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px),
+        #0b0d0f;
+      background-size: 28px 28px;
+    }
+
+    .app-top {
+      min-height: 76px;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 18px;
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      background: rgba(9, 11, 13, .86);
+      backdrop-filter: blur(18px);
+    }
+
+    .top-left,
+    .top-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+
+    .top-right { justify-content: flex-end; }
+
+    .app-logo {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      min-width: 214px;
+    }
+
+    .logo-chip {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background:
+        linear-gradient(135deg, rgba(77,219,184,.22), rgba(242,199,92,.12)),
+        #10171a;
+      border: 1px solid rgba(77,219,184,.38);
+    }
+
+    .app-logo strong {
+      display: block;
+      font-size: 16px;
+      line-height: 1.1;
+    }
+
+    .app-logo small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .transport {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px;
+      background: rgba(255,255,255,.035);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+    }
+
+    .btn {
+      border: 1px solid rgba(255,255,255,.1);
+      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+      color: var(--text);
+      border-radius: 8px;
+      min-height: 38px;
+      padding: 0 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 10px 22px rgba(0,0,0,.28);
+      white-space: nowrap;
+    }
+
+    .btn svg { width: 18px; height: 18px; }
+    .btn:hover { border-color: rgba(77,219,184,.36); transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+    .btn.primary {
+      color: #05110e;
+      border-color: rgba(77,219,184,.75);
+      background: linear-gradient(180deg, #6bf0cf, #34c7a6);
+    }
+    .btn.gold {
+      color: #141007;
+      border-color: rgba(242,199,92,.72);
+      background: linear-gradient(180deg, #ffe38b, #f2c75c);
+    }
+    .btn.danger {
+      border-color: rgba(255,95,142,.4);
+      background: rgba(255,95,142,.12);
+      color: #ffd7e1;
+    }
+    .btn.ghost {
+      background: transparent;
+      box-shadow: none;
+    }
+    .btn.icon {
+      width: 42px;
+      min-width: 42px;
+      padding: 0;
+    }
+    .btn.big {
+      width: 54px;
+      height: 54px;
+      min-height: 54px;
+    }
+    .btn:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 30px;
+      padding: 0 10px;
+      border: 1px solid rgba(255,255,255,.09);
+      border-radius: 999px;
+      background: rgba(255,255,255,.045);
+      color: var(--soft);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .chip.teal {
+      color: #bffbec;
+      border-color: rgba(77,219,184,.28);
+      background: rgba(77,219,184,.1);
+    }
+    .chip.gold {
+      color: #ffe7a2;
+      border-color: rgba(242,199,92,.3);
+      background: rgba(242,199,92,.1);
+    }
+    .chip.rose {
+      color: #ffd8e4;
+      border-color: rgba(255,95,142,.32);
+      background: rgba(255,95,142,.1);
+    }
+
+    .studio-grid {
+      display: grid;
+      grid-template-columns: 310px minmax(520px, 1fr) 320px;
+      min-height: 692px;
+    }
+
+    .panel {
+      background: rgba(16, 21, 24, .83);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+    }
+
+    .side-panel {
+      padding: 16px;
+      border-top: 0;
+      border-bottom: 0;
+      border-radius: 0;
+      overflow: hidden;
+    }
+
+    .side-panel.left { border-left: 0; }
+    .side-panel.right { border-right: 0; }
+
+    .panel-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .panel-title h2,
+    .panel-title h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 740;
+      line-height: 1.1;
+    }
+
+    .panel-title small,
+    .muted {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .stage {
+      position: relative;
+      min-height: 692px;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(77,219,184,.08), transparent 18%),
+        repeating-linear-gradient(90deg, rgba(255,255,255,.045) 0 1px, transparent 1px 62px),
+        linear-gradient(180deg, #08090b, #0c0e10);
+    }
+
+    .stage-toolbar {
+      position: absolute;
+      top: 14px;
+      left: 16px;
+      right: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 3;
+    }
+
+    .timeline {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      top: 66px;
+      height: 46px;
+      display: grid;
+      align-items: end;
+      z-index: 2;
+    }
+
+    .timeline-track {
+      height: 10px;
+      border-radius: 999px;
+      background: #050607;
+      border: 1px solid rgba(255,255,255,.08);
+      overflow: hidden;
+    }
+
+    .timeline-fill {
+      width: 34%;
+      height: 100%;
+      background: linear-gradient(90deg, var(--teal), var(--gold));
+    }
+
+    .time-label {
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 7px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .falling-note {
+      position: absolute;
+      width: 24px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.24);
+      box-shadow: 0 0 28px currentColor;
+      opacity: .92;
+    }
+
+    .falling-note.track-1 { background: linear-gradient(180deg, rgba(77,219,184,.92), rgba(77,219,184,.28)); color: rgba(77,219,184,.55); }
+    .falling-note.track-2 { background: linear-gradient(180deg, rgba(110,166,255,.9), rgba(110,166,255,.25)); color: rgba(110,166,255,.55); }
+    .falling-note.track-3 { background: linear-gradient(180deg, rgba(255,122,102,.9), rgba(255,122,102,.24)); color: rgba(255,122,102,.5); }
+    .falling-note.track-4 { background: linear-gradient(180deg, rgba(242,199,92,.9), rgba(242,199,92,.22)); color: rgba(242,199,92,.5); }
+
+    .impact-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 166px;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, var(--coral), var(--gold), transparent);
+      box-shadow: 0 0 24px rgba(255,122,102,.75);
+      z-index: 2;
+    }
+
+    .keyboard-dock {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 166px;
+      padding: 18px 22px 18px;
+      background: linear-gradient(180deg, rgba(10,12,14,.6), rgba(5,6,7,.96));
+      border-top: 1px solid rgba(255,255,255,.08);
+    }
+
+    .piano-main {
+      position: relative;
+      height: 116px;
+      display: grid;
+      grid-template-columns: repeat(37, minmax(18px, 1fr));
+      gap: 2px;
+      isolation: isolate;
+    }
+
+    .white-key {
+      position: relative;
+      height: 116px;
+      border-radius: 0 0 6px 6px;
+      background: linear-gradient(180deg, #f8f8f4 0%, #d8ddd9 58%, #aeb8b3 100%);
+      border: 1px solid rgba(255,255,255,.45);
+      box-shadow: inset 0 -12px 18px rgba(0,0,0,.16);
+    }
+
+    .white-key.active {
+      background: linear-gradient(180deg, #dffdf6, #70e7c9 62%, #31b998);
+      box-shadow: inset 0 -12px 18px rgba(0,0,0,.18), 0 0 24px rgba(77,219,184,.38);
+    }
+
+    .black-key {
+      position: absolute;
+      z-index: 2;
+      top: 0;
+      width: 56%;
+      height: 74px;
+      transform: translateX(72%);
+      border-radius: 0 0 5px 5px;
+      background: linear-gradient(180deg, #30363a, #050607);
+      border: 1px solid rgba(255,255,255,.16);
+      box-shadow: 0 7px 14px rgba(0,0,0,.54), inset 0 1px 0 rgba(255,255,255,.12);
+    }
+
+    .key-label {
+      position: absolute;
+      bottom: 8px;
+      left: 0;
+      right: 0;
+      color: rgba(0,0,0,.58);
+      font-size: 10px;
+      text-align: center;
+      font-weight: 700;
+    }
+
+    .black-key .key-label {
+      color: rgba(255,255,255,.78);
+      bottom: 7px;
+      font-size: 9px;
+    }
+
+    .range-card {
+      padding: 14px;
+      background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.025));
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+
+    .range-readout {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .range-readout strong {
+      font-size: 28px;
+      line-height: .95;
+      font-weight: 800;
+    }
+
+    .range-controls {
+      display: grid;
+      grid-template-columns: 42px 1fr 42px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .range-strip {
+      height: 42px;
+      display: grid;
+      grid-template-columns: repeat(88, 1fr);
+      gap: 1px;
+      padding: 5px;
+      border-radius: 8px;
+      background: #050607;
+      border: 1px solid rgba(255,255,255,.08);
+    }
+
+    .mini-key {
+      border-radius: 2px;
+      background: rgba(255,255,255,.13);
+      min-width: 2px;
+    }
+    .mini-key.black { background: rgba(0,0,0,.84); border: 1px solid rgba(255,255,255,.05); }
+    .mini-key.in-range { background: var(--teal); box-shadow: 0 0 10px rgba(77,219,184,.42); }
+    .mini-key.anchor { background: var(--gold); }
+
+    .meter-stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .metric {
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.07);
+    }
+
+    .metric-head,
+    .list-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .meter {
+      height: 9px;
+      margin-top: 9px;
+      border-radius: 999px;
+      background: rgba(0,0,0,.38);
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.06);
+    }
+
+    .meter span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--teal), var(--gold));
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .select,
+    .field {
+      width: 100%;
+      min-height: 38px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.1);
+      background: rgba(0,0,0,.22);
+      color: var(--text);
+      padding: 0 11px;
+      outline: none;
+    }
+
+    .slider {
+      appearance: none;
+      width: 100%;
+      height: 9px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--teal) 0 62%, rgba(255,255,255,.12) 62%);
+      outline: none;
+    }
+    .slider::-webkit-slider-thumb {
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #f6fff9;
+      border: 3px solid var(--teal);
+      box-shadow: 0 5px 16px rgba(0,0,0,.38);
+    }
+
+    .screen-pad {
+      padding: 20px;
+      min-height: 860px;
+    }
+
+    .screen-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 18px;
+    }
+
+    .screen-header h2 {
+      margin: 0 0 6px;
+      font-size: 26px;
+      line-height: 1;
+    }
+
+    .screen-header p {
+      margin: 0;
+      color: var(--muted);
+      max-width: 740px;
+      font-size: 13px;
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1.15fr .85fr;
+      gap: 16px;
+    }
+
+    .content-grid.three {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .content-grid.left-heavy {
+      grid-template-columns: 1.45fr .55fr;
+    }
+
+    .card {
+      border: 1px solid rgba(255,255,255,.08);
+      background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.024));
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+    }
+
+    .card h3 {
+      margin: 0 0 12px;
+      font-size: 15px;
+      line-height: 1.15;
+    }
+
+    .song-hero {
+      min-height: 250px;
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      align-content: end;
+      gap: 12px;
+      background:
+        linear-gradient(135deg, rgba(77,219,184,.18), transparent 45%),
+        linear-gradient(315deg, rgba(242,199,92,.18), transparent 42%),
+        #0d1114;
+    }
+
+    .staff-lines {
+      position: absolute;
+      inset: 22px 0 auto;
+      height: 128px;
+      opacity: .42;
+      background: repeating-linear-gradient(180deg, transparent 0 20px, rgba(255,255,255,.22) 20px 21px, transparent 21px 28px);
+      transform: rotate(-3deg) scale(1.08);
+    }
+
+    .song-meta {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 18px;
+    }
+
+    .song-meta h3 {
+      font-size: 32px;
+      margin: 0 0 6px;
+    }
+
+    .dropzone {
+      min-height: 164px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      border: 1px dashed rgba(77,219,184,.42);
+      background: rgba(77,219,184,.06);
+      border-radius: 8px;
+      padding: 18px;
+    }
+
+    .table {
+      display: grid;
+      gap: 8px;
+    }
+
+    .table-head,
+    .table-row {
+      display: grid;
+      grid-template-columns: 1.4fr .7fr .65fr .65fr auto;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+    }
+
+    .table-head {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+
+    .table-row {
+      min-height: 56px;
+      background: rgba(255,255,255,.035);
+      border: 1px solid rgba(255,255,255,.07);
+    }
+
+    .track-row {
+      display: grid;
+      grid-template-columns: 36px 1.2fr 1.1fr .9fr .75fr 120px auto;
+      gap: 10px;
+      align-items: center;
+      min-height: 68px;
+      padding: 10px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.035);
+      border-radius: 8px;
+      margin-bottom: 9px;
+    }
+
+    .track-dot {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.24);
+      box-shadow: 0 0 18px currentColor;
+    }
+
+    .swatches {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .swatch {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.2);
+      cursor: pointer;
+    }
+
+    .gm-browser {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 12px;
+      min-height: 376px;
+    }
+
+    .category-list {
+      display: grid;
+      align-content: start;
+      gap: 7px;
+    }
+
+    .category {
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.035);
+      border-radius: 8px;
+      padding: 10px;
+      color: var(--muted);
+    }
+    .category.active { color: var(--teal); border-color: rgba(77,219,184,.34); background: rgba(77,219,184,.08); }
+
+    .instrument-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      align-content: start;
+    }
+
+    .instrument {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 46px;
+      padding: 9px 11px;
+      border-radius: 8px;
+      background: rgba(255,255,255,.035);
+      border: 1px solid rgba(255,255,255,.07);
+    }
+
+    .mapper-stage {
+      display: grid;
+      gap: 14px;
+    }
+
+    .wide-piano {
+      height: 220px;
+      display: grid;
+      grid-template-columns: repeat(88, 1fr);
+      gap: 1px;
+      padding: 12px;
+      background: #050607;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.08);
+      overflow: hidden;
+    }
+
+    .wide-key {
+      position: relative;
+      min-width: 4px;
+      border-radius: 0 0 3px 3px;
+      background: rgba(255,255,255,.15);
+      border: 1px solid rgba(255,255,255,.06);
+    }
+    .wide-key.black { background: #020303; height: 62%; z-index: 2; }
+    .wide-key.in-range { background: linear-gradient(180deg, rgba(77,219,184,.88), rgba(77,219,184,.38)); }
+    .wide-key.played { background: linear-gradient(180deg, rgba(242,199,92,.92), rgba(242,199,92,.48)); }
+
+    .device-card {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.08);
+      margin-bottom: 10px;
+    }
+
+    .device-icon {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: rgba(77,219,184,.1);
+      border: 1px solid rgba(77,219,184,.22);
+    }
+
+    .settings-layout {
+      display: grid;
+      grid-template-columns: 230px 1fr;
+      gap: 16px;
+    }
+
+    .settings-nav {
+      display: grid;
+      align-content: start;
+      gap: 8px;
+    }
+
+    .settings-nav button {
+      justify-content: flex-start;
+    }
+
+    .setting-section {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .setting-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: center;
+      min-height: 46px;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+    }
+
+    .toggle {
+      width: 46px;
+      height: 26px;
+      position: relative;
+      border-radius: 999px;
+      background: rgba(255,255,255,.14);
+      border: 1px solid rgba(255,255,255,.12);
+    }
+    .toggle::after {
+      content: "";
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      top: 2px;
+      left: 3px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: .2s;
+    }
+    .toggle.on { background: rgba(77,219,184,.22); border-color: rgba(77,219,184,.38); }
+    .toggle.on::after { left: 21px; background: var(--teal); }
+
+    .recorder-grid {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 16px;
+    }
+
+    .waveform {
+      height: 184px;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      padding: 14px;
+      background: #050607;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.08);
+      overflow: hidden;
+    }
+
+    .bar {
+      flex: 1;
+      max-width: 10px;
+      min-width: 4px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, var(--teal), var(--blue));
+      opacity: .82;
+    }
+
+    .export-job {
+      padding: 12px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.035);
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .stat-tile {
+      padding: 16px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.024));
+    }
+    .stat-tile strong {
+      display: block;
+      font-size: 28px;
+      line-height: 1;
+      margin: 8px 0 4px;
+    }
+
+    .chart {
+      min-height: 260px;
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 12px;
+      align-items: end;
+      padding: 20px 14px 14px;
+      border-radius: 8px;
+      background:
+        repeating-linear-gradient(180deg, rgba(255,255,255,.055) 0 1px, transparent 1px 50px),
+        rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.08);
+    }
+
+    .chart-col {
+      display: grid;
+      gap: 8px;
+      align-items: end;
+      text-align: center;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .chart-bar {
+      border-radius: 8px 8px 3px 3px;
+      min-height: 22px;
+      background: linear-gradient(180deg, var(--gold), var(--coral));
+      box-shadow: 0 0 22px rgba(242,199,92,.22);
+    }
+
+    .badge-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .achievement {
+      min-height: 110px;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.035);
+    }
+    .achievement.locked { opacity: .48; filter: grayscale(.35); }
+
+    .kit-section {
+      margin-bottom: 18px;
+    }
+
+    .kit-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .color-token {
+      min-height: 96px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.1);
+      padding: 10px;
+      display: grid;
+      align-content: end;
+      color: #fff;
+      text-shadow: 0 1px 8px rgba(0,0,0,.5);
+    }
+
+    .type-scale {
+      display: grid;
+      gap: 10px;
+    }
+
+    .modal-demo {
+      width: min(560px, 100%);
+      margin: 0 auto;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.1);
+      background: rgba(15, 20, 24, .94);
+      box-shadow: 0 28px 90px rgba(0,0,0,.56);
+      overflow: hidden;
+    }
+
+    .modal-head,
+    .modal-foot {
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+    .modal-foot {
+      border-bottom: 0;
+      border-top: 1px solid rgba(255,255,255,.08);
+      justify-content: flex-end;
+    }
+    .modal-body { padding: 16px; }
+
+    .toast-stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .toast {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px;
+      align-items: center;
+      min-height: 60px;
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(255,255,255,.055);
+      border: 1px solid rgba(255,255,255,.08);
+    }
+
+    .skeleton {
+      display: block;
+      height: 14px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(255,255,255,.08), rgba(255,255,255,.18), rgba(255,255,255,.08));
+      background-size: 220% 100%;
+      animation: shimmer 1.4s infinite;
+    }
+
+    @keyframes shimmer {
+      0% { background-position: 120% 0; }
+      100% { background-position: -120% 0; }
+    }
+
+    .phone-preview {
+      width: 360px;
+      max-width: 100%;
+      min-height: 680px;
+      margin: 0 auto;
+      border-radius: 28px;
+      border: 8px solid #020303;
+      background: #0b0d0f;
+      box-shadow: 0 22px 70px rgba(0,0,0,.55);
+      overflow: hidden;
+    }
+
+    .phone-top {
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+
+    .phone-stage {
+      height: 330px;
+      position: relative;
+      background:
+        repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1px, transparent 1px 36px),
+        #070809;
+    }
+
+    .phone-piano {
+      height: 92px;
+      display: grid;
+      grid-template-columns: repeat(15, 1fr);
+      gap: 2px;
+      padding: 10px;
+      background: rgba(0,0,0,.64);
+    }
+
+    .footer-piano {
+      padding: 10px 18px 16px;
+      display: grid;
+      gap: 10px;
+      border-top: 1px solid rgba(255,255,255,.08);
+      background: rgba(9, 11, 13, .9);
+    }
+
+    .footer-status {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      color: var(--muted);
+      font-size: 12px;
+      flex-wrap: wrap;
+    }
+
+    .iconline {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    svg.icon {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex: 0 0 auto;
+    }
+
+    @media (max-width: 1180px) {
+      .prototype-shell { grid-template-columns: 1fr; }
+      .prototype-rail {
+        height: auto;
+        display: flex;
+        overflow-x: auto;
+        gap: 8px;
+        padding: 10px;
+        border-right: 0;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+      }
+      .brand-mark { margin: 0; min-width: 48px; }
+      .rail-button { min-width: 70px; margin-bottom: 0; }
+      .studio-grid,
+      .content-grid,
+      .content-grid.three,
+      .content-grid.left-heavy,
+      .settings-layout,
+      .recorder-grid {
+        grid-template-columns: 1fr;
+      }
+      .app-top { grid-template-columns: 1fr; justify-items: stretch; }
+      .transport { justify-content: center; }
+      .top-right { justify-content: flex-start; }
+      .studio-grid { min-height: auto; }
+      .stage { min-height: 620px; }
+      .side-panel { border-radius: 0; }
+      .kit-grid,
+      .stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .track-row {
+        grid-template-columns: 36px 1fr;
+      }
+      .track-row > *:nth-child(n+3) { grid-column: 2; }
+    }
+
+    @media (max-width: 680px) {
+      html,
+      body {
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+      .prototype-main { padding: 12px 10px 32px; }
+      .prototype-topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .artboard,
+      .app-frame,
+      .app-top,
+      .side-panel,
+      .stage,
+      .range-card {
+        min-width: 0;
+        max-width: 100%;
+      }
+      .screen-pad { padding: 14px; }
+      .screen-header { align-items: flex-start; flex-direction: column; }
+      .top-left,
+      .top-right,
+      .prototype-actions {
+        width: 100%;
+      }
+      .top-left,
+      .top-right,
+      .transport {
+        min-width: 0;
+        max-width: 100%;
+        flex-wrap: wrap;
+      }
+      .transport {
+        justify-content: flex-start;
+        width: 100%;
+      }
+      .range-controls {
+        grid-template-columns: 42px minmax(0, 1fr) 42px;
+      }
+      .range-strip {
+        min-width: 0;
+        gap: 0;
+        padding: 4px;
+      }
+      .mini-key {
+        min-width: 0;
+      }
+      .btn { min-height: 40px; }
+      .control-grid,
+      .two-col,
+      .setting-section,
+      .kit-grid,
+      .stats-grid,
+      .badge-grid,
+      .instrument-grid,
+      .gm-browser {
+        grid-template-columns: 1fr;
+      }
+      .table-head { display: none; }
+      .table-row {
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+      .screen-header h2 { font-size: 22px; }
+      .song-meta { flex-direction: column; align-items: flex-start; }
+      .song-meta h3 { font-size: 26px; }
+      .stage { min-height: 560px; }
+      .keyboard-dock { padding-left: 10px; padding-right: 10px; }
+      .piano-main { grid-template-columns: repeat(24, minmax(12px, 1fr)); overflow: hidden; }
+      .app-logo { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="prototype-shell">
+    <aside class="prototype-rail" aria-label="Pantallas del prototipo">
+      <div class="brand-mark" title="Piano MIDI Pro">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18V6h16v12"/><path d="M8 6v12"/><path d="M12 6v12"/><path d="M16 6v12"/><path d="M5 18h14"/></svg>
+      </div>
+      <button class="rail-button active" data-screen="studio"><svg class="icon" viewBox="0 0 24 24"><path d="M5 3v18"/><path d="M19 3v18"/><path d="M8 6h8"/><path d="M8 12h8"/><path d="M8 18h8"/></svg><span>Studio</span></button>
+      <button class="rail-button" data-screen="songs"><svg class="icon" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span>Songs</span></button>
+      <button class="rail-button" data-screen="tracks"><svg class="icon" viewBox="0 0 24 24"><path d="M4 21V14"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M2 14h4"/><path d="M10 8h4"/><path d="M18 16h4"/></svg><span>Tracks</span></button>
+      <button class="rail-button" data-screen="midi"><svg class="icon" viewBox="0 0 24 24"><path d="M4 19V5h16v14"/><path d="M7 5v14"/><path d="M11 5v14"/><path d="M15 5v14"/><path d="M19 5v14"/></svg><span>MIDI</span></button>
+      <button class="rail-button" data-screen="settings"><svg class="icon" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"/><path d="m19.4 15 .6 1.2-2 3.4-1.4-.1a8 8 0 0 1-2.1 1.2L13.8 22h-3.6l-.7-1.3a8 8 0 0 1-2.1-1.2l-1.4.1-2-3.4.6-1.2a8 8 0 0 1 0-2.4L4 11.4 6 8l1.4.1a8 8 0 0 1 2.1-1.2l.7-1.3h3.6l.7 1.3a8 8 0 0 1 2.1 1.2L18 8l2 3.4-.6 1.2a8 8 0 0 1 0 2.4Z"/></svg><span>Settings</span></button>
+      <button class="rail-button" data-screen="record"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg><span>Record</span></button>
+      <button class="rail-button" data-screen="stats"><svg class="icon" viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-4"/><path d="M12 16V8"/><path d="M16 16v-6"/></svg><span>Stats</span></button>
+      <button class="rail-button" data-screen="kit"><svg class="icon" viewBox="0 0 24 24"><path d="M4 4h7v7H4z"/><path d="M13 4h7v7h-7z"/><path d="M4 13h7v7H4z"/><path d="M13 13h7v7h-7z"/></svg><span>Kit</span></button>
+      <button class="rail-button" data-screen="states"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M3 12h18"/><path d="M5 5l14 14"/></svg><span>States</span></button>
+    </aside>
+
+    <main class="prototype-main">
+      <header class="prototype-topbar">
+        <div class="prototype-title">
+          <h1>Piano MIDI Pro UI System</h1>
+          <p>Prototipo HTML basado en REQUIREMENTS.md y TASKS.md. Sin login.</p>
+        </div>
+        <div class="prototype-actions">
+          <span class="chip teal">Desktop 1440</span>
+          <span class="chip gold">Tablet y mobile incluidos</span>
+          <span class="chip">WCAG AA target</span>
+        </div>
+      </header>
+
+      <section id="screen-studio" class="screen active">
+        <div class="artboard">
+          <div class="app-frame">
+            <div class="app-top">
+              <div class="top-left">
+                <div class="app-logo">
+                  <div class="logo-chip"><svg class="icon" viewBox="0 0 24 24"><path d="M4 18V6h16v12"/><path d="M8 6v12"/><path d="M12 6v12"/><path d="M16 6v12"/></svg></div>
+                  <div><strong>Piano MIDI Pro</strong><small>MX 37 conectado</small></div>
+                </div>
+                <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v9H4z"/></svg>Abrir</button>
+                <button class="btn ghost"><svg class="icon" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>Songs</button>
+                <span class="chip teal">Fur Elise</span>
+              </div>
+              <div class="transport" aria-label="Controles de reproduccion">
+                <button class="btn icon big primary" aria-label="Play"><svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></svg></button>
+                <button class="btn icon big" aria-label="Pause"><svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14"/><path d="M16 5v14"/></svg></button>
+                <button class="btn icon big" aria-label="Stop"><svg class="icon" viewBox="0 0 24 24"><path d="M7 7h10v10H7z" fill="currentColor" stroke="none"/></svg></button>
+                <button class="btn icon danger" aria-label="Record"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/></svg></button>
+                <select class="select" aria-label="Velocidad" style="width: 96px"><option>75%</option><option>100%</option><option>125%</option></select>
+              </div>
+              <div class="top-right">
+                <span class="chip">0:54 / 2:45</span>
+                <span class="chip gold">Loop A-B</span>
+                <button class="btn icon" aria-label="Tracks"><svg class="icon" viewBox="0 0 24 24"><path d="M4 21V14"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/></svg></button>
+                <button class="btn icon" aria-label="Fullscreen"><svg class="icon" viewBox="0 0 24 24"><path d="M8 3H3v5"/><path d="M16 3h5v5"/><path d="M8 21H3v-5"/><path d="M16 21h5v-5"/></svg></button>
+                <button class="btn icon" aria-label="Settings"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12h2"/><path d="M3 12h2"/><path d="M12 3v2"/><path d="M12 19v2"/></svg></button>
+              </div>
+            </div>
+
+            <div class="studio-grid">
+              <aside class="side-panel left">
+                <div class="panel-title"><h2>Rango activo</h2><span class="chip teal">37 teclas</span></div>
+                <div class="range-card">
+                  <div class="range-readout">
+                    <div><strong>C3 - C6</strong><div class="muted">Fisico 1 -> C3</div></div>
+                    <span class="chip gold">Centro F4</span>
+                  </div>
+                  <div class="range-controls">
+                    <button class="btn icon" aria-label="Mover izquierda"><svg class="icon" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
+                    <div class="range-strip" data-range-strip></div>
+                    <button class="btn icon" aria-label="Mover derecha"><svg class="icon" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button>
+                  </div>
+                </div>
+                <div class="control-grid" style="margin-bottom:12px">
+                  <button class="btn">C2-C5</button>
+                  <button class="btn primary">C3-C6</button>
+                  <button class="btn">C4-C7</button>
+                </div>
+                <div class="range-card">
+                  <div class="metric-head"><span>Modo practica</span><strong>Espera</strong></div>
+                  <div class="meter"><span style="width: 74%"></span></div>
+                </div>
+                <div class="range-card">
+                  <div class="metric-head"><span>Mapeo MIDI</span><strong>Auto</strong></div>
+                  <div class="list-row" style="margin-top:10px"><span class="muted">Entrada</span><span>MX Keys 37</span></div>
+                  <div class="list-row" style="margin-top:8px"><span class="muted">Canal</span><span>Omni</span></div>
+                  <div class="list-row" style="margin-top:8px"><span class="muted">Latencia</span><span>8 ms</span></div>
+                </div>
+                <div class="two-col">
+                  <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m5 12 7-7 7 7"/></svg>Oct -</button>
+                  <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="m5 12 7 7 7-7"/></svg>Oct +</button>
+                </div>
+              </aside>
+
+              <section class="stage" aria-label="Falling notes studio">
+                <div class="stage-toolbar">
+                  <div>
+                    <span class="chip teal">Track 1 Piano</span>
+                    <span class="chip">Track 2 Strings</span>
+                    <span class="chip rose">Correcta 92%</span>
+                  </div>
+                  <div>
+                    <span class="chip">Zoom 1.5x</span>
+                    <span class="chip gold">Compas 18</span>
+                  </div>
+                </div>
+                <div class="timeline">
+                  <div class="time-label"><span>0:54</span><span>Loop A 0:48</span><span>Loop B 1:12</span><span>2:45</span></div>
+                  <div class="timeline-track"><div class="timeline-fill"></div></div>
+                </div>
+                <div class="falling-note track-1" style="left: 16%; top: 142px; height: 188px;"></div>
+                <div class="falling-note track-2" style="left: 22%; top: 214px; height: 122px;"></div>
+                <div class="falling-note track-3" style="left: 31%; top: 108px; height: 220px;"></div>
+                <div class="falling-note track-1" style="left: 42%; top: 246px; height: 110px;"></div>
+                <div class="falling-note track-4" style="left: 50%; top: 166px; height: 188px;"></div>
+                <div class="falling-note track-2" style="left: 59%; top: 86px; height: 260px;"></div>
+                <div class="falling-note track-1" style="left: 68%; top: 202px; height: 134px;"></div>
+                <div class="falling-note track-3" style="left: 78%; top: 126px; height: 210px;"></div>
+                <div class="impact-line"></div>
+                <div class="keyboard-dock">
+                  <div class="piano-main" data-piano-main></div>
+                </div>
+              </section>
+
+              <aside class="side-panel right">
+                <div class="panel-title"><h2>Performance</h2><span class="chip teal">60 FPS</span></div>
+                <div class="meter-stack">
+                  <div class="metric">
+                    <div class="metric-head"><span>Volumen maestro</span><strong>84%</strong></div>
+                    <div class="meter"><span style="width:84%"></span></div>
+                  </div>
+                  <div class="metric">
+                    <div class="metric-head"><span>Pitch bend</span><strong>+24</strong></div>
+                    <div class="meter"><span style="width:56%; background:linear-gradient(90deg,var(--blue),var(--violet))"></span></div>
+                  </div>
+                  <div class="metric">
+                    <div class="metric-head"><span>Velocity</span><strong>96</strong></div>
+                    <div class="meter"><span style="width:76%; background:linear-gradient(90deg,var(--gold),var(--coral))"></span></div>
+                  </div>
+                  <div class="metric">
+                    <div class="metric-head"><span>Sustain pedal</span><strong>ON</strong></div>
+                    <div class="meter"><span style="width:100%; background:var(--green)"></span></div>
+                  </div>
+                </div>
+                <div class="panel-title" style="margin-top:18px"><h3>Estado de notas</h3><span class="muted">live</span></div>
+                <div class="table">
+                  <div class="list-row"><span>C4</span><span class="chip teal">Correcta</span></div>
+                  <div class="list-row"><span>E4</span><span class="chip gold">Temprana</span></div>
+                  <div class="list-row"><span>G4</span><span class="chip rose">Falta</span></div>
+                </div>
+                <div class="panel-title" style="margin-top:18px"><h3>Acciones rapidas</h3></div>
+                <div class="control-grid">
+                  <button class="btn icon" aria-label="Metronomo"><svg class="icon" viewBox="0 0 24 24"><path d="m9 3-5 18h16L15 3z"/><path d="m12 8 3 8"/></svg></button>
+                  <button class="btn icon" aria-label="Particulas"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="m4.9 4.9 2.8 2.8"/><path d="m16.3 16.3 2.8 2.8"/></svg></button>
+                  <button class="btn icon" aria-label="Modo libre"><svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+                </div>
+              </aside>
+            </div>
+
+            <footer class="footer-piano">
+              <div class="footer-status">
+                <span>Chrome/Edge: Web MIDI activo</span>
+                <span>Audio latency: 8 ms</span>
+                <span>Soundfont: FluidR3 GM cached</span>
+                <span>Offline ready</span>
+              </div>
+            </footer>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-songs" class="screen">
+        <div class="artboard screen-pad">
+          <div class="screen-header">
+            <div>
+              <h2>Songs y archivos MIDI</h2>
+              <p>Biblioteca local, drag and drop, validacion MIDI 0/1, metadata, recientes y cancion por defecto.</p>
+            </div>
+            <div class="prototype-actions">
+              <button class="btn primary"><svg class="icon" viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v9H4z"/></svg>Abrir .mid</button>
+              <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Importar</button>
+            </div>
+          </div>
+          <div class="content-grid">
+            <div class="card song-hero">
+              <div class="staff-lines"></div>
+              <div class="song-meta">
+                <div>
+                  <span class="chip gold">Default MIDI</span>
+                  <h3>Fur Elise</h3>
+                  <div class="muted">Ludwig van Beethoven · 2:45 · 4 tracks · 136 BPM</div>
+                </div>
+                <button class="btn primary"><svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></svg>Cargar</button>
+              </div>
+            </div>
+            <div class="card">
+              <h3>Dropzone</h3>
+              <div class="dropzone">
+                <div>
+                  <svg class="icon" viewBox="0 0 24 24" style="width:42px;height:42px;color:var(--teal);margin-bottom:10px"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+                  <div><strong>Suelta archivos .mid aqui</strong></div>
+                  <div class="muted">MIDI 0/1 · max 25 MB · validacion inmediata</div>
+                </div>
+              </div>
+              <div class="toast" style="margin-top:12px">
+                <span class="chip teal">OK</span>
+                <div><strong>Nocturne.mid</strong><div class="muted">3 tracks detectados · listo para cargar</div></div>
+                <button class="btn ghost">Ver</button>
+              </div>
+            </div>
+          </div>
+          <div class="content-grid left-heavy" style="margin-top:16px">
+            <div class="card">
+              <div class="panel-title"><h3>Recientes</h3><input class="field" placeholder="Buscar por titulo, compositor o tempo" style="max-width:320px" /></div>
+              <div class="table">
+                <div class="table-head"><span>Titulo</span><span>Duracion</span><span>Tracks</span><span>Dificultad</span><span></span></div>
+                <div class="table-row"><strong>Fur Elise</strong><span>2:45</span><span>4</span><span class="chip gold">Media</span><button class="btn">Abrir</button></div>
+                <div class="table-row"><strong>Prelude in C</strong><span>1:58</span><span>2</span><span class="chip teal">Inicio</span><button class="btn">Abrir</button></div>
+                <div class="table-row"><strong>Moonlight Theme</strong><span>3:21</span><span>5</span><span class="chip rose">Alta</span><button class="btn">Abrir</button></div>
+                <div class="table-row"><strong>Custom Recording 2026-05-12</strong><span>0:48</span><span>1</span><span class="chip">Propia</span><button class="btn">Abrir</button></div>
+              </div>
+            </div>
+            <div class="card">
+              <h3>Filtros</h3>
+              <div class="control-grid" style="grid-template-columns:1fr">
+                <button class="btn primary">Todas</button>
+                <button class="btn">Principiante</button>
+                <button class="btn">Clasica</button>
+                <button class="btn">Grabaciones</button>
+                <button class="btn">Favoritas</button>
+              </div>
+              <div class="range-card" style="margin-top:14px">
+                <div class="metric-head"><span>Cache offline</span><strong>12 canciones</strong></div>
+                <div class="meter"><span style="width:42%"></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-tracks" class="screen">
+        <div class="artboard screen-pad">
+          <div class="screen-header">
+            <div><h2>Tracks y mixer</h2><p>Mute, solo, instrumentos GM, volumen, color, pitch bend y velocity por track.</p></div>
+            <div class="prototype-actions">
+              <button class="btn">Reset</button>
+              <button class="btn primary">Guardar preset</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="track-row">
+              <span class="track-dot" style="color:var(--teal);background:var(--teal)"></span>
+              <div><strong>Main Piano</strong><div class="muted">1,248 notas · canal 1</div></div>
+              <select class="select"><option>001 Acoustic Grand</option></select>
+              <input class="slider" type="range" value="82" />
+              <div class="swatches"><span class="swatch" style="background:var(--teal)"></span><span class="swatch" style="background:var(--blue)"></span></div>
+              <div class="two-col"><button class="btn primary">M</button><button class="btn">S</button></div>
+              <button class="btn icon"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
+            </div>
+            <div class="track-row">
+              <span class="track-dot" style="color:var(--blue);background:var(--blue)"></span>
+              <div><strong>Left Hand</strong><div class="muted">932 notas · canal 2</div></div>
+              <select class="select"><option>049 String Ensemble</option></select>
+              <input class="slider" type="range" value="64" />
+              <div class="swatches"><span class="swatch" style="background:var(--blue)"></span><span class="swatch" style="background:var(--violet)"></span></div>
+              <div class="two-col"><button class="btn">M</button><button class="btn primary">S</button></div>
+              <button class="btn icon"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
+            </div>
+            <div class="track-row">
+              <span class="track-dot" style="color:var(--coral);background:var(--coral)"></span>
+              <div><strong>Pedal Events</strong><div class="muted">186 CC · canal 1</div></div>
+              <select class="select"><option>Controller lane</option></select>
+              <input class="slider" type="range" value="100" />
+              <div class="swatches"><span class="swatch" style="background:var(--coral)"></span><span class="swatch" style="background:var(--gold)"></span></div>
+              <div class="two-col"><button class="btn">M</button><button class="btn">S</button></div>
+              <button class="btn icon"><svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
+            </div>
+          </div>
+          <div class="content-grid" style="margin-top:16px">
+            <div class="card">
+              <div class="panel-title"><h3>General MIDI browser</h3><input class="field" placeholder="Buscar instrumento" style="max-width:260px"/></div>
+              <div class="gm-browser">
+                <div class="category-list">
+                  <div class="category active">Piano</div>
+                  <div class="category">Chromatic</div>
+                  <div class="category">Organ</div>
+                  <div class="category">Guitar</div>
+                  <div class="category">Strings</div>
+                  <div class="category">Synth</div>
+                </div>
+                <div class="instrument-grid">
+                  <div class="instrument"><span>001 Acoustic Grand</span><button class="btn icon"><svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></svg></button></div>
+                  <div class="instrument"><span>002 Bright Piano</span><button class="btn icon"><svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></svg></button></div>
+                  <div class="instrument"><span>003 Electric Grand</span><button class="btn icon"><svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></svg></button></div>
+                  <div class="instrument"><span>004 Honky-tonk</span><button class="btn icon"><svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></svg></button></div>
+                  <div class="instrument"><span>005 Electric Piano 1</span><button class="btn icon"><svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></svg></button></div>
+                  <div class="instrument"><span>006 Electric Piano 2</span><button class="btn icon"><svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></svg></button></div>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <h3>Track avanzado</h3>
+              <div class="setting-row"><span>Pitch bend</span><span class="toggle on"></span></div>
+              <div class="setting-row"><span>Rango bend</span><select class="select" style="width:120px"><option>+/- 2 st</option></select></div>
+              <div class="setting-row"><span>Curva velocity</span><select class="select" style="width:140px"><option>Exponencial</option></select></div>
+              <div class="setting-row"><span>Reverb send</span><input class="slider" type="range" value="38" style="width:160px"></div>
+              <div class="setting-row"><span>Chorus send</span><input class="slider" type="range" value="24" style="width:160px"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-midi" class="screen">
+        <div class="artboard screen-pad">
+          <div class="screen-header">
+            <div><h2>MIDI, rango y transposicion</h2><p>Control principal para mapear teclados 25/37/49/61/88 contra el piano virtual de 88 teclas.</p></div>
+            <span class="chip teal">Web MIDI ready</span>
+          </div>
+          <div class="content-grid left-heavy">
+            <div class="card mapper-stage">
+              <div class="panel-title"><h3>Piano virtual completo A0 - C8</h3><span class="chip gold">Activo C3 - C6</span></div>
+              <div class="wide-piano" data-wide-piano></div>
+              <div class="range-controls">
+                <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/></svg>Octava</button>
+                <input class="slider" type="range" value="36" />
+                <button class="btn">Octava<svg class="icon" viewBox="0 0 24 24"><path d="m13 17 5-5-5-5"/><path d="m6 17 5-5-5-5"/></svg></button>
+              </div>
+              <div class="control-grid">
+                <button class="btn">Mover 1 tecla</button>
+                <button class="btn primary">C3-C6</button>
+                <button class="btn">Guardar como default</button>
+              </div>
+            </div>
+            <div class="card">
+              <h3>Dispositivos</h3>
+              <div class="device-card">
+                <div class="device-icon"><svg class="icon" viewBox="0 0 24 24"><path d="M4 19V5h16v14"/><path d="M8 5v14"/><path d="M12 5v14"/><path d="M16 5v14"/></svg></div>
+                <div><strong>MX Keys Mini MIDI</strong><div class="muted">37 teclas detectadas</div></div>
+                <span class="chip teal">Activo</span>
+              </div>
+              <div class="device-card">
+                <div class="device-icon"><svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></div>
+                <div><strong>Virtual MIDI Out</strong><div class="muted">Salida opcional</div></div>
+                <button class="btn">Usar</button>
+              </div>
+              <h3 style="margin-top:18px">Sensores</h3>
+              <div class="metric"><div class="metric-head"><span>Pitch bend</span><strong>0</strong></div><div class="meter"><span style="width:50%;background:var(--blue)"></span></div></div>
+              <div class="metric"><div class="metric-head"><span>Mod wheel</span><strong>18</strong></div><div class="meter"><span style="width:18%;background:var(--violet)"></span></div></div>
+              <div class="metric"><div class="metric-head"><span>Sustain CC64</span><strong>127</strong></div><div class="meter"><span style="width:100%;background:var(--green)"></span></div></div>
+            </div>
+          </div>
+          <div class="content-grid three" style="margin-top:16px">
+            <div class="card"><h3>25 teclas</h3><div class="range-strip" data-range-strip data-start="48" data-count="25"></div><div class="muted" style="margin-top:10px">Zoom mas cerrado, labels reducidas.</div></div>
+            <div class="card"><h3>37 teclas</h3><div class="range-strip" data-range-strip data-start="36" data-count="37"></div><div class="muted" style="margin-top:10px">Preset principal del producto.</div></div>
+            <div class="card"><h3>88 teclas</h3><div class="range-strip" data-range-strip data-start="0" data-count="88"></div><div class="muted" style="margin-top:10px">Sin transposicion visual obligatoria.</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-settings" class="screen">
+        <div class="artboard screen-pad">
+          <div class="screen-header">
+            <div><h2>Configuracion</h2><p>Audio, visuales, MIDI, PWA offline, presets e integraciones sin pantalla de login.</p></div>
+            <button class="btn primary">Aplicar cambios</button>
+          </div>
+          <div class="settings-layout">
+            <div class="card settings-nav">
+              <button class="btn primary"><svg class="icon" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15 9a5 5 0 0 1 0 6"/></svg>Audio</button>
+              <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M3 12h18"/></svg>Visual</button>
+              <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M4 19V5h16v14"/></svg>MIDI</button>
+              <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M5 19h14"/><path d="M7 19V5h10v14"/></svg>PWA</button>
+              <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Presets</button>
+            </div>
+            <div class="setting-section">
+              <div class="card">
+                <h3>Audio engine</h3>
+                <div class="setting-row"><span>Volumen maestro</span><input class="slider" type="range" value="84" style="width:180px"></div>
+                <div class="setting-row"><span>Calidad</span><select class="select" style="width:132px"><option>Alta</option></select></div>
+                <div class="setting-row"><span>Latencia target</span><select class="select" style="width:132px"><option>10 ms</option></select></div>
+                <div class="setting-row"><span>Soundfont</span><select class="select" style="width:172px"><option>FluidR3 GM</option></select></div>
+                <div class="setting-row"><span>Reverb</span><span class="toggle on"></span></div>
+                <div class="setting-row"><span>Chorus</span><span class="toggle"></span></div>
+              </div>
+              <div class="card">
+                <h3>Visual y accesibilidad</h3>
+                <div class="setting-row"><span>Tema</span><select class="select" style="width:132px"><option>Dark Pro</option></select></div>
+                <div class="setting-row"><span>Tamano piano</span><select class="select" style="width:132px"><option>Grande</option></select></div>
+                <div class="setting-row"><span>Labels notas</span><span class="toggle on"></span></div>
+                <div class="setting-row"><span>Particulas</span><span class="toggle on"></span></div>
+                <div class="setting-row"><span>Contraste alto</span><span class="toggle"></span></div>
+                <div class="setting-row"><span>Reducir movimiento</span><span class="toggle"></span></div>
+              </div>
+              <div class="card">
+                <h3>MIDI comportamiento</h3>
+                <div class="setting-row"><span>Canal entrada</span><select class="select" style="width:132px"><option>Omni</option></select></div>
+                <div class="setting-row"><span>Transposicion global</span><select class="select" style="width:132px"><option>0 st</option></select></div>
+                <div class="setting-row"><span>Modo entrada</span><select class="select" style="width:172px"><option>Espera notas</option></select></div>
+                <div class="setting-row"><span>Velocity min/max</span><span>40 / 127</span></div>
+              </div>
+              <div class="card">
+                <h3>Offline y cache</h3>
+                <div class="setting-row"><span>Instalable</span><span class="chip teal">Ready</span></div>
+                <div class="setting-row"><span>Cache soundfonts</span><span class="toggle on"></span></div>
+                <div class="setting-row"><span>Uso cache</span><span>38 MB</span></div>
+                <div class="setting-row"><span>Actualizar app</span><button class="btn">Buscar</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-record" class="screen">
+        <div class="artboard screen-pad">
+          <div class="screen-header">
+            <div><h2>Grabacion y exportacion</h2><p>Grabacion MIDI precisa con pitch bend, velocity y sustain; exportacion WAV/MP3 con progreso.</p></div>
+            <div class="prototype-actions">
+              <button class="btn danger"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/></svg>Grabar</button>
+              <button class="btn primary">Exportar audio</button>
+            </div>
+          </div>
+          <div class="recorder-grid">
+            <div class="card">
+              <div class="panel-title"><h3>Take activo</h3><span class="chip rose">REC 00:42</span></div>
+              <div class="waveform" data-waveform></div>
+              <div class="control-grid" style="margin-top:14px">
+                <button class="btn"><svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></svg>Play take</button>
+                <button class="btn">Guardar .mid</button>
+                <button class="btn danger">Descartar</button>
+              </div>
+              <div class="content-grid three" style="margin-top:16px">
+                <div class="metric"><div class="metric-head"><span>Notas</span><strong>326</strong></div></div>
+                <div class="metric"><div class="metric-head"><span>Pitch bends</span><strong>14</strong></div></div>
+                <div class="metric"><div class="metric-head"><span>Pedal</span><strong>31</strong></div></div>
+              </div>
+            </div>
+            <div class="card">
+              <h3>Export queue</h3>
+              <div class="export-job">
+                <div class="metric-head"><strong>Fur Elise Practice.wav</strong><span>68%</span></div>
+                <div class="meter"><span style="width:68%"></span></div>
+              </div>
+              <div class="export-job">
+                <div class="metric-head"><strong>Preset_May12.json</strong><span class="chip teal">Done</span></div>
+              </div>
+              <div class="setting-row"><span>Formato</span><select class="select" style="width:132px"><option>WAV</option><option>MP3 320</option></select></div>
+              <div class="setting-row"><span>Incluir efectos</span><span class="toggle on"></span></div>
+              <div class="setting-row"><span>Normalizar</span><span class="toggle on"></span></div>
+            </div>
+          </div>
+          <div class="content-grid" style="margin-top:16px">
+            <div class="card">
+              <h3>Grabaciones guardadas</h3>
+              <div class="table">
+                <div class="table-row"><strong>Take 2026-05-12 00-18</strong><span>0:42</span><span>1 track</span><span class="chip teal">MIDI</span><button class="btn">Abrir</button></div>
+                <div class="table-row"><strong>Fur Elise loop A-B</strong><span>1:04</span><span>3 tracks</span><span class="chip gold">Audio</span><button class="btn">Abrir</button></div>
+              </div>
+            </div>
+            <div class="modal-demo">
+              <div class="modal-head"><strong>Confirmar descarte</strong><button class="btn icon ghost"><svg class="icon" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+              <div class="modal-body"><div class="muted">El take activo tiene notas, pedal y pitch bend sin guardar.</div></div>
+              <div class="modal-foot"><button class="btn">Cancelar</button><button class="btn danger">Descartar</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-stats" class="screen">
+        <div class="artboard screen-pad">
+          <div class="screen-header">
+            <div><h2>Estadisticas y progreso</h2><p>Practica, precision, rachas, canciones y logros exportables.</p></div>
+            <div class="prototype-actions"><button class="btn">Semana</button><button class="btn primary">Exportar CSV</button></div>
+          </div>
+          <div class="stats-grid">
+            <div class="stat-tile"><span class="muted">Practica</span><strong>12h 40m</strong><span class="chip teal">+18%</span></div>
+            <div class="stat-tile"><span class="muted">Precision</span><strong>91%</strong><span class="chip gold">Timing 84%</span></div>
+            <div class="stat-tile"><span class="muted">Racha</span><strong>7 dias</strong><span class="chip teal">Activa</span></div>
+            <div class="stat-tile"><span class="muted">Canciones</span><strong>18</strong><span class="chip">4 nuevas</span></div>
+          </div>
+          <div class="content-grid">
+            <div class="card">
+              <h3>Minutos por dia</h3>
+              <div class="chart">
+                <div class="chart-col"><div class="chart-bar" style="height:84px"></div><span>Lun</span></div>
+                <div class="chart-col"><div class="chart-bar" style="height:130px"></div><span>Mar</span></div>
+                <div class="chart-col"><div class="chart-bar" style="height:62px"></div><span>Mie</span></div>
+                <div class="chart-col"><div class="chart-bar" style="height:176px"></div><span>Jue</span></div>
+                <div class="chart-col"><div class="chart-bar" style="height:118px"></div><span>Vie</span></div>
+                <div class="chart-col"><div class="chart-bar" style="height:208px"></div><span>Sab</span></div>
+                <div class="chart-col"><div class="chart-bar" style="height:152px"></div><span>Dom</span></div>
+              </div>
+            </div>
+            <div class="card">
+              <h3>Logros</h3>
+              <div class="badge-grid">
+                <div class="achievement"><span class="chip gold">Nuevo</span><h3>7-day streak</h3><div class="muted">Practica diaria completa.</div></div>
+                <div class="achievement"><span class="chip teal">Done</span><h3>First song</h3><div class="muted">Primera cancion finalizada.</div></div>
+                <div class="achievement locked"><span class="chip">Locked</span><h3>Perfect timing</h3><div class="muted">95% timing en una pieza.</div></div>
+                <div class="achievement locked"><span class="chip">42%</span><h3>10 hours</h3><div class="meter"><span style="width:42%"></span></div></div>
+                <div class="achievement"><span class="chip teal">Done</span><h3>Pitch master</h3><div class="muted">Pitch bend usado en take.</div></div>
+                <div class="achievement locked"><span class="chip">Locked</span><h3>100 songs</h3><div class="muted">Biblioteca avanzada.</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-top:16px">
+            <h3>Canciones mas practicadas</h3>
+            <div class="table">
+              <div class="table-row"><strong>Fur Elise</strong><span>4h 10m</span><span>91%</span><span class="chip teal">Subiendo</span><button class="btn">Abrir</button></div>
+              <div class="table-row"><strong>Prelude in C</strong><span>2h 18m</span><span>96%</span><span class="chip gold">Dominada</span><button class="btn">Abrir</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-kit" class="screen">
+        <div class="artboard screen-pad">
+          <div class="screen-header">
+            <div><h2>Design system</h2><p>Tokens, botones, formularios, estados, modales y componentes base para React/Tailwind.</p></div>
+          </div>
+          <div class="kit-section">
+            <h3>Color tokens</h3>
+            <div class="kit-grid">
+              <div class="color-token" style="background:#080a0c"><strong>Ink</strong><span>#080A0C</span></div>
+              <div class="color-token" style="background:#12171b"><strong>Surface</strong><span>#12171B</span></div>
+              <div class="color-token" style="background:#4ddbb8;color:#06110e"><strong>Teal</strong><span>#4DDBB8</span></div>
+              <div class="color-token" style="background:#f2c75c;color:#161006"><strong>Gold</strong><span>#F2C75C</span></div>
+              <div class="color-token" style="background:#6ea6ff"><strong>Blue</strong><span>#6EA6FF</span></div>
+              <div class="color-token" style="background:#a478ff"><strong>Violet</strong><span>#A478FF</span></div>
+              <div class="color-token" style="background:#ff7a66"><strong>Coral</strong><span>#FF7A66</span></div>
+              <div class="color-token" style="background:#62d887;color:#071209"><strong>Green</strong><span>#62D887</span></div>
+            </div>
+          </div>
+          <div class="content-grid">
+            <div class="card">
+              <h3>Buttons</h3>
+              <div class="prototype-actions" style="margin-bottom:12px">
+                <button class="btn primary">Primary</button>
+                <button class="btn">Secondary</button>
+                <button class="btn ghost">Ghost</button>
+                <button class="btn danger">Danger</button>
+                <button class="btn" disabled>Disabled</button>
+              </div>
+              <h3>Inputs</h3>
+              <div class="control-grid">
+                <input class="field" value="Preset name" />
+                <select class="select"><option>Velocity curve</option></select>
+                <input class="slider" type="range" value="62" />
+              </div>
+              <h3 style="margin-top:16px">Toggles y chips</h3>
+              <div class="prototype-actions"><span class="toggle on"></span><span class="toggle"></span><span class="chip teal">Connected</span><span class="chip gold">Loop</span><span class="chip rose">Error</span></div>
+            </div>
+            <div class="card">
+              <h3>Typography</h3>
+              <div class="type-scale">
+                <div style="font-size:34px;font-weight:800">Display 34 / 800</div>
+                <div style="font-size:24px;font-weight:760">Section 24 / 760</div>
+                <div style="font-size:16px;font-weight:720">Panel 16 / 720</div>
+                <div style="font-size:14px;color:var(--soft)">Body 14 / normal</div>
+                <div style="font-size:12px;color:var(--muted)">Meta 12 / muted</div>
+                <code style="font-family:var(--mono);color:var(--teal)">00:54.126 MIDI_CLOCK</code>
+              </div>
+            </div>
+          </div>
+          <div class="content-grid" style="margin-top:16px">
+            <div class="modal-demo">
+              <div class="modal-head"><strong>Modal pattern</strong><button class="btn icon ghost"><svg class="icon" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+              <div class="modal-body">
+                <div class="setting-row"><span>Nombre preset</span><input class="field" value="Fur Elise 75%" style="width:180px"></div>
+                <div class="setting-row"><span>Compartir JSON</span><span class="toggle on"></span></div>
+              </div>
+              <div class="modal-foot"><button class="btn">Cancelar</button><button class="btn primary">Guardar</button></div>
+            </div>
+            <div class="card">
+              <h3>Toast stack</h3>
+              <div class="toast-stack">
+                <div class="toast"><span class="chip teal">OK</span><div><strong>MIDI cargado</strong><div class="muted">4 tracks listos.</div></div><button class="btn ghost">Ver</button></div>
+                <div class="toast"><span class="chip gold">PWA</span><div><strong>Disponible offline</strong><div class="muted">Soundfont cacheado.</div></div><button class="btn ghost">Abrir</button></div>
+                <div class="toast"><span class="chip rose">MIDI</span><div><strong>Permiso denegado</strong><div class="muted">Activa Web MIDI en Chrome.</div></div><button class="btn ghost">Retry</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-states" class="screen">
+        <div class="artboard screen-pad">
+          <div class="screen-header">
+            <div><h2>Estados criticos y responsive</h2><p>Error, loading, empty, offline, updates, navegador sin Web MIDI y vista mobile.</p></div>
+          </div>
+          <div class="content-grid">
+            <div class="card">
+              <h3>Estados operativos</h3>
+              <div class="toast-stack">
+                <div class="toast"><span class="chip rose">No MIDI</span><div><strong>Firefox/Safari</strong><div class="muted">Reproduccion disponible, entrada MIDI deshabilitada.</div></div><button class="btn">Detalles</button></div>
+                <div class="toast"><span class="chip gold">Offline</span><div><strong>Modo sin conexion</strong><div class="muted">Cloud y sync pausados; practica local activa.</div></div><button class="btn">Cache</button></div>
+                <div class="toast"><span class="chip teal">Update</span><div><strong>Nueva version lista</strong><div class="muted">Recarga cuando termine la sesion.</div></div><button class="btn primary">Actualizar</button></div>
+                <div class="toast"><span class="chip rose">Archivo</span><div><strong>MIDI invalido</strong><div class="muted">Formato no soportado o archivo corrupto.</div></div><button class="btn">Reintentar</button></div>
+              </div>
+              <h3 style="margin-top:18px">Loading skeleton</h3>
+              <div class="range-card">
+                <span class="skeleton" style="width:80%;margin-bottom:12px"></span>
+                <span class="skeleton" style="width:58%;margin-bottom:12px"></span>
+                <span class="skeleton" style="width:92%"></span>
+              </div>
+              <h3 style="margin-top:18px">Empty state</h3>
+              <div class="dropzone">
+                <div><strong>Sin grabaciones todavia</strong><div class="muted">El boton REC crea el primer take local.</div></div>
+              </div>
+            </div>
+            <div class="card">
+              <h3>Mobile shell</h3>
+              <div class="phone-preview">
+                <div class="phone-top">
+                  <div class="app-logo" style="min-width:0">
+                    <div class="logo-chip" style="width:36px;height:36px"><svg class="icon" viewBox="0 0 24 24"><path d="M4 18V6h16v12"/><path d="M8 6v12"/><path d="M12 6v12"/><path d="M16 6v12"/></svg></div>
+                    <div><strong style="font-size:13px">Piano MIDI</strong><small>37 keys</small></div>
+                  </div>
+                  <button class="btn icon"><svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg></button>
+                </div>
+                <div style="padding:12px;display:flex;gap:8px;overflow:hidden"><span class="chip teal">Fur Elise</span><span class="chip">0:54</span><span class="chip gold">75%</span></div>
+                <div class="phone-stage">
+                  <div class="falling-note track-1" style="left:28%;top:42px;height:170px;width:20px"></div>
+                  <div class="falling-note track-2" style="left:48%;top:92px;height:120px;width:20px"></div>
+                  <div class="falling-note track-3" style="left:64%;top:16px;height:210px;width:20px"></div>
+                  <div class="impact-line" style="bottom:28px"></div>
+                </div>
+                <div class="phone-piano">
+                  <span class="white-key"></span><span class="white-key active"></span><span class="white-key"></span><span class="white-key"></span><span class="white-key active"></span><span class="white-key"></span><span class="white-key"></span><span class="white-key"></span><span class="white-key active"></span><span class="white-key"></span><span class="white-key"></span><span class="white-key"></span><span class="white-key"></span><span class="white-key"></span><span class="white-key"></span>
+                </div>
+                <div style="padding:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+                  <button class="btn icon"><svg class="icon" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
+                  <button class="btn icon primary"><svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor" stroke="none"/></svg></button>
+                  <button class="btn icon"><svg class="icon" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button>
+                </div>
+                <div style="padding:0 12px 12px"><div class="range-strip" data-range-strip data-start="36" data-count="37"></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-top:16px">
+            <h3>Tutorial overlay</h3>
+            <div class="modal-demo">
+              <div class="modal-head"><strong>Conecta tu controlador</strong><span class="chip">Paso 2 de 7</span></div>
+              <div class="modal-body">
+                <div class="device-card">
+                  <div class="device-icon"><svg class="icon" viewBox="0 0 24 24"><path d="M4 19V5h16v14"/><path d="M8 5v14"/><path d="M12 5v14"/><path d="M16 5v14"/></svg></div>
+                  <div><strong>Seleccion MIDI Input</strong><div class="muted">El rango C3-C6 se guarda automaticamente.</div></div>
+                  <span class="chip teal">Detectado</span>
+                </div>
+              </div>
+              <div class="modal-foot"><button class="btn">Omitir</button><button class="btn primary">Siguiente</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const noteNames = ["A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"];
+    const blackNames = new Set(["A#", "C#", "D#", "F#", "G#"]);
+
+    function noteName(index) {
+      const name = noteNames[index % 12];
+      const octave = Math.floor((index + 9) / 12);
+      return name + octave;
+    }
+
+    function isBlack(index) {
+      return blackNames.has(noteNames[index % 12]);
+    }
+
+    function buildRangeStrip(el) {
+      const start = Number(el.dataset.start || 36);
+      const count = Number(el.dataset.count || 37);
+      for (let i = 0; i < 88; i += 1) {
+        const key = document.createElement("span");
+        key.className = "mini-key" + (isBlack(i) ? " black" : "") + (i >= start && i < start + count ? " in-range" : "") + (i === start ? " anchor" : "");
+        el.appendChild(key);
+      }
+    }
+
+    function buildMainPiano(el) {
+      for (let i = 0; i < 37; i += 1) {
+        const white = document.createElement("div");
+        white.className = "white-key" + ([4, 11, 18, 27].includes(i) ? " active" : "");
+        const label = document.createElement("span");
+        label.className = "key-label";
+        label.textContent = noteName(36 + i);
+        white.appendChild(label);
+        if ([1, 3, 6, 8, 10].includes((36 + i) % 12)) {
+          const black = document.createElement("div");
+          black.className = "black-key";
+          const blackLabel = document.createElement("span");
+          blackLabel.className = "key-label";
+          blackLabel.textContent = noteName(36 + i);
+          black.appendChild(blackLabel);
+          white.appendChild(black);
+        }
+        el.appendChild(white);
+      }
+    }
+
+    function buildWidePiano(el) {
+      for (let i = 0; i < 88; i += 1) {
+        const key = document.createElement("span");
+        key.className = "wide-key" + (isBlack(i) ? " black" : "") + (i >= 36 && i < 73 ? " in-range" : "") + ([40, 44, 47, 52, 56, 59].includes(i) ? " played" : "");
+        key.title = noteName(i);
+        el.appendChild(key);
+      }
+    }
+
+    function buildWaveform(el) {
+      const heights = [30,54,88,42,110,156,74,132,38,96,164,116,58,84,144,174,70,48,118,138,92,44,154,190,82,66,128,160,102,50,86,148,120,68,170,112,76,136,98,40,152,180,108,58,126,166,88,52];
+      heights.forEach((height) => {
+        const bar = document.createElement("span");
+        bar.className = "bar";
+        bar.style.height = height + "px";
+        el.appendChild(bar);
+      });
+    }
+
+    document.querySelectorAll("[data-range-strip]").forEach(buildRangeStrip);
+    document.querySelectorAll("[data-piano-main]").forEach(buildMainPiano);
+    document.querySelectorAll("[data-wide-piano]").forEach(buildWidePiano);
+    document.querySelectorAll("[data-waveform]").forEach(buildWaveform);
+
+    const buttons = document.querySelectorAll(".rail-button");
+    const screens = document.querySelectorAll(".screen");
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = button.dataset.screen;
+        buttons.forEach((item) => item.classList.toggle("active", item === button));
+        screens.forEach((screen) => screen.classList.toggle("active", screen.id === "screen-" + target));
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    });
+  </script>
+</body>
+</html>

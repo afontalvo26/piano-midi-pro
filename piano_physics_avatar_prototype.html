@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prototipo UI - Avatar fisico para piano</title>
+<style>
+  :root {
+    --bg: #080911;
+    --panel: rgba(15, 17, 31, .88);
+    --violet: #a989ff;
+    --cyan: #6cf0ff;
+    --pink: #ff4fc7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background:
+      radial-gradient(circle at 50% 25%, rgba(120,90,255,.2), transparent 34%),
+      linear-gradient(180deg, #06070b 0%, #0b0d18 100%);
+    color: #ecf2ff;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .wrap { width: min(1100px, 96vw); }
+  .caption {
+    margin: 0 0 12px;
+    padding: 12px 16px;
+    border: 1px solid rgba(140, 122, 255, .28);
+    border-radius: 18px;
+    background: var(--panel);
+    box-shadow: 0 20px 90px rgba(0,0,0,.35);
+  }
+  .caption strong { color: #ffffff; }
+  .caption span { color: #aeb9d7; }
+  .stage {
+    position: relative;
+    overflow: hidden;
+    border-radius: 24px;
+    border: 1px solid rgba(177, 156, 255, .34);
+    background: #070810;
+    box-shadow: 0 30px 110px rgba(0,0,0,.58), inset 0 0 0 1px rgba(255,255,255,.04);
+  }
+  svg { width: 100%; display: block; user-select: none; touch-action: none; }
+  .grid-line { stroke: rgba(255,255,255,.05); stroke-width: 1; }
+  .fall-note { fill: url(#noteGrad); filter: url(#noteGlow); rx: 8; opacity: .95; }
+  .note-spark { fill: #d8caff; opacity: .55; }
+  .separator-red { stroke: #ff143c; stroke-width: 4; }
+  .separator-blue { stroke: #2e56ff; stroke-width: 2; opacity: .9; }
+  .white-key {
+    fill: url(#whiteKeyGrad);
+    stroke: rgba(84, 92, 115, .45);
+    stroke-width: 1;
+    cursor: pointer;
+  }
+  .black-key {
+    fill: url(#blackKeyGrad);
+    filter: url(#blackShadow);
+    cursor: pointer;
+  }
+  .white-key.pressed { fill: url(#whitePressed); }
+  .black-key.pressed { fill: url(#blackPressed); }
+  .key-label { fill: #6e7586; font-size: 12px; font-weight: 700; pointer-events: none; }
+  .black-label { fill: #c7c9d5; font-size: 10px; font-weight: 700; pointer-events: none; }
+  #avatarRoot, #shadow, #hitRing, #forceField { will-change: transform, opacity; }
+  #avatarRoot { filter: url(#avatarGlow); }
+  .avatar-body { fill: url(#avatarBody); stroke: rgba(255,255,255,.62); stroke-width: 1.25; }
+  .avatar-core { fill: url(#coreGrad); opacity: .95; }
+  .avatar-visor { fill: #101522; stroke: rgba(211, 246, 255, .92); stroke-width: 1; }
+  .avatar-eye { fill: #70f6ff; filter: url(#cyanGlow); animation: visorPulse 1.55s ease-in-out infinite; }
+  .avatar-limb {
+    fill: none;
+    stroke: #c5b7ff;
+    stroke-width: 5.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: .92;
+    animation: limbFloat 1.2s ease-in-out infinite alternate;
+  }
+  .avatar-limb.alt { animation-delay: -.55s; stroke: #72f4ff; }
+  .antenna { stroke: #c8bbff; stroke-width: 2.5; stroke-linecap: round; animation: antenna 1.4s ease-in-out infinite alternate; transform-origin: 0 -56px; }
+  .orb { fill: #9d7cff; filter: url(#noteGlow); animation: orb 1.8s ease-in-out infinite alternate; }
+  #shadow { fill: rgba(0,0,0,.55); filter: blur(3px); }
+  #forceField { fill: none; stroke: rgba(108,240,255,.45); stroke-width: 2; stroke-dasharray: 10 7; opacity: 0; }
+  #hitRing { fill: none; stroke: rgba(255,79,199,.72); stroke-width: 4; opacity: 0; }
+  .hud-text { fill: #dbe3ff; font-size: 13px; letter-spacing: .03em; }
+  .hud-muted { fill: #8b95b6; font-size: 11px; }
+  @keyframes visorPulse { 0%,100% { opacity: .65; } 50% { opacity: 1; } }
+  @keyframes limbFloat { from { transform: translateY(-1px); } to { transform: translateY(3px); } }
+  @keyframes antenna { from { transform: rotate(-5deg); } to { transform: rotate(6deg); } }
+  @keyframes orb { from { transform: translateY(-1px) scale(.92); } to { transform: translateY(2px) scale(1.08); } }
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <p class="caption"><strong>Idea:</strong> reemplazar ositos/gatos por un avatar abstracto tipo "Neon Runner". <span>Se mueve con fisica, evita notas/taps y si una tecla se presiona debajo de el, recibe un impulso vertical con gravedad, rebote y caida.</span></p>
+    <div class="stage">
+      <svg id="scene" viewBox="0 0 980 420" aria-label="Prototipo interactivo de piano con avatar fisico">
+        <defs>
+          <linearGradient id="noteGrad" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stop-color="#c5adff"/>
+            <stop offset="1" stop-color="#896cf7"/>
+          </linearGradient>
+          <linearGradient id="whiteKeyGrad" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stop-color="#fff"/>
+            <stop offset=".55" stop-color="#f4f6fb"/>
+            <stop offset="1" stop-color="#dbe0ea"/>
+          </linearGradient>
+          <linearGradient id="whitePressed" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stop-color="#faffff"/>
+            <stop offset=".55" stop-color="#c9fbff"/>
+            <stop offset="1" stop-color="#85e9ff"/>
+          </linearGradient>
+          <linearGradient id="blackKeyGrad" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stop-color="#11131b"/>
+            <stop offset="1" stop-color="#000"/>
+          </linearGradient>
+          <linearGradient id="blackPressed" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stop-color="#2b2149"/>
+            <stop offset="1" stop-color="#070012"/>
+          </linearGradient>
+          <linearGradient id="avatarBody" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0" stop-color="#f2edff"/>
+            <stop offset=".28" stop-color="#bba6ff"/>
+            <stop offset=".7" stop-color="#6cf0ff"/>
+            <stop offset="1" stop-color="#493a96"/>
+          </linearGradient>
+          <radialGradient id="coreGrad" cx="42%" cy="35%" r="70%">
+            <stop offset="0" stop-color="#ffffff"/>
+            <stop offset=".42" stop-color="#8df8ff"/>
+            <stop offset="1" stop-color="#7c55ff"/>
+          </radialGradient>
+          <filter id="noteGlow" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="7" result="b"/>
+            <feColorMatrix in="b" type="matrix" values=".8 0 0 0 .35 0 .45 0 0 .28 0 0 1 0 .95 0 0 0 .8 0" result="g"/>
+            <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="avatarGlow" x="-70%" y="-90%" width="240%" height="260%">
+            <feGaussianBlur stdDeviation="7" result="b"/>
+            <feColorMatrix in="b" type="matrix" values="0 0 0 0 .35 0 0 0 0 .2 0 0 0 0 1 0 0 0 .8 0" result="g"/>
+            <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="cyanGlow" x="-100%" y="-100%" width="300%" height="300%">
+            <feGaussianBlur stdDeviation="4" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="blackShadow" x="-40%" y="-20%" width="180%" height="170%">
+            <feDropShadow dx="0" dy="7" stdDeviation="4" flood-color="#000" flood-opacity=".75"/>
+          </filter>
+        </defs>
+
+        <rect width="980" height="420" fill="#070810"/>
+        <g id="grid"></g>
+        <g id="notesLayer"></g>
+        <g id="sparksLayer"></g>
+
+        <text x="24" y="30" class="hud-text">NEON RUNNER // fisica SVG + CSS + JS</text>
+        <text x="24" y="50" class="hud-muted">Haz tap/click en las teclas: el avatar esquiva y salta con gravedad.</text>
+
+        <ellipse id="shadow" cx="0" cy="0" rx="32" ry="8"/>
+        <circle id="hitRing" cx="0" cy="0" r="20"/>
+        <circle id="forceField" cx="0" cy="0" r="55"/>
+
+        <g id="avatarRoot" transform="translate(210 282)">
+          <path class="avatar-limb" d="M -22 -30 C -48 -28 -55 -12 -42 2"/>
+          <path class="avatar-limb alt" d="M 22 -30 C 48 -27 56 -12 41 2"/>
+          <path class="avatar-limb alt" d="M -13 -4 C -26 13 -20 23 -6 25"/>
+          <path class="avatar-limb" d="M 13 -4 C 26 13 20 23 6 25"/>
+          <path class="antenna" d="M 0 -67 C 2 -81 13 -88 28 -91"/>
+          <circle class="orb" cx="32" cy="-93" r="6"/>
+          <path class="avatar-body" d="M 0 -76 C 31 -76 45 -53 45 -32 C 45 -2 24 15 0 15 C -24 15 -45 -2 -45 -32 C -45 -53 -31 -76 0 -76 Z"/>
+          <ellipse class="avatar-core" cx="0" cy="-28" rx="27" ry="33"/>
+          <rect class="avatar-visor" x="-25" y="-48" width="50" height="17" rx="8"/>
+          <circle class="avatar-eye" cx="-10" cy="-39" r="4"/>
+          <circle class="avatar-eye" cx="10" cy="-39" r="4"/>
+          <path d="M -14 -21 C -4 -14 5 -14 15 -21" fill="none" stroke="rgba(15,21,34,.8)" stroke-width="3" stroke-linecap="round"/>
+          <path d="M -29 -58 L -17 -66 L -12 -55" fill="none" stroke="rgba(255,255,255,.65)" stroke-width="2" stroke-linecap="round"/>
+        </g>
+
+        <g id="keysLayer"></g>
+        <line x1="0" y1="282" x2="980" y2="282" class="separator-red"/>
+        <line x1="0" y1="286" x2="980" y2="286" class="separator-blue"/>
+      </svg>
+    </div>
+  </main>
+
+<script>
+(() => {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const scene = document.getElementById("scene");
+  const grid = document.getElementById("grid");
+  const notesLayer = document.getElementById("notesLayer");
+  const keysLayer = document.getElementById("keysLayer");
+  const sparksLayer = document.getElementById("sparksLayer");
+  const avatarRoot = document.getElementById("avatarRoot");
+  const shadow = document.getElementById("shadow");
+  const hitRing = document.getElementById("hitRing");
+  const forceField = document.getElementById("forceField");
+
+  const W = 980;
+  const groundY = 282;
+  const keyY = 286;
+  const keyH = 134;
+  const whiteCount = 22;
+  const whiteW = W / whiteCount;
+  const blackW = whiteW * 0.58;
+  const blackH = 96;
+  const noteLabels = ["C","D","E","F","G","A","B"];
+  const keys = [];
+  const activeThreats = [];
+
+  function el(name, attrs = {}, parent) {
+    const node = document.createElementNS(svgNS, name);
+    Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+
+  for (let x = 0; x <= W; x += 45) el("line", {x1:x, y1:0, x2:x, y2:groundY, class:"grid-line"}, grid);
+  for (let y = 0; y <= groundY; y += 24) el("line", {x1:0, y1:y, x2:W, y2:y, class:"grid-line"}, grid);
+
+  for (let i = 0; i < whiteCount; i++) {
+    const x = i * whiteW;
+    const label = noteLabels[i % 7] + (2 + Math.floor(i / 7));
+    const rect = el("rect", {x, y:keyY, width:whiteW, height:keyH, class:"white-key", rx:4}, keysLayer);
+    el("text", {x:x + whiteW/2, y:keyY + 102, "text-anchor":"middle", class:"key-label"}, keysLayer).textContent = label;
+    const obj = { el: rect, x, y:keyY, w:whiteW, h:keyH, cx:x + whiteW/2, label, black:false, until:0 };
+    keys.push(obj);
+    rect.addEventListener("pointerdown", (e) => { e.preventDefault(); triggerKey(obj, 1.0); });
+  }
+
+  const blackAfter = new Set([0,1,3,4,5]);
+  for (let i = 0; i < whiteCount - 1; i++) {
+    if (!blackAfter.has(i % 7)) continue;
+    const x = (i + 1) * whiteW - blackW/2;
+    const label = noteLabels[i % 7] + "#" + (2 + Math.floor(i / 7));
+    const rect = el("rect", {x, y:keyY, width:blackW, height:blackH, class:"black-key", rx:5}, keysLayer);
+    el("text", {x:x + blackW/2, y:keyY + 55, "text-anchor":"middle", class:"black-label"}, keysLayer).textContent = label;
+    const obj = { el: rect, x, y:keyY, w:blackW, h:blackH, cx:x + blackW/2, label, black:true, until:0 };
+    keys.push(obj);
+    rect.addEventListener("pointerdown", (e) => { e.preventDefault(); triggerKey(obj, 1.0); });
+  }
+
+  const whiteKeys = keys.filter(k => !k.black);
+  const notes = Array.from({ length: 16 }, (_, i) => createNote(i));
+
+  function createNote(i) {
+    const k = whiteKeys[Math.floor(Math.random() * whiteKeys.length)];
+    const width = k.w * (0.7 + Math.random() * 0.55);
+    const height = 36 + Math.random() * 70;
+    const node = el("rect", {class:"fall-note", x:k.cx - width/2, y:-Math.random()*420, width, height}, notesLayer);
+    return { node, key:k, x:k.cx - width/2, y:-80 - i * 45 - Math.random()*240, w:width, h:height, speed:95 + Math.random()*85, fired:false };
+  }
+
+  function recycleNote(n) {
+    const k = whiteKeys[Math.floor(Math.random() * whiteKeys.length)];
+    n.key = k;
+    n.w = k.w * (0.7 + Math.random() * 0.55);
+    n.h = 36 + Math.random() * 72;
+    n.x = k.cx - n.w/2;
+    n.y = -120 - Math.random() * 260;
+    n.speed = 95 + Math.random() * 95;
+    n.fired = false;
+    n.node.setAttribute("width", n.w);
+    n.node.setAttribute("height", n.h);
+  }
+
+  const char = { x: W * .22, y: groundY, vx: 0, vy: 0, squash: 0, field: 0, ring: 0, ringR: 20 };
+  let last = 0;
+
+  function triggerKey(k, power = 1) {
+    k.until = performance.now() + 155;
+    k.el.classList.add("pressed");
+    activeThreats.push({ x:k.cx, t:performance.now(), power });
+    spark(k.cx, groundY - 4, power);
+
+    const dx = char.x - k.cx;
+    const range = k.w * (k.black ? 1.15 : 1.35) + 28;
+    if (Math.abs(dx) < range && char.y > groundY - 68) {
+      const proximity = 1 - Math.abs(dx) / range;
+      const impulse = 620 + power * 450 + proximity * 260;
+      char.vy = Math.min(char.vy, -impulse);
+      char.vx += (dx >= 0 ? 1 : -1) * (240 + power * 220 + proximity * 280);
+      char.squash = -.16;
+      char.ring = 1;
+      char.ringR = 22;
+      char.field = 1;
+    }
+  }
+
+  function spark(x, y, power) {
+    const c = el("circle", {cx:x, cy:y, r:4 + power*2, class:"note-spark"}, sparksLayer);
+    const born = performance.now();
+    c._tick = () => {
+      const p = Math.min(1, (performance.now() - born) / 360);
+      c.setAttribute("r", 4 + p * 28);
+      c.setAttribute("opacity", String(1 - p));
+      if (p >= 1) c.remove();
+      else requestAnimationFrame(c._tick);
+    };
+    requestAnimationFrame(c._tick);
+  }
+
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+  function update(now) {
+    const dt = Math.min(.033, (now - last) / 1000 || .016);
+    last = now;
+
+    keys.forEach(k => { if (k.until && now > k.until) { k.el.classList.remove("pressed"); k.until = 0; } });
+    while (activeThreats.length && now - activeThreats[0].t > 620) activeThreats.shift();
+
+    let steer = 0;
+    notes.forEach(n => {
+      n.y += n.speed * dt;
+      n.node.setAttribute("x", n.x);
+      n.node.setAttribute("y", n.y);
+      const cx = n.x + n.w/2;
+      const dyZone = clamp(1 - Math.abs((n.y + n.h) - groundY) / 175, 0, 1);
+      const dx = char.x - cx;
+      const proximity = clamp(1 - Math.abs(dx) / 120, 0, 1);
+      if (dyZone > 0 && proximity > 0) steer += (dx >= 0 ? 1 : -1) * 1500 * dyZone * proximity;
+      if (!n.fired && n.y + n.h >= groundY - 2) { n.fired = true; triggerKey(n.key, .56); }
+      if (n.y > groundY + 40) recycleNote(n);
+    });
+
+    activeThreats.forEach(th => {
+      const age = (now - th.t) / 620;
+      const dx = char.x - th.x;
+      const falloff = clamp(1 - Math.abs(dx) / 170, 0, 1) * (1 - age);
+      steer += (dx >= 0 ? 1 : -1) * 1200 * falloff * th.power;
+    });
+
+    char.vx += steer * dt;
+    char.vx *= Math.pow(.06, dt);
+    char.x += char.vx * dt;
+
+    if (char.x < 42) { char.x = 42; char.vx = Math.abs(char.vx) * .45; }
+    if (char.x > W - 42) { char.x = W - 42; char.vx = -Math.abs(char.vx) * .45; }
+
+    char.vy += 1850 * dt;
+    char.y += char.vy * dt;
+    if (char.y > groundY) {
+      char.y = groundY;
+      if (Math.abs(char.vy) > 110) {
+        char.vy *= -.22;
+        char.squash = .22;
+      } else {
+        char.vy = 0;
+      }
+    }
+
+    char.squash += (0 - char.squash) * (1 - Math.pow(.0008, dt));
+    char.field += (0 - char.field) * (1 - Math.pow(.004, dt));
+    char.ring += (0 - char.ring) * (1 - Math.pow(.006, dt));
+    char.ringR += 86 * dt;
+
+    const air = clamp((groundY - char.y) / 160, 0, 1);
+    const stretch = clamp(-char.vy / 1900, -.12, .16) - char.squash;
+    const sx = 1 - stretch * .46;
+    const sy = 1 + stretch;
+    const rot = clamp(char.vx / 42, -14, 14);
+    avatarRoot.setAttribute("transform", `translate(${char.x.toFixed(2)} ${char.y.toFixed(2)}) rotate(${rot.toFixed(2)}) scale(${sx.toFixed(3)} ${sy.toFixed(3)})`);
+
+    shadow.setAttribute("cx", char.x);
+    shadow.setAttribute("cy", groundY + 12);
+    shadow.setAttribute("rx", 34 + (1 - air) * 18);
+    shadow.setAttribute("ry", 5 + (1 - air) * 5);
+    shadow.setAttribute("opacity", .25 + (1 - air) * .42);
+
+    hitRing.setAttribute("cx", char.x);
+    hitRing.setAttribute("cy", char.y - 28);
+    hitRing.setAttribute("r", char.ringR);
+    hitRing.setAttribute("opacity", char.ring.toFixed(3));
+
+    forceField.setAttribute("cx", char.x);
+    forceField.setAttribute("cy", char.y - 31);
+    forceField.setAttribute("opacity", String(clamp(char.field + Math.min(1, Math.abs(steer) / 2200) * .45, 0, .85)));
+    forceField.setAttribute("transform", `rotate(${(now/22)%360} ${char.x} ${char.y - 31})`);
+
+    requestAnimationFrame(update);
+  }
+
+  scene.addEventListener("pointerdown", (e) => {
+    const pt = scene.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    const local = pt.matrixTransform(scene.getScreenCTM().inverse());
+    const hit = keys.find(k => local.x >= k.x && local.x <= k.x + k.w && local.y >= k.y && local.y <= k.y + k.h);
+    if (hit) triggerKey(hit, 1.15);
+  });
+
+  window.addEventListener("keydown", (e) => {
+    const chars = "asdfghjklqwertyuiopzxcv";
+    const idx = chars.indexOf(e.key.toLowerCase());
+    if (idx >= 0) triggerKey(whiteKeys[idx % whiteKeys.length], 1.0);
+  });
+
+  requestAnimationFrame(update);
+})();
+</script>
+</body>
+</html>
