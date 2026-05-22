@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocalStorageState } from "../utils/settings";
 import {
-  applyVelocityCurve,
+  midiVelocityToGain,
   type VelocityCurve as VelocityCurveType,
 } from "../utils/velocity";
 
@@ -71,7 +71,7 @@ export function useMidiInput(options: UseMidiInputOptions = {}): UseMidiInputApi
   useEffect(() => { optionsRef.current = options; }, [options]);
 
   const applyCurve = (raw: number, curve: VelocityCurveType): number => {
-    return applyVelocityCurve(raw / 127, curve);
+    return midiVelocityToGain(raw, curve);
   };
 
   const handleMessage = useCallback((event: MIDIMessageEvent) => {

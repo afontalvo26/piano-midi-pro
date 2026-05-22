@@ -103,9 +103,12 @@ import {
 } from "./utils/instrumentMapping";
 import { getDeviceProfile } from "./utils/deviceCapabilities";
 import {
-  applyVelocityCurve,
   VELOCITY_CURVE_DESCRIPTORS,
+  midiVelocityToGain,
+  recordVelocityObservation,
+  DEFAULT_CALIBRATION,
   type VelocityCurve,
+  type VelocityCalibration,
 } from "./utils/velocity";
 import { parseDemoInWorker } from "./utils/midiWorkerClient";
 import {
@@ -434,7 +437,7 @@ export default function App() {
   const [lastVelocity, setLastVelocity] = useState<number>(0);
   const [velocityCurve, setVelocityCurve] = useLocalStorageState<VelocityCurve>(
     "piano_velocity_curve",
-    "piano",
+    "soft",
   );
   // Migrate legacy curve names from previous app versions
   useEffect(() => {
@@ -443,6 +446,14 @@ export default function App() {
     else if (cur === "exponential") setVelocityCurve("piano");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Velocity calibration: tracks the controller's actual min/max range
+  // and remaps it to 0..1 before applying the curve. Without this, a
+  // controller that only sends 32..127 would have a useless soft range.
+  const [velocityCalibration, setVelocityCalibration] =
+    useLocalStorageState<VelocityCalibration>(
+      "piano_velocity_calibration",
+      DEFAULT_CALIBRATION,
+    );
   const [mouseVelocity, setMouseVelocity] = useLocalStorageState<number>(
     "piano_mouse_velocity",
     0.75,
@@ -753,7 +764,8 @@ export default function App() {
     // Audio state refs to break circular deps
     pitchBend: 0,
     pitchBendRange: 2,
-    velocityCurve: "piano" as VelocityCurve,
+    velocityCurve: "soft" as VelocityCurve,
+    velocityCalibration: DEFAULT_CALIBRATION as VelocityCalibration,
     midiMode: "shift" as "anchor" | "shift",
     midiPhysicalBase: 48,
     isAudioReady: false,
@@ -808,6 +820,7 @@ export default function App() {
   stateRef.current.pitchBend = pitchBend;
   stateRef.current.pitchBendRange = pitchBendRange;
   stateRef.current.velocityCurve = velocityCurve;
+  stateRef.current.velocityCalibration = velocityCalibration;
   stateRef.current.midiMode = midiMode;
   stateRef.current.midiPhysicalBase = midiPhysicalBase;
   stateRef.current.isAudioReady = isAudioReady;
@@ -3212,11 +3225,24 @@ export default function App() {
       const isNoteOn = command === 0x90 && rawVelocity > 0;
 
       // Read current values from ref (stable, no deps needed)
-      const { velocityCurve: vc } = stateRef.current;
+      const { velocityCurve: vc, velocityCalibration: vCal } = stateRef.current;
 
-      // Apply velocity curve (mathematically correct gain mapping)
-      // GM spec default = "piano" (gain = (v/127)²) — see utils/velocity.ts
-      const velocity = applyVelocityCurve(rawVelocity / 127, vc);
+      // Auto-calibrate the controller's velocity range over time so the
+      // user's softest stroke maps to actual ppp dynamics (not 6% gain).
+      if (isNoteOn && vCal.autoCalibrationEnabled) {
+        const updated = recordVelocityObservation(vCal, rawVelocity);
+        // Throttle persistence: only commit every 8 strikes to avoid
+        // spamming localStorage during fast playing.
+        if (updated.sampleCount % 8 === 0 || updated.sampleCount < 32) {
+          setVelocityCalibration(updated);
+        }
+        // Update ref immediately for the next note in this same callback chain.
+        stateRef.current.velocityCalibration = updated;
+      }
+
+      // Apply velocity curve through the calibrated pipeline:
+      //   raw → calibration remap → curve → audibility floor
+      const velocity = midiVelocityToGain(rawVelocity, vc, stateRef.current.velocityCalibration);
 
       // Mostrar nota física real en el panel MIDI
       if (isNoteOn) setLastPhysicalMidi(incomingMidi);
@@ -4662,7 +4688,14 @@ export default function App() {
                       </div>
                       <div className="metric-card">
                         <span>Fuerza (Velocity)</span>
-                        <strong>{lastVelocity} / 127</strong>
+                        <strong>
+                          {lastVelocity} / 127
+                          {velocityCalibration.autoCalibrationEnabled && velocityCalibration.sampleCount > 8 ? (
+                            <span style={{ fontSize: "0.65rem", marginLeft: 6, color: "rgba(229,231,235,0.55)" }}>
+                              ({velocityCalibration.minObserved}-{velocityCalibration.maxObserved})
+                            </span>
+                          ) : null}
+                        </strong>
                       </div>
                       <div className="metric-card">
                         <span>Pedal Sustain</span>
@@ -5286,6 +5319,67 @@ export default function App() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className="settings-row">
+                  <div className="settings-col">
+                    <label>Auto-calibración del controlador</label>
+                    <span>
+                      La mayoría de teclados solo envían velocity 25-127.
+                      La auto-calibración aprende tu rango real (mín {velocityCalibration.minObserved} - máx {velocityCalibration.maxObserved}{velocityCalibration.sampleCount > 0 ? `, ${velocityCalibration.sampleCount} muestras` : ", sin muestras todavía"}) y lo estira a 0-100 % antes de aplicar la curva. Sin esto, tu nota más suave nunca llega a pianissimo real.
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+                    <label className="switch-toggle" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={velocityCalibration.autoCalibrationEnabled}
+                        onChange={(e) =>
+                          setVelocityCalibration({
+                            ...velocityCalibration,
+                            autoCalibrationEnabled: e.target.checked,
+                          })
+                        }
+                        style={{ accentColor: "#8b5cf6" }}
+                      />
+                      <span style={{ fontSize: "0.85rem" }}>
+                        {velocityCalibration.autoCalibrationEnabled ? "Activa" : "Inactiva"}
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ fontSize: "0.75rem", padding: "4px 10px", height: 28 }}
+                      onClick={() => setVelocityCalibration(DEFAULT_CALIBRATION)}
+                    >
+                      Reiniciar calibración
+                    </button>
+                  </div>
+                </div>
+
+                <div className="settings-row">
+                  <div className="settings-col">
+                    <label>Floor de audibilidad</label>
+                    <span>
+                      Ganancia mínima para tu nota más suave. {Math.round(velocityCalibration.audibilityFloor * 100)}% — sin esto, una velocity 1 quedaría inaudible incluso en la curva &quot;piano&quot;.
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    className="slider-custom"
+                    aria-label="Floor de audibilidad"
+                    min={0}
+                    max={0.15}
+                    step={0.01}
+                    value={velocityCalibration.audibilityFloor}
+                    onChange={(e) =>
+                      setVelocityCalibration({
+                        ...velocityCalibration,
+                        audibilityFloor: Number(e.target.value),
+                      })
+                    }
+                    style={{ minWidth: 200, maxWidth: 320 }}
+                  />
                 </div>
 
                 <div className="settings-row">
