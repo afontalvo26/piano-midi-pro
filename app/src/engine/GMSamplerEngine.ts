@@ -15,6 +15,13 @@ import {
   isButtonAccordionInstrument,
   loadButtonAccordion,
 } from "./freePatsAccordion";
+import {
+  TARGET_MELODIC_RMS_DB,
+  applyTrim,
+  bufferRmsDb,
+  median,
+  trimDb,
+} from "./sampleLevels";
 
 /** El set de soundfont se sirve desde el repo de gleitz en la rama gh-pages. */
 const SOUNDFONT_SET = "MusyngKite";
@@ -221,16 +228,14 @@ function cacheKey(sfName: string): string {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Convert a base64 data URI  →  Blob URL.
- * Tone.Sampler handles blob: URLs perfectly; data: URIs are unreliable in v15.
+ * Convert a base64 data URI → ArrayBuffer listo para `decodeAudioData`.
  */
-function dataUriToBlobUrl(dataUri: string): string {
-  const [header, base64] = dataUri.split(",");
-  const mime = header.match(/:(.*?);/)?.[1] ?? "audio/ogg";
+function decodeDataUri(dataUri: string): ArrayBuffer {
+  const base64 = dataUri.slice(dataUri.indexOf(",") + 1);
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return URL.createObjectURL(new Blob([bytes], { type: mime }));
+  return bytes.buffer;
 }
 
 /**
@@ -380,6 +385,7 @@ export async function loadSoundfontSampler(
   sfName: string,
   dest: Tone.ToneAudioNode,
   set: string = SOUNDFONT_SET,
+  neededNotes?: number[],
 ): Promise<Tone.Sampler> {
   console.log(`[GMSampler] Fetching ${sfName} (${set})...`);
 
@@ -388,26 +394,59 @@ export async function loadSoundfontSampler(
 
   // Parse the soundfont JS → { "A0": "data:audio/ogg;base64,...", ... }
   const full = extractSoundfontJson(text);
-  const rawData = thinSampleMap(full);
+  let rawData = thinSampleMap(full);
+
+  // Si la canción sólo usa un rango, se descartan las muestras que no hacen
+  // falta: son ~30 archivos por instrumento y la mayoría queda fuera del
+  // registro que la pista toca.
+  if (neededNotes?.length) {
+    const min = Math.min(...neededNotes) - 2;
+    const max = Math.max(...neededNotes) + 2;
+    const kept = Object.entries(rawData).filter(([note]) => {
+      try {
+        const midi = Tone.Frequency(note).toMidi();
+        return midi >= min && midi <= max;
+      } catch {
+        return false;
+      }
+    });
+    if (kept.length >= 2) rawData = Object.fromEntries(kept);
+  }
   console.log(
-    `[GMSampler] ${sfName}: ${Object.keys(rawData).length}/${Object.keys(full).length} samples, converting to Blob URLs...`,
+    `[GMSampler] ${sfName}: ${Object.keys(rawData).length}/${Object.keys(full).length} samples, decodificando...`,
   );
 
-  // ✔ Convert every data URI to a Blob URL — Tone.Sampler works reliably with these
-  const blobUrls: Record<string, string> = {};
-  const created: string[] = [];
-  for (const [note, dataUri] of Object.entries(rawData)) {
-    try {
-      const blobUrl = dataUriToBlobUrl(dataUri);
-      blobUrls[note] = blobUrl;
-      created.push(blobUrl);
-    } catch (e) {
-      console.warn(`[GMSampler] ${sfName}: skip note ${note}`, e);
-    }
+  // Se decodifica acá (en vez de dejar que Tone lo haga desde Blob URLs) para
+  // poder MEDIR el nivel de la grabación: los soundfonts GM vienen entre 11 y
+  // 14 dB más bajos que el piano, y sin compensar quedaban enterrados bajo la
+  // percusión. Ver `sampleLevels.ts`.
+  const raw = Tone.getContext().rawContext as BaseAudioContext;
+  const decoded = await Promise.all(
+    Object.entries(rawData).map(async ([note, dataUri]) => {
+      try {
+        const buffer = await raw.decodeAudioData(decodeDataUri(dataUri));
+        return { note, buffer };
+      } catch (e) {
+        console.warn(`[GMSampler] ${sfName}: no se pudo decodificar ${note}`, e);
+        return null;
+      }
+    }),
+  );
+
+  const urls: Record<string, AudioBuffer> = {};
+  const rmsValues: number[] = [];
+  for (const entry of decoded) {
+    if (!entry) continue;
+    urls[entry.note] = entry.buffer;
+    rmsValues.push(bufferRmsDb(entry.buffer));
   }
-  _blobUrls.set(`${set}/${sfName}`, created);
+  if (Object.keys(urls).length === 0)
+    throw new Error(`GMSampler: ${sfName} no decodificó ningún sample`);
+
+  const measured = median(rmsValues);
+  const gainDb = trimDb(measured, TARGET_MELODIC_RMS_DB);
   console.log(
-    `[GMSampler] ${sfName}: ${created.length} Blob URLs ready, loading into Tone.Sampler...`,
+    `[GMSampler] ${sfName}: ${Object.keys(urls).length} samples, nivel ${measured.toFixed(1)} dB → compensación ${gainDb.toFixed(1)} dB`,
   );
 
   return new Promise<Tone.Sampler>((resolve, reject) => {
@@ -417,9 +456,11 @@ export async function loadSoundfontSampler(
     }, 30_000);
 
     const s = new Tone.Sampler({
-      urls: blobUrls,
+      urls,
       onload: () => {
         clearTimeout(timeout);
+        // El sampler recién existe acá: la compensación se aplica sobre él.
+        applyTrim(s, gainDb);
         console.log(`[GMSampler] ✅ ${sfName} loaded and READY`);
         resolve(s);
       },

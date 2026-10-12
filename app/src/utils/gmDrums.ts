@@ -102,6 +102,41 @@ export const GM_DRUMS: Record<number, GmDrumPiece> = {
   87: { name: "Surdo abierto", family: "latin", voice: "tom-low" },
 };
 
+/**
+ * Ajuste fino por pieza, en dB, sobre el nivel ya medido de cada sample.
+ *
+ * La nivelación automática iguala todo a un mismo RMS; esto devuelve el
+ * balance que tiene una batería de verdad: el bombo y la caja al frente, los
+ * timbres de ruido continuo (maracas, güiro, shaker, hi-hats) bien atrás.
+ * Sin esto, las maracas —que en un bolero tocan 16avos todo el tiempo— se
+ * comen al resto de la banda.
+ */
+export const PIECE_TRIM_DB: Record<number, number> = {
+  // Bombo / caja
+  35: 2, 36: 2, 37: -2, 38: 0, 39: -2, 40: 0,
+  // Toms
+  41: 0, 43: 0, 45: 0, 47: 0, 48: 0, 50: 0,
+  // Hi-hats (ruido continuo: bien atrás)
+  42: -5, 44: -6, 46: -4,
+  // Platillos
+  49: -3, 51: -4, 52: -4, 53: -4, 55: -4, 57: -3, 59: -4,
+  // Pandereta / cowbell / vibraslap
+  54: -4, 56: -3, 58: -4,
+  // Bongós, congas, timbales (el corazón del ritmo tropical)
+  60: -2, 61: -1, 62: -1, 63: -1, 64: 0, 65: -1, 66: -1,
+  // Agogo, cabasa, maracas, silbatos
+  67: -4, 68: -4, 69: -5, 70: -5, 71: -6, 72: -6,
+  // Güiro, claves, caja china, cuica
+  73: -5, 74: -5, 75: -3, 76: -3, 77: -3, 78: -3, 79: -3,
+  // Triángulo, shaker, cascabeles, castañuelas, surdo
+  80: -5, 81: -5, 82: -5, 83: -5, 84: -5, 85: -3, 86: 0, 87: 0,
+};
+
+/** Ajuste por pieza, con un valor conservador para notas fuera del mapa. */
+export function pieceTrimDb(note: number): number {
+  return PIECE_TRIM_DB[note] ?? -4;
+}
+
 /** ¿El nombre de pista corresponde a un kit de percusión? */
 export function isDrumKitName(instrument: string): boolean {
   const l = instrument.toLowerCase();

@@ -11,6 +11,13 @@
  */
 
 import * as Tone from "tone";
+import {
+  TARGET_LEAD_RMS_DB,
+  applyTrim,
+  bufferRmsDb,
+  median,
+  trimDb,
+} from "./sampleLevels";
 
 const BASE =
   "https://raw.githubusercontent.com/freepats/button-accordion-HN/main";
@@ -64,6 +71,7 @@ export function loadButtonAccordion(
       urls: BUTTON_ACCORDION_URLS,
       onload: () => {
         clearTimeout(timeout);
+        void normalizeButtonAccordion(sampler);
         console.log("[ButtonAccordion] ✅ acordeón de botones listo");
         resolve(sampler);
       },
@@ -73,4 +81,39 @@ export function loadButtonAccordion(
       },
     }).connect(dest);
   });
+}
+
+/**
+ * Nivela el acordeón contra el resto.
+ *
+ * Las grabaciones de FreePats vienen **peak-normalizadas**: medido, el acordeón
+ * de botones está en −13.7 dB RMS contra −24.7 dB del piano y −38 dB de un
+ * soundfont GM. Sin esta compensación el acordeón tapaba toda la banda — y es
+ * justo el instrumento que más suena en un vallenato, así que el problema
+ * crecía a medida que entraba en la canción.
+ *
+ * Se mide el propio audio en vez de hardcodear el número, así sigue siendo
+ * correcto si cambia el pack de samples.
+ */
+async function normalizeButtonAccordion(sampler: Tone.Sampler): Promise<void> {
+  try {
+    const raw = Tone.getContext().rawContext as BaseAudioContext;
+    const notes = Object.keys(BUTTON_ACCORDION_URLS).slice(0, 5);
+    const levels: number[] = [];
+    for (const note of notes) {
+      const res = await fetch(BUTTON_ACCORDION_URLS[note]);
+      if (!res.ok) continue;
+      const buffer = await raw.decodeAudioData(await res.arrayBuffer());
+      levels.push(bufferRmsDb(buffer));
+    }
+    if (levels.length === 0) return;
+    const measured = median(levels);
+    const gain = trimDb(measured, TARGET_LEAD_RMS_DB);
+    applyTrim(sampler, gain);
+    console.log(
+      `[ButtonAccordion] nivel ${measured.toFixed(1)} dB → compensación ${gain.toFixed(1)} dB`,
+    );
+  } catch (err) {
+    console.warn("[ButtonAccordion] no se pudo nivelar:", err);
+  }
 }

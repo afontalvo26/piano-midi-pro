@@ -1,32 +1,30 @@
 /**
- * playbackRouting — decide qué motor toca una nota.
+ * playbackRouting — decide qué fuente toca una nota.
  *
- * Estaba inline en `triggerAttack` y el orden era el problema: los motores de
- * síntesis iban ANTES del soundfont, así que cualquier nombre con "bass" o
- * "guitar" se lo quedaba el StringEngine (un sawtooth con arco) y el sample
- * real nunca sonaba. Sacarlo acá deja la política en un solo lugar, testeable
- * y a salvo de que alguien vuelva a invertirla sin darse cuenta.
+ * REGLA DE ORO (pedido explícito del dueño del proyecto): **nunca un
+ * sintetizador**. Si el sample real todavía no está, la nota espera o se saltea
+ * — jamás suena un oscilador. Antes esta política devolvía `synth` para los
+ * instrumentos que estaban cargando y `engine` (motores de osciladores) para
+ * los que no tenían soundfont: eso era, literalmente, el sonido electrónico que
+ * el usuario rechazó.
  *
- * Reglas, en orden:
- *   1. Entrada en vivo o un piano acústico → sampler Salamander (el piano real).
- *   2. El instrumento tiene soundfont cargado → ese sample real.
- *   3. El soundfont está bajando → sintetizador neutro (no el motor: sonaría
- *      a oscilador justo en los primeros compases, que es cuando el oído juzga).
- *   4. No hay soundfont (percusión latina, nombres raros) o falló → motor
- *      especializado si aporta articulación; si no, sintetizador.
+ * Estados posibles:
+ *   - `piano-sampler`: piano acústico → sampler Salamander (grabación real).
+ *   - `soundfont`    : el instrumento tiene su sample real cargado y listo.
+ *   - `wait`         : hay fuente real, todavía está bajando → silencio.
+ *   - `none`         : no hay fuente real para este nombre → silencio + aviso.
  */
 
 import { getInstrumentType } from "../engine/InstrumentEngine";
-import type { SamplerStatus } from "../engine/GMSamplerEngine";
+import type { InstrumentStatus } from "../engine/instrumentSources";
 
-export type PlaybackSource = "piano-sampler" | "soundfont" | "engine" | "synth";
+export type PlaybackSource = "piano-sampler" | "soundfont" | "wait" | "none";
 
 /**
  * ¿Este instrumento debe sonar con el sampler Salamander (piano acústico real)?
  *
  * Los pianos eléctricos (Rhodes/DX7), el piano eléctrico de cola, el clave y el
- * clavinet NO: tienen su propio sample en el soundfont y antes sonaban todos
- * como un piano acústico — la razón por la que media biblioteca sonaba a piano.
+ * clavinet NO: tienen su propio sample en el soundfont.
  */
 export function usesSalamanderPiano(instrument: string): boolean {
   const l = instrument.toLowerCase();
@@ -47,8 +45,14 @@ export interface RoutingInput {
   trackIndex: number;
   /** ¿Terminó de cargar el sampler Salamander? */
   isPianoSamplerActive: boolean;
-  /** Estado del soundfont GM de este instrumento. */
-  samplerStatus: SamplerStatus;
+  /** Estado del sample real de este instrumento. */
+  samplerStatus: InstrumentStatus;
+  /**
+   * ¿El instrumento tiene un motor especializado disponible? Se mantiene en la
+   * firma para no romper llamadores, pero YA NO se usa para decidir: los
+   * motores de osciladores no se rutean nunca.
+   */
+  hasSpecializedEngine?: boolean;
 }
 
 export function choosePlaybackSource({
@@ -57,17 +61,21 @@ export function choosePlaybackSource({
   isPianoSamplerActive,
   samplerStatus,
 }: RoutingInput): PlaybackSource {
-  // 1. Piano acústico / entrada en vivo.
+  // 1. Piano acústico / entrada en vivo → Salamander (grabación real).
   if (trackIndex === -1 || usesSalamanderPiano(instrument)) {
-    return isPianoSamplerActive ? "piano-sampler" : "synth";
+    return isPianoSamplerActive ? "piano-sampler" : "wait";
   }
 
   // 2. Sample real del instrumento.
   if (samplerStatus === "loaded") return "soundfont";
+  if (samplerStatus === "loading") return "wait";
 
-  // 3. Todavía bajando.
-  if (samplerStatus === "loading") return "synth";
-
-  // 4. Falló o no existe soundfont para este nombre.
-  return getInstrumentType(instrument) === "generic" ? "synth" : "engine";
+  // 3. No hay fuente real conocida para este nombre.
+  //    `getInstrumentType` queda sólo como dato de diagnóstico en el log.
+  if (getInstrumentType(instrument) !== "generic") {
+    console.warn(
+      `[ruteo] "${instrument}" no tiene sample real asignado (tipo ${getInstrumentType(instrument)}); se saltea la nota en vez de sintetizarla`,
+    );
+  }
+  return "none";
 }

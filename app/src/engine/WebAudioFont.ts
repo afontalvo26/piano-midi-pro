@@ -27,6 +27,13 @@
  */
 
 import * as Tone from "tone";
+import {
+  TARGET_MELODIC_RMS_DB,
+  applyTrim,
+  bufferRmsDb,
+  median,
+  trimDb,
+} from "./sampleLevels";
 
 const WAF_BASES = [
   "https://surikov.github.io/webaudiofontdata/sound",
@@ -89,10 +96,25 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
+/**
+ * Nombre de archivo real para un id.
+ *
+ * Hay DOS convenciones conviviendo: el manifiesto (`wafManifest.ts`) guarda el
+ * nombre completo —`0210_GeneralUserGS_sf2_file`— y los ids escritos a mano en
+ * `WAF_SUGGESTIONS` no llevan sufijo —`0210_GeneralUserGS`—. Doblarlo daba 404
+ * (`..._sf2_file_sf2_file.js`) y hacía que TODO instrumento cayera al soundfont
+ * pesado de gleitz. Ojo también con las fuentes que ya terminan en `_SF2_file`
+ * en mayúsculas (`LK_Godin_Nylon_SF2_file`).
+ */
+function wafFileName(code: string): string {
+  return /_sf2(_file)?$/i.test(code) ? `${code}.js` : `${code}_sf2_file.js`;
+}
+
 async function fetchWaf(code: string): Promise<string> {
+  const file = wafFileName(code);
   let lastError: unknown;
   for (const base of WAF_BASES) {
-    const url = `${base}/${code}_sf2_file.js`;
+    const url = `${base}/${file}`;
     try {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`WebAudioFont: ${res.status} en ${url}`);
@@ -114,6 +136,7 @@ async function fetchWaf(code: string): Promise<string> {
 export async function loadWebAudioFontSampler(
   code: string,
   dest: Tone.ToneAudioNode,
+  neededNotes?: number[],
 ): Promise<Tone.Sampler> {
   console.log(`[WebAudioFont] Fetching ${code}...`);
   const text = await fetchWaf(code);
@@ -123,6 +146,7 @@ export async function loadWebAudioFontSampler(
 
   const raw = Tone.getContext().rawContext as BaseAudioContext;
   const urls: Record<string, AudioBuffer> = {};
+  const levels: number[] = [];
   let decoded = 0;
 
   for (const zone of zones) {
@@ -130,10 +154,23 @@ export async function loadWebAudioFontSampler(
     // cercana para las demás, igual que con los soundfonts de gleitz.
     const midi = Math.round(zone.originalPitch / 100);
     if (midi < 0 || midi > 127) continue;
+    // Si el llamador sabe qué notas usa la canción, se decodifican sólo las
+    // zonas que las cubren (o que están a ≤ 2 semitonos, donde el repitcheo es
+    // inaudible). Un archivo trae 6–34 zonas por instrumento.
+    if (neededNotes?.length) {
+      const useful = neededNotes.some(
+        (n) =>
+          (n >= zone.keyRangeLow && n <= zone.keyRangeHigh) ||
+          Math.abs(n - midi) <= 2,
+      );
+      if (!useful) continue;
+    }
     const note = Tone.Frequency(midi, "midi").toNote();
     if (urls[note]) continue;
     try {
-      urls[note] = await raw.decodeAudioData(base64ToArrayBuffer(zone.file));
+      const buffer = await raw.decodeAudioData(base64ToArrayBuffer(zone.file));
+      urls[note] = buffer;
+      levels.push(bufferRmsDb(buffer));
       decoded++;
     } catch (err) {
       console.warn(`[WebAudioFont] ${code}: zona ${note} ilegible`, err);
@@ -143,7 +180,11 @@ export async function loadWebAudioFontSampler(
   if (decoded === 0)
     throw new Error(`WebAudioFont: ${code} no decodificó ningún sample`);
 
-  console.log(`[WebAudioFont] ${code}: ${decoded} samples decodificados`);
+  const measured = median(levels);
+  const gain = trimDb(measured, TARGET_MELODIC_RMS_DB);
+  console.log(
+    `[WebAudioFont] ${code}: ${decoded} samples, nivel ${measured.toFixed(1)} dB → ${gain.toFixed(1)} dB`,
+  );
 
   return new Promise<Tone.Sampler>((resolve, reject) => {
     const timeout = setTimeout(
@@ -154,6 +195,7 @@ export async function loadWebAudioFontSampler(
       urls,
       onload: () => {
         clearTimeout(timeout);
+        applyTrim(sampler, gain);
         console.log(`[WebAudioFont] ✅ ${code} listo`);
         resolve(sampler);
       },

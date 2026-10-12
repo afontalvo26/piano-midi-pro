@@ -19,6 +19,7 @@ import { WAF_SUGGESTIONS, loadWebAudioFontSampler } from "./engine/WebAudioFont"
 import { loadButtonAccordion } from "./engine/freePatsAccordion";
 import { DrumKitEngine } from "./engine/DrumKitEngine";
 import { InstrumentEngineRegistry } from "./engine/InstrumentEngine";
+import type { PercussionVoice } from "./engine/InstrumentEngine";
 import { getInstrumentSynthSettings } from "./utils/instrumentMapping";
 import { GM_DRUMS } from "./utils/gmDrums";
 
@@ -495,14 +496,39 @@ let drumEngine: DrumKitEngine | null = null;
 let synthPercussion: InstrumentEngineRegistry | null = null;
 
 function getDrumEngine(): DrumKitEngine {
-  if (!drumEngine) {
-    synthPercussion = new InstrumentEngineRegistry(getMaster());
-    drumEngine = new DrumKitEngine(
-      getMaster(),
-      synthPercussion.getPercussion("audition"),
-    );
-  }
+  if (!drumEngine) drumEngine = new DrumKitEngine(getMaster());
   return drumEngine;
+}
+
+/**
+ * Percusión SINTETIZADA — sólo para esta página de comparación.
+ *
+ * El reproductor ya no la usa nunca (el dueño pidió cero sonido electrónico);
+ * acá se mantiene a propósito para poder escuchar el "antes" contra el "después"
+ * y decidir con el oído.
+ */
+function playSynthPercussion(
+  note: number,
+  velocity: number,
+  time: number,
+): void {
+  if (!synthPercussion) synthPercussion = new InstrumentEngineRegistry(getMaster());
+  const voice = drumPieceVoice(note);
+  synthPercussion.getPercussion("audition").triggerNote({ voice, velocity }, time);
+}
+
+/** Voz sintetizada equivalente, para el botón "Synth viejo". */
+function drumPieceVoice(note: number): PercussionVoice {
+  const map: Record<string, PercussionVoice> = {
+    kick: "kick",
+    snare: "snare",
+    hat: "hihat-closed",
+    cymbal: "crash",
+    tom: "tom-mid",
+    latin: "maracas",
+    fx: "claves",
+  };
+  return map[GM_DRUMS[note]?.family ?? "fx"] ?? "claves";
 }
 
 function buildRhythmCard(rhythm: Rhythm): HTMLElement {
@@ -554,9 +580,9 @@ function buildRhythmCard(rhythm: Rhythm): HTMLElement {
       for (const [note, at, vel] of rhythm.hits) {
         const time = t0 + at * spb;
         if (real) {
-          if (!engine.trigger(note, vel, time)) engine.triggerSynth(note, vel, time);
+          engine.trigger(note, vel, time);
         } else {
-          engine.triggerSynth(note, vel, time);
+          playSynthPercussion(note, vel, time);
         }
       }
       const endAt = Math.max(...rhythm.hits.map(([, at]) => at)) * spb;

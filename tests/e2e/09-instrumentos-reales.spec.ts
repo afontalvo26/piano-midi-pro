@@ -43,11 +43,6 @@ const PERCUSSION_FIXTURE = path.join(
   "BinomioDeOro_-_El_Osito_Dormilon.kar",
 );
 
-/** Instrumentos que el fixture debe cargar como sample real. */
-const EXPECTED_SOUNDFONTS = [
-  { instrument: "Acoustic Bass", file: "acoustic_bass" },
-  { instrument: "Harmonica", file: "harmonica" },
-];
 
 async function loadFixture(page: Page, file: string = MIDI_FIXTURE): Promise<void> {
   await page.locator('input[aria-label="Cargar archivo MIDI"]').setInputFiles(file);
@@ -140,20 +135,28 @@ test.describe("Ruteo de audio — el sample real gana", () => {
     expect(decisions.bassLoaded).toBe("soundfont");
     expect(decisions.harmonicaLoaded).toBe("soundfont");
     expect(decisions.guitarLoaded).toBe("soundfont");
-    // …y mientras baja suena el sintetizador neutro, nunca el motor de arco.
-    expect(decisions.bassWhileLoading).toBe("synth");
-    // Sin soundfont para ese nombre, el motor especializado.
-    expect(decisions.congasUnmapped).toBe("engine");
+    // …y mientras baja, SILENCIO: la política ya no puede devolver un
+    // sintetizador (era justo el sonido electrónico que se rechazó).
+    expect(decisions.bassWhileLoading).toBe("wait");
+    // Sin fuente real para ese nombre, tampoco se sintetiza.
+    expect(decisions.congasUnmapped).toBe("none");
     // El piano acústico sigue siendo el sampler Salamander.
     expect(decisions.acousticPiano).toBe("piano-sampler");
     expect(decisions.liveInput).toBe("piano-sampler");
     // Un piano eléctrico no debe robar el sample del acústico.
     expect(decisions.electricPiano).toBe("soundfont");
+    // Ningún caso devuelve osciladores.
+    for (const [name, value] of Object.entries(decisions)) {
+      expect(value, `${name} no puede sintetizar`).not.toBe("synth");
+      expect(value, `${name} no puede usar motores de osciladores`).not.toBe(
+        "engine",
+      );
+    }
   });
 });
 
 test.describe("Soundfonts GM — carga real desde el CDN", () => {
-  test("bajo y armónica cargan samples reales y no el sintetizador", async ({
+  test("bajo y armónica resuelven a samples reales (nunca a sintetizador)", async ({
     page,
   }) => {
     const logs: string[] = [];
@@ -166,18 +169,30 @@ test.describe("Soundfonts GM — carga real desde el CDN", () => {
     // Arranca el motor de audio (y con él la precarga de instrumentos).
     await page.locator(".playback-bar .btn.primary").first().click();
 
-    for (const { file } of EXPECTED_SOUNDFONTS) {
+    // Cada instrumento loguea a qué fuente real resolvió.
+    for (const instrument of ["Acoustic Bass", "Harmonica"]) {
       await expect
-        .poll(() => logs.some((l) => l.includes(`✅ ${file} loaded and READY`)), {
-          timeout: 90_000,
-          message: `"${file}" nunca terminó de cargar desde el CDN de soundfonts`,
-        })
+        .poll(
+          () =>
+            logs.some((l) =>
+              new RegExp(`\\[fuentes\\] "${instrument}" →`).test(l),
+            ),
+          {
+            timeout: 60_000,
+            message: `"${instrument}" no resolvió a ninguna fuente real`,
+          },
+        )
         .toBe(true);
     }
 
-    // Ninguna degradación silenciosa a síntesis.
-    const failures = logs.filter((l) => l.includes("No se pudo cargar"));
-    expect(failures, `soundfonts que cayeron al sintetizador:\n${failures.join("\n")}`).toEqual([]);
+    // Y ninguna fuente cayó al sintetizador: el ruteo ya no puede devolverlo.
+    const synthFallbacks = logs.filter((l) =>
+      /se usará el sintetizador|usando sintetizador/i.test(l),
+    );
+    expect(
+      synthFallbacks,
+      `instrumentos degradados a sintetizador:\n${synthFallbacks.join("\n")}`,
+    ).toEqual([]);
 
     await page.locator(".playback-bar button", { hasText: "Detener" }).click();
   });

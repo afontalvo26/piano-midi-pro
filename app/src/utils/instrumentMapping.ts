@@ -128,6 +128,60 @@ export function getInstrumentSynthSettings(
 }
 
 /**
+ * Programas GM que SON un sintetizador por definición → instrumento real.
+ *
+ * Los MIDI de la biblioteca piden pads, "synth strings", "FX 5 brightness",
+ * leads de sierra… y ningún banco de samples los vuelve "reales": son parches
+ * electrónicos, y el dueño del proyecto pidió cero sonido electrónico. Un
+ * arreglista haría lo mismo: donde la partitura dice "pad", una banda toca
+ * cuerdas; donde dice "synth bass", un bajo eléctrico.
+ *
+ * `null` = se descarta la pista (los FX de ciencia ficción no tienen equivalente
+ * acústico; suena mejor el silencio que un pad fuera de lugar).
+ */
+export const SYNTH_PROGRAM_SUBSTITUTE: Record<number, string | null> = {
+  // Bajos de sintetizador → bajo eléctrico
+  38: "Electric Bass (finger)",
+  39: "Electric Bass (finger)",
+  // Cuerdas de sintetizador → cuerdas reales
+  50: "String Ensemble 1",
+  51: "String Ensemble 1",
+  // Coro de sintetizador → coro real
+  54: "Choir Aahs",
+  55: null, // Orchestra Hit: sample de orquesta cortado, sin equivalente
+  // Metales de sintetizador → sección de metales real
+  62: "Brass Section",
+  63: "Brass Section",
+  // Leads (1-8): saxofón real como voz conductora
+  80: "Alto Sax",
+  81: "Alto Sax",
+  82: "Alto Sax",
+  83: "Alto Sax",
+  84: "Alto Sax",
+  85: "Alto Sax",
+  86: "Alto Sax",
+  87: "Electric Bass (finger)", // Lead 8 es "bass + lead"
+  // Pads (1-8) → cuerdas o coro reales, según el carácter
+  88: "String Ensemble 2",
+  89: "String Ensemble 1",
+  90: "String Ensemble 1",
+  91: "Choir Aahs",
+  92: "String Ensemble 1",
+  93: "Vibraphone",
+  94: "Choir Aahs",
+  95: "String Ensemble 2",
+  // FX (1-8): texturas de sintetizador sin equivalente acústico
+  96: null,
+  97: null,
+  98: "Orchestral Harp",
+  99: null,
+  100: null,
+  101: null,
+  102: null,
+  103: null,
+};
+
+/**
  * Map a GM program number (0-127) — optionally hinted by a track name —
  * to the closest matching INSTRUMENT_FAMILIES entry.
  *
@@ -142,6 +196,18 @@ export function gmProgramToInstrument(
   trackName?: string,
 ): string {
   const name = (trackName || "").toLowerCase();
+
+  // ── Sustitución de parches electrónicos por instrumentos reales ──
+  // Va al principio: si la partitura pide un pad, la pista se toca con cuerdas
+  // reales (y así lo muestra también el mezclador).
+  const substitute = SYNTH_PROGRAM_SUBSTITUTE[programNumber];
+  if (substitute !== undefined) {
+    // Un nombre de pista explícito y real manda sobre la sustitución: si dice
+    // "Trompeta", es una trompeta aunque el programa sea un lead.
+    if (!/synth|pad|lead|fx|electronic|vocoder/i.test(name)) {
+      return substitute ?? "Acoustic Grand Piano";
+    }
+  }
 
   // ── Batería / percusión de canal 10 (el llamador ya la filtra) ──
   if (name.match(/drum|perc|kit|beat/)) return "Acoustic Grand Piano";

@@ -32,16 +32,39 @@ async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true });
 }
 
+const FETCH_TIMEOUT_MS = 25000;
+const MAX_INTENTOS = 3;
+
+/**
+ * Descarga con tope duro y reintentos.
+ *
+ * Sin `AbortSignal.timeout` un servidor que deja la conexion colgada bloquea el
+ * proceso para siempre: paso con karaokegratis, que se quedo en el primer
+ * archivo y agoto un tope de 900s sin escribir una sola linea mas.
+ */
 async function fetchBuf(url) {
-  const r = await fetch(url, {
-    headers: {
-      'User-Agent': UA,
-      Accept: '*/*',
-    },
-    redirect: 'follow',
-  });
-  if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
-  return Buffer.from(await r.arrayBuffer());
+  let ultimoError;
+  for (let intento = 1; intento <= MAX_INTENTOS; intento++) {
+    try {
+      const r = await fetch(url, {
+        headers: {
+          'User-Agent': UA,
+          Accept: '*/*',
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return Buffer.from(await r.arrayBuffer());
+    } catch (e) {
+      ultimoError = e;
+      if (intento < MAX_INTENTOS) {
+        process.stdout.write(`reintento ${intento}/${MAX_INTENTOS - 1} (${e.message}) ... `);
+        await new Promise((ok) => setTimeout(ok, 1500 * intento));
+      }
+    }
+  }
+  throw new Error(`${ultimoError.message} tras ${MAX_INTENTOS} intentos`);
 }
 
 /**
@@ -159,6 +182,9 @@ async function main() {
     if (await processJob(job)) ok++;
   }
   console.log(`\nDone: ${ok}/${jobs.length} files saved to ${OUT_DIR}`);
+  // Salir explicito: los sockets keep-alive de undici mantienen vivo el event
+  // loop, y el runner acotado espera a que el proceso cierre de verdad.
+  process.exit(0);
 }
 
 main();

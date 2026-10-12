@@ -21,16 +21,17 @@ import type { AnalysisResult } from "./analysis/MusicAnalyzer";
 import {
   InstrumentEngineRegistry,
   inferPianoParams,
-  inferTrumpetParams,
 } from "./engine/InstrumentEngine";
 import {
-  getGMSamplerSync,
   getLoadedGMSamplers,
-  getSamplerStatus,
-  instrumentToSoundfont,
-  prefetchGMSampler,
   disposeAllGMSamplers,
 } from "./engine/GMSamplerEngine";
+import {
+  disposeAllInstruments,
+  getInstrumentStatus,
+  getInstrumentSync,
+  loadInstrument,
+} from "./engine/instrumentSources";
 import { DrumKitEngine } from "./engine/DrumKitEngine";
 import { InstrumentControlsPanel } from "./components/studio";
 import type { BrassMuteType, TrumpetTonguing } from "./engine/InstrumentEngine";
@@ -143,10 +144,7 @@ import {
   lightenHex,
   midiToLabel,
 } from "./utils/audioMidiUtils";
-import {
-  getInstrumentSynthSettings,
-  gmProgramToInstrument,
-} from "./utils/instrumentMapping";
+import { gmProgramToInstrument } from "./utils/instrumentMapping";
 import {
   choosePlaybackSource,
   usesSalamanderPiano,
@@ -608,6 +606,14 @@ export default function App() {
   const [trumpetDoit, setTrumpetDoit] = useState(false);
   const [trumpetShake, setTrumpetShake] = useState(false);
 
+  /** Instrumentos que ya avisaron que no tienen sample real (aviso único). */
+  const silentInstrumentWarnedRef = useRef<Set<string>>(new Set());
+  /** Promesas de precarga: la reproducción espera a que resuelvan. */
+  const songSamplesReadyRef = useRef<Promise<void>>(Promise.resolve());
+  const drumReadyRef = useRef<Promise<void>>(Promise.resolve());
+  /** ¿Hay samples de la canción bajando ahora mismo? */
+  const samplesPendingRef = useRef(false);
+
   // ---- InstrumentEngineRegistry ref ----
   const engineRegistryRef = useRef<InstrumentEngineRegistry | null>(null);
   // ---- DrumKitEngine ref (percusión real del canal 10) ----
@@ -622,8 +628,6 @@ export default function App() {
   // Audio refs
   const samplerRef = useRef<Tone.Sampler | null>(null);
   const fallbackSynthsRef = useRef<Record<number, Tone.PolySynth> | null>(null);
-  /** Instrumento con el que se configuró cada PolySynth de respaldo. */
-  const synthInstrumentRef = useRef<Record<number, string>>({});
   const reverbRef = useRef<Tone.Reverb | null>(null);
   // GM sampler destination — set once audio is ready, used by GMSamplerEngine
   const gmDestRef = useRef<Tone.ToneAudioNode | null>(null);
@@ -988,25 +992,36 @@ export default function App() {
       // el siguiente ciclo de render y triggerAttack descarta las notas)
       stateRef.current.isAudioReady = true;
       setIsAudioReady(true);
-      setAudioStatusMessage("Cargando piano real... (sintetizador activo)");
+      setAudioStatusMessage("Cargando piano real...");
 
-      // Initialize InstrumentEngineRegistry for Piano/Trumpet world-class synthesis
+      // El registro queda sólo por el PianoEngine (que toca el sampler real de
+      // Salamander). Los motores de osciladores que vivían acá ya no se rutean.
       engineRegistryRef.current = new InstrumentEngineRegistry(vol);
 
-      // Percusión real (canal 10): kit muestreado + respaldo sintetizado del
-      // PercussionEngine que ya existía.
-      drumKitRef.current = new DrumKitEngine(
-        vol,
-        engineRegistryRef.current.getPercussion("drumkit"),
-      );
+      // Percusión real (canal 10): sólo samples grabados, sin respaldo
+      // sintetizado.
+      drumKitRef.current = new DrumKitEngine(vol);
 
       // GM sampler destination — all non-piano real samples route through here
       gmDestRef.current = vol;
 
-      // Sampler Salamander — carga asíncrona, reemplaza el synth cuando termina
+      // Sampler Salamander — carga en DOS fases.
+      //
+      // Antes se esperaban los 30 samples (~6.6 MB) antes de marcar
+      // `isSamplerActive`. Sin sintetizador de respaldo eso significa que tocar
+      // el teclado durante los primeros segundos no sonaba a nada. Ahora se
+      // arranca con un núcleo de 5 samples reales repartidos por el registro
+      // (el piano ya suena, repitcheando los que faltan) y el resto se suma
+      // cuando termina de bajar.
       await new Promise<void>((resolve) => {
+        const coreNotes = ["C2", "C4", "D#5"];
+        const coreUrls: Record<string, string> = {};
+        for (const note of coreNotes) {
+          if (SALAMANDER_SAMPLES[note]) coreUrls[note] = SALAMANDER_SAMPLES[note];
+        }
+
         const sampler = new Tone.Sampler({
-          urls: SALAMANDER_SAMPLES,
+          urls: coreUrls,
           baseUrl: "https://tonejs.github.io/audio/salamander/",
           release: sustainTime,
           onload: () => {
@@ -1017,6 +1032,29 @@ export default function App() {
             engineRegistryRef.current?.setPianoSampler(sampler);
             setAudioStatusMessage("Piano realista activo");
             resolve();
+
+            // Fase 2: el registro completo, en segundo plano.
+            const raw = Tone.getContext().rawContext as BaseAudioContext;
+            void Promise.all(
+              Object.entries(SALAMANDER_SAMPLES)
+                .filter(([note]) => !coreUrls[note])
+                .map(async ([note, file]) => {
+                  try {
+                    const res = await fetch(
+                      `https://tonejs.github.io/audio/salamander/${file}`,
+                    );
+                    if (!res.ok) return;
+                    const buffer = await raw.decodeAudioData(
+                      await res.arrayBuffer(),
+                    );
+                    sampler.add(note as Tone.Unit.Note, buffer);
+                  } catch {
+                    /* el núcleo ya suena: los que falten son una mejora */
+                  }
+                }),
+            ).then(() => {
+              console.log("[piano] registro completo cargado");
+            });
           },
           onerror: () => {
             setAudioStatusMessage("Sintetizador FM activo");
@@ -1031,48 +1069,14 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Set individual poly synths based on General MIDI instrument selection
-  const getOrCreateSynthForTrack = useCallback(
-    (trackIndex: number, instrument: string) => {
-      if (!fallbackSynthsRef.current) return null;
-      let synth = fallbackSynthsRef.current[trackIndex];
-      if (!synth) {
-        const settings = getInstrumentSynthSettings(instrument);
-        synth = new Tone.PolySynth(Tone.Synth).connect(
-          volNodeRef.current || Tone.getDestination(),
-        );
-        /**
-         * Voice pool size. `Tone.PolySynth` does NOT steal voices: once the
-         * pool is exhausted it logs "Max polyphony exceeded. Note dropped."
-         * and the note is silently lost. The old cap of 6 dropped keys on any
-         * fast passage, and on anything held by the sustain pedal — where each
-         * voice stays busy for the whole release time. 64 is far above what
-         * two hands plus a pedal can hold, so nothing is ever dropped in
-         * practice while the pool stays bounded.
-         */
-        synth.maxPolyphony = 64;
-
-        const configuredSettings = {
-          ...settings,
-          envelope: {
-            ...settings.envelope,
-            release: stateRef.current.sustainTime,
-          },
-        };
-        synth.set(configuredSettings);
-        fallbackSynthsRef.current[trackIndex] = synth;
-        synthInstrumentRef.current[trackIndex] = instrument;
-      } else if (synthInstrumentRef.current[trackIndex] !== instrument) {
-        // La pista cambió de instrumento: el PolySynth se creó con el timbre
-        // del anterior y lo seguía usando (una flauta sonaba con envolvente de
-        // bajo). Re-aplicamos el preset del instrumento nuevo.
-        synth.set(getInstrumentSynthSettings(instrument));
-        synthInstrumentRef.current[trackIndex] = instrument;
-      }
-      return synth;
-    },
-    [],
-  );
+  // ── Sintetizadores: ELIMINADOS del camino de audio ────────────────────────
+  //
+  // Acá vivía `getOrCreateSynthForTrack`, que creaba un `Tone.PolySynth` por
+  // pista como respaldo cuando el sample real no estaba listo. El dueño del
+  // proyecto fue explícito: **ningún sonido electrónico**. Hoy, si el sample no
+  // está, la nota se saltea (silencio) en vez de sonar a oscilador, y
+  // `fallbackSynthsRef` queda siempre vacío — los bucles que lo recorren para
+  // liberar voces son no-ops.
 
   // Trigger Sound notes play helper — reads from stateRef to stay stable
   const triggerAttack = useCallback(
@@ -1150,172 +1154,48 @@ export default function App() {
           ? scheduledAudioTime
           : liveNoteTime(eventTimestamp);
 
-      const registry = engineRegistryRef.current;
-
-      // Qué motor toca esta nota — la política vive en `playbackRouting.ts`.
+      // Qué fuente toca esta nota — la política vive en `playbackRouting.ts`.
+      //
+      // Ya no existe el fallback a sintetizador: si el sample real no está
+      // listo, la nota se saltea (silencio) en vez de sonar a oscilador. Los
+      // motores de síntesis y los PolySynth quedan en el código pero FUERA del
+      // camino de audio.
       const source = choosePlaybackSource({
         instrument,
         trackIndex,
         isPianoSamplerActive: samplerActive,
         samplerStatus:
-          trackIndex !== -1 ? getSamplerStatus(instrument) : "unmapped",
+          trackIndex !== -1 ? getInstrumentStatus(instrument) : "unmapped",
       });
-      const fallbackSynth = () =>
-        getOrCreateSynthForTrack(
-          trackIndex === -1 ? 99 : trackIndex,
-          instrument,
-        )?.triggerAttack(bentFreq, audioTime, velocity);
 
       // ── 1. Piano real (Salamander sampler) ──
       if (source === "piano-sampler") {
-        try {
-          samplerRef.current?.triggerAttack(bentFreq, audioTime, velocity);
-        } catch {
-          fallbackSynth();
-        }
+        samplerRef.current?.triggerAttack(bentFreq, audioTime, velocity);
         return;
       }
 
-      // ── 2. Instrumento real (soundfont GM muestreado) ──
-      //
-      // El sample real va PRIMERO. Antes el orden era al revés: los motores de
-      // síntesis (StringEngine para todo lo que dijera "bass"/"guitar", etc.)
-      // interceptaban la nota y el soundfont nunca se usaba — de ahí que los
-      // bajos sonaran a growl sawtooth y no a un bajo de verdad.
+      // ── 2. Instrumento real (sample grabado) ──
       if (source === "soundfont") {
-        const gmSampler = getGMSamplerSync(instrument);
+        const gmSampler = getInstrumentSync(instrument);
         if (gmSampler) {
-          try {
-            gmSampler.triggerAttack(bentFreq, audioTime, velocity);
-          } catch {
-            fallbackSynth();
-          }
+          gmSampler.triggerAttack(bentFreq, audioTime, velocity);
           return;
         }
       }
 
-      // ── 3. Motores especializados (metales / cuerdas / maderas / percusión) ──
-      if (source === "engine" && registry) {
-        const instType = registry.getType(instrument);
-
-        if (instType === "trumpet") {
-          registry.getTrumpet(String(trackIndex)).triggerNote(
-            {
-              midi,
-              velocity,
-              duration: 0.5,
-              mute: "none" as import("./engine/InstrumentEngine").BrassMuteType,
-              tonguing:
-                "single" as import("./engine/InstrumentEngine").BrassTonguing,
-              vibratoRate: 5.5,
-              vibratoDepth: 0,
-              vibratoDelay: 0.15,
-              articulation:
-                "normal" as import("./engine/InstrumentEngine").BrassArticulation,
-            },
-            audioTime,
-          );
-          return;
-        }
-
-        if (instType === "trombone") {
-          registry.getTrombone(String(trackIndex)).triggerNote(
-            {
-              midi,
-              velocity,
-              duration: 0.5,
-              mute: "none" as import("./engine/InstrumentEngine").BrassMuteType,
-              tonguing:
-                "single" as import("./engine/InstrumentEngine").BrassTonguing,
-              vibratoRate: 5.5,
-              vibratoDepth: 0,
-              vibratoDelay: 0.15,
-              portamento: 0,
-              pedalTone: false,
-              articulation:
-                "normal" as import("./engine/InstrumentEngine").BrassArticulation,
-            },
-            audioTime,
-          );
-          return;
-        }
-
-        if (instType === "strings") {
-          registry.getStrings(String(trackIndex)).triggerNote(
-            {
-              midi,
-              velocity,
-              duration: 0.5,
-              bowing: "legato",
-              contactPoint: "ordinario",
-              pizzicato: instrument.toLowerCase().includes("pizz"),
-              harmonic: false,
-              snapPizzicato: false,
-              vibrato: { rate: 5.5, depth: 30, delay: 0.2 },
-              articulation: "normal",
-            },
-            audioTime,
-          );
-          return;
-        }
-
-        if (instType === "woodwind") {
-          const woodwindEngine = registry.getWoodwind(String(trackIndex));
-          const family = (() => {
-                const l = instrument.toLowerCase();
-                if (l.includes("flute")) return "flute";
-                if (l.includes("oboe")) return "oboe";
-                if (l.includes("clarinet")) return "clarinet";
-                if (l.includes("bassoon")) return "bassoon";
-                return "saxophone";
-              })();
-          woodwindEngine.triggerNote(
-            {
-              midi,
-              velocity,
-              duration: 0.5,
-              family,
-              tonguing: "single",
-              vibrato: { rate: 5.5, depth: 25, delay: 0.15 },
-              overblown: false,
-              articulation: "normal",
-            },
-            audioTime,
-          );
-          return;
-        }
-
-        if (instType === "percussion") {
-          const voice = (() => {
-            const l = instrument.toLowerCase();
-            if (l.includes("clave")) return "claves";
-            if (l.includes("conga")) return "conga-mid";
-            if (l.includes("bongo")) return "bongo-high";
-            if (l.includes("timba")) return "timbale-high";
-            if (l.includes("cowbell")) return "cowbell";
-            if (l.includes("guiro")) return "guiro";
-            if (l.includes("maraca")) return "maracas";
-            if (l.includes("shaker")) return "shaker";
-            if (l.includes("kick")) return "kick";
-            if (l.includes("snare")) return "snare";
-            return "claves";
-          })();
-          registry.getPercussion(String(trackIndex)).triggerNote(
-            {
-              voice,
-              velocity,
-            },
-            audioTime,
-          );
-          return;
-        }
+      // ── 3. Sin fuente real todavía (o inexistente): silencio ──
+      //
+      // `wait` es lo normal durante los primeros compases de una canción
+      // mientras bajan los samples; la precarga de la canción ya arranca al
+      // seleccionarla para que la ventana sea la más corta posible.
+      if (source === "none" && !silentInstrumentWarnedRef.current.has(instrument)) {
+        silentInstrumentWarnedRef.current.add(instrument);
+        console.warn(
+          `[ruteo] "${instrument}" no tiene sample real: su pista queda en silencio (no se sintetiza)`,
+        );
       }
-
-      // ── 4. Synthetic fallback ──
-      fallbackSynth();
-       
     },
-    [getOrCreateSynthForTrack],
+    [],
   );
 
   const triggerRelease = useCallback(
@@ -1389,7 +1269,7 @@ export default function App() {
 
       // ── 3. GM sampler release ──
       if (trackIndex !== -1) {
-        const gmSampler = getGMSamplerSync(resolvedInst);
+        const gmSampler = getInstrumentSync(resolvedInst);
         if (gmSampler) {
           try {
             gmSampler.triggerRelease(freq);
@@ -1413,40 +1293,62 @@ export default function App() {
     [],
   );
 
-  // ─── Pre-load GM samplers for all non-piano tracks when a song is selected ──
+  // ─── Precarga de instrumentos reales al seleccionar la canción ────────────
+  //
+  // Se baja SÓLO lo que la canción usa: por cada pista, las notas que toca. Es
+  // la diferencia entre 85 mp3 de piano (14.9 MB) y los 20-30 que una canción
+  // realmente necesita.
   useEffect(() => {
     const dest = gmDestRef.current;
     if (!isAudioReady || !dest || song.tracks.length === 0) return;
 
-    // Collect unique instrument names that actually have a soundfont.
-    // Los que no lo tienen (percusión latina, nombres raros) los cubre el
-    // motor especializado: no se cuentan como fallos de carga.
-    const requested = [
-      ...new Set(
-        song.tracks
-          .map((t) => trackInstruments[t.index] ?? t.instrument)
-          .filter(Boolean),
-      ),
-    ];
-    const soundfontInstruments = requested.filter(
-      (inst) => instrumentToSoundfont(inst) !== null,
-    );
+    // Instrumentos únicos (nombre) con las notas que toca cada uno.
+    const notesByInstrument = new Map<string, Set<number>>();
+    for (const track of song.tracks) {
+      if (track.isDrumKit) continue; // la percusión tiene su propio motor
+      const inst = trackInstruments[track.index] ?? track.instrument;
+      if (!inst) continue;
+      const set = notesByInstrument.get(inst) ?? new Set<number>();
+      for (const note of song.notes) {
+        if (note.trackIndex === track.index) set.add(note.midi);
+      }
+      // Sin notas (p. ej. pista vacía) se pide el rango central del piano.
+      if (set.size === 0) for (let m = 48; m <= 72; m++) set.add(m);
+      notesByInstrument.set(inst, set);
+    }
 
-    if (soundfontInstruments.length === 0) return;
+    if (notesByInstrument.size === 0) {
+      songSamplesReadyRef.current = Promise.resolve();
+      samplesPendingRef.current = false;
+      return;
+    }
 
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAudioStatusMessage(
-      `Cargando ${soundfontInstruments.length} instrumento(s) real(es)...`,
+      `Cargando ${notesByInstrument.size} instrumento(s) real(es)...`,
     );
 
-    Promise.all(
-      soundfontInstruments.map((inst) => prefetchGMSampler(inst, dest)),
-    ).then((results) => {
-      const loaded = results.filter(Boolean).length;
+    // La reproducción espera a este promise: sin sintetizador de respaldo, una
+    // nota que llega antes que su sample no suena, así que arrancar la canción
+    // con los instrumentos a medio bajar se oiría con huecos.
+    const pending = Promise.all(
+      [...notesByInstrument.entries()].map(([inst, notes]) =>
+        loadInstrument(inst, dest, [...notes]),
+      ),
+    );
+    samplesPendingRef.current = true;
+    songSamplesReadyRef.current = pending.then(() => undefined);
+    void songSamplesReadyRef.current.finally(() => {
+      samplesPendingRef.current = false;
+    });
+
+    pending.then((results) => {
+      const total = notesByInstrument.size;
+      const ok = results.filter(Boolean).length;
       setAudioStatusMessage(
-        loaded === soundfontInstruments.length
-          ? `✓ ${loaded} instrumento(s) real(es) listos`
-          : `⚠ ${loaded}/${soundfontInstruments.length} instrumentos reales (el resto usa sintetizador)`,
+        ok === total
+          ? `✓ ${ok} instrumento(s) real(es) listos`
+          : `⚠ ${ok}/${total} instrumentos con sample real (los que falten quedan en silencio, nunca en sintetizador)`,
       );
       setTimeout(() => setAudioStatusMessage(""), 3500);
     });
@@ -1460,13 +1362,18 @@ export default function App() {
   // que aparecen en `song.percussion` y nada más.
   useEffect(() => {
     const drum = drumKitRef.current;
-    if (!isAudioReady || !drum || !song.percussion?.length) return;
+    if (!isAudioReady || !drum || !song.percussion?.length) {
+      drumReadyRef.current = Promise.resolve();
+      return;
+    }
 
     const pieces = [...new Set(song.percussion.map((n) => n.midi))];
     setAudioStatusMessage(
       `Cargando percusión (${pieces.length} pieza${pieces.length === 1 ? "" : "s"})...`,
     );
-    void drum.prefetch(pieces).then(() => {
+    const pending = drum.prefetch(pieces);
+    drumReadyRef.current = pending;
+    void pending.then(() => {
       setAudioStatusMessage(
         `✓ Percusión lista: ${drum.loadedCount()}/${pieces.length} piezas reales`,
       );
@@ -1743,14 +1650,15 @@ export default function App() {
         // One hash lookup instead of a flatMap + linear scan per note.
         const scoreNote = scoreNotesById.get(note.id);
 
-        // ── Percusión (canal 10): kit muestreado, sin note-off ──
+        // ── Percusión (canal 10): sólo samples reales ──
+        //
+        // Si la pieza todavía no bajó, el golpe se saltea en vez de caer al
+        // PercussionEngine sintetizado (los osciladores ya no se usan nunca).
         if (percussive) {
           const drum = drumKitRef.current;
           const hitVelocity = Math.max(0.05, Math.min(1, note.velocity * trackVol));
-          if (!drum || !drum.trigger(note.midi, hitVelocity, audioTime)) {
-            // Todavía no bajó el sample de esa pieza (o no existe): que suene
-            // el motor sintetizado en vez de perder el golpe.
-            drum?.triggerSynth(note.midi, hitVelocity, audioTime);
+          if (drum && !drum.trigger(note.midi, hitVelocity, audioTime)) {
+            drum.noteSkipped(note.midi);
           }
           return;
         }
@@ -1778,29 +1686,11 @@ export default function App() {
             },
             audioTime,
           );
-        } else if (registry && instType === "trumpet" && scoreNote) {
-          // World-class Trumpet engine
-          const trumpetEng = registry.getTrumpet(String(note.trackIndex));
-          trumpetEng.triggerNote(
-            {
-              ...inferTrumpetParams(scoreNote),
-              velocity: scoreNote.velocity * trackVol,
-              mute: trumpetMute,
-              tonguing: trumpetTonguing,
-              vibratoDepth: trumpetVibratoDepth,
-              vibratoRate: trumpetVibratoRate,
-              vibratoDelay: trumpetVibratoDelay,
-              fall: trumpetFall ? 0.3 : undefined,
-              fallSemitones: trumpetFall ? -5 : undefined,
-              doit: trumpetDoit ? 0.2 : undefined,
-              doitSemitones: trumpetDoit ? 3 : undefined,
-              shake: trumpetShake,
-              shakeSemitones: 2,
-            },
-            audioTime,
-          );
         } else {
-          // Generic fallback engine
+          // Todo lo demás (incluida una trompeta en una partitura) va al sample
+          // real. Acá vivía el `TrumpetEngine`, un motor de osciladores con
+          // articulaciones: sonaba a trompeta sintética y el dueño del proyecto
+          // lo rechazó explícitamente ("solo sonidos reales").
           triggerAttack(
             note.midi,
             note.velocity * trackVol,
@@ -2023,6 +1913,24 @@ export default function App() {
           await initializeAudio();
         } finally {
           setIsAudioLoading(false);
+        }
+      }
+
+      // Sin sintetizador de respaldo, una nota que llega antes que su sample no
+      // suena: mejor esperar a que la canción tenga sus instrumentos. El tope
+      // es corto (7 s) porque las fuentes pesadas (VSCO ~2 MB por muestra)
+      // pueden tardar: lo que falte se suma solo cuando termina de bajar.
+      if (samplesPendingRef.current) {
+        setIsAudioLoading(true);
+        setAudioStatusMessage("Esperando los instrumentos reales de la canción...");
+        try {
+          await Promise.race([
+            Promise.all([songSamplesReadyRef.current, drumReadyRef.current]),
+            new Promise((resolve) => setTimeout(resolve, 7_000)),
+          ]);
+        } finally {
+          setIsAudioLoading(false);
+          setAudioStatusMessage("");
         }
       }
 
@@ -3865,6 +3773,7 @@ export default function App() {
       window.removeEventListener("mouseup", handleGlobalMouseUp);
       if (samplerRef.current) samplerRef.current.dispose();
       disposeAllGMSamplers();
+      disposeAllInstruments();
       drumKitRef.current?.dispose();
       engineRegistryRef.current?.disposeAll();
       if (fallbackSynthsRef.current) {

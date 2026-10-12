@@ -23,10 +23,16 @@
  */
 
 import * as Tone from "tone";
-import type { PercussionEngine, PercussionVoice } from "./InstrumentEngine";
 import { PERCUSSION_SAMPLES } from "./percussionSamples";
 import { loadWafZoneBuffer } from "./WebAudioFont";
-import { drumPiece } from "../utils/gmDrums";
+import { drumPiece, pieceTrimDb } from "../utils/gmDrums";
+import {
+  PERCUSSION_BUS_DB,
+  TARGET_PERCUSSION_RMS_DB,
+  bufferRmsDb,
+  median,
+  trimDb,
+} from "./sampleLevels";
 
 /** Cuántos golpes distintos se bajan por pieza (round-robin). */
 const MAX_VARIANTS = 6;
@@ -35,17 +41,6 @@ const GM_KIT_INDEX = 0;
 const GM_KIT_SOURCE = "FluidR3_GM";
 /** Techo de voces simultáneas: una batería no necesita más y evita picos. */
 const MAX_VOICES = 48;
-
-/** Volumen relativo por pieza, para que el kit suene parejo. */
-const PIECE_TRIM: Record<string, number> = {
-  kick: 1.0,
-  snare: 1.0,
-  hat: 0.75,
-  cymbal: 0.8,
-  tom: 0.9,
-  latin: 0.9,
-  fx: 0.8,
-};
 
 function wafDrumCode(note: number): string {
   return `128${note}_${GM_KIT_INDEX}_${GM_KIT_SOURCE}`;
@@ -63,7 +58,8 @@ function velocityToGain(velocity: number): number {
 
 export class DrumKitEngine {
   private out: Tone.Volume;
-  private fallback: PercussionEngine;
+  /** Piezas que ya avisaron que se saltean (aviso único por pieza). */
+  private warnedSkip = new Set<number>();
   /** nota GM → golpes disponibles (round-robin). */
   private variants = new Map<number, AudioBuffer[]>();
   private nextVariant = new Map<number, number>();
@@ -71,16 +67,11 @@ export class DrumKitEngine {
   private voices: Tone.ToneBufferSource[] = [];
   /** Piezas que ya fallaron en las dos fuentes: no se reintentan por nota. */
   private failed = new Set<number>();
-  /**
-   * Último instante en que se disparó CUALQUIER voz sintetizada: el
-   * PercussionEngine comparte nodos entre voces y Web Audio exige tiempos
-   * estrictamente crecientes por nodo.
-   */
-  private lastSynthHit = -Infinity;
+  /** Ganancia medida por pieza (dB) para emparejar niveles entre golpes. */
+  private pieceGain = new Map<number, number>();
 
-  constructor(destination: Tone.ToneAudioNode, fallback: PercussionEngine) {
+  constructor(destination: Tone.ToneAudioNode) {
     this.out = new Tone.Volume(0).connect(destination);
-    this.fallback = fallback;
   }
 
   /** ¿Esta pieza ya tiene sample real listo para sonar? */
@@ -137,9 +128,24 @@ export class DrumKitEngine {
         this.failed.add(note);
         return;
       }
+
+      // Nivelación por RMS + ajuste por pieza.
+      //
+      // Normalizar por pico no alcanzaba: un golpe de maracas al mismo pico que
+      // un bombo tiene muchísima más energía percibida (es ruido de banda
+      // ancha) y el bolero terminaba con 8 kHz de centroide espectral contra
+      // 1.25 kHz de una pieza de piano. Ver `sampleLevels.ts` y `gmDrums.ts`.
+      const levels = buffers.map((b) => bufferRmsDb(b, 0.5));
+      const measured = median(levels);
+      const gain =
+        trimDb(measured, TARGET_PERCUSSION_RMS_DB, [-20, 20]) +
+        pieceTrimDb(note) +
+        PERCUSSION_BUS_DB;
+      this.pieceGain.set(note, gain);
+
       this.variants.set(note, buffers);
       console.log(
-        `[DrumKit] nota ${note} (${drumPiece(note).name}): ${buffers.length} golpe(s) reales`,
+        `[DrumKit] nota ${note} (${drumPiece(note).name}): ${buffers.length} golpe(s) reales, ${measured.toFixed(1)} dB → ${gain.toFixed(1)} dB`,
       );
     })();
 
@@ -169,8 +175,9 @@ export class DrumKitEngine {
     const index = (this.nextVariant.get(note) ?? 0) % list.length;
     this.nextVariant.set(note, index + 1);
 
-    const piece = drumPiece(note);
-    const gain = velocityToGain(velocity) * (PIECE_TRIM[piece.family] ?? 0.9);
+    // La ganancia de la pieza ya incluye nivel medido + ajuste + bus.
+    const pieceDb = this.pieceGain.get(note) ?? -6;
+    const gain = velocityToGain(velocity) * Math.pow(10, pieceDb / 20);
 
     if (this.voices.length >= MAX_VOICES) {
       const oldest = this.voices.shift();
@@ -205,22 +212,13 @@ export class DrumKitEngine {
     return true;
   }
 
-  /**
-   * Respaldo sintetizado, para las piezas que todavía no tienen sample.
-   *
-   * El PercussionEngine comparte un synth por familia (noise / membrane /
-   * metal) y Web Audio rechaza dos `start()` en el MISMO instante sobre el
-   * mismo nodo: "Start time must be strictly greater than previous start
-   * time". En un patrón real eso pasa todo el tiempo — shaker y redoblante
-   * caen juntos en el mismo 16avo y los dos van al noiseSynth. Se corre cada
-   * golpe 1 ms para que ninguno se pierda; es inaudible.
-   */
-  triggerSynth(note: number, velocity: number, time?: number): void {
-    const voice = drumPiece(note).voice as PercussionVoice;
-    const requested = time ?? Tone.now();
-    const at = requested > this.lastSynthHit ? requested : this.lastSynthHit + 0.001;
-    this.lastSynthHit = at;
-    this.fallback.triggerNote({ voice, velocity }, at);
+  /** Aviso único por pieza que se saltea por no tener sample todavía. */
+  noteSkipped(note: number): void {
+    if (this.warnedSkip.has(note)) return;
+    this.warnedSkip.add(note);
+    console.warn(
+      `[DrumKit] nota ${note} (${drumPiece(note).name}) sin sample real todavía: se saltea el golpe (no se sintetiza)`,
+    );
   }
 
   releaseAll(): void {
@@ -239,6 +237,5 @@ export class DrumKitEngine {
     this.releaseAll();
     this.variants.clear();
     this.out.dispose();
-    this.fallback.dispose();
   }
 }
