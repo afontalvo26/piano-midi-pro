@@ -28,6 +28,7 @@ import {
 } from "./engine/GMSamplerEngine";
 import {
   disposeAllInstruments,
+  releaseAllInstruments,
   getInstrumentStatus,
   getInstrumentSync,
   loadInstrument,
@@ -1574,6 +1575,9 @@ export default function App() {
         : []),
     ]);
     getLoadedGMSamplers().forEach((s) => s.releaseAll());
+    // Las fuentes nuevas (VSCO/tonejs/WAF/acordeón) NO son samplers GM: sin
+    // esto sus notas sostenidas seguían sonando sobre la canción siguiente.
+    releaseAllInstruments();
     drumKitRef.current?.releaseAll();
     if (fade.faded) {
       const samplers = getLoadedGMSamplers();
@@ -1896,6 +1900,8 @@ export default function App() {
     cancelVoiceCleanupRef.current?.();
     cancelVoiceCleanupRef.current = stopVoicesDeferred(() => {
       gmSamplers.forEach((s) => s.releaseAll());
+      // Las fuentes nuevas (VSCO/tonejs/WAF/acordeón) no son samplers GM.
+      releaseAllInstruments();
       samplerRef.current?.releaseAll();
       if (fallbackSynthsRef.current) {
         Object.values(fallbackSynthsRef.current).forEach((s) => s.releaseAll());
@@ -1947,6 +1953,8 @@ export default function App() {
     // Released here rather than inside the cleanup: their own `release` is what
     // fades them out, so it has to run while the notes are still sounding.
     gmSamplers.forEach((s) => s.releaseAll());
+    // Las fuentes nuevas (VSCO/tonejs/WAF/acordeón) no son samplers GM.
+    releaseAllInstruments();
   }, []);
 
   const startPlayback = useCallback(

@@ -466,6 +466,24 @@ export function pendingInstruments(instruments: string[]): string[] {
   return instruments.filter((inst) => !loaded.has(key(inst)));
 }
 
+/**
+ * Suelta todas las voces de todas las fuentes cargadas (sin descargarlas).
+ *
+ * CRÍTICO al detener, pausar, buscar y **cambiar de canción**: los samples de
+ * VSCO duran 7–84 s (medido) y los sostenidos se extienden hasta 14 s por el
+ * loop. Si una nota queda sin liberar sigue sonando ENCIMA de la canción
+ * siguiente — que es exactamente el síntoma de "las canciones se mezclan".
+ */
+export function releaseAllInstruments(): void {
+  for (const entry of loaded.values()) {
+    try {
+      entry.sampler.releaseAll();
+    } catch {
+      /* una voz ya liberada no es un error */
+    }
+  }
+}
+
 /** Libera todo (cambio de canción, desmontaje). */
 export function disposeAllInstruments(): void {
   loaded.forEach((entry) => entry.sampler.dispose());

@@ -7,6 +7,7 @@
 
 import type { DemoSong } from "../types/song";
 import { DEMO_BOLEROS } from "./demoBoleros";
+import { DEMO_SALSA } from "./demoSalsa";
 import { demoTrackId } from "../music/ids";
 
 export type { DemoSong };
@@ -186,7 +187,7 @@ const CATALOGUE: DemoSongInput[] = [
   },
   {
     path: "/demo/Vallenato_-_Sin_Medir_Distancias.mid",
-    title: "Sin Medir Distancias",
+    title: "Sin Medir Distancias (vallenato)",
     artist: "Vallenato Clásico",
     bpm: 80,
     genre: "vallenato",
@@ -259,6 +260,9 @@ const CATALOGUE: DemoSongInput[] = [
   // ── Boleros (los de los abuelos) (85) ──
   // Curated pack; see ./demoBoleros.ts for the per-track source and notes.
   ...DEMO_BOLEROS,
+  // ── Salsa brava (el canon de Fania, 1965-1985) (40) ──
+  // Curated pack; see ./demoSalsa.ts for the per-track source and notes.
+  ...DEMO_SALSA,
 ];
 
 /**
