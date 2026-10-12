@@ -27,6 +27,7 @@ import { PERCUSSION_SAMPLES } from "./percussionSamples";
 import { loadWafZoneBuffer } from "./WebAudioFont";
 import { drumPiece, pieceTrimDb } from "../utils/gmDrums";
 import { panForDrumPiece } from "./instrumentPanning";
+import { eqForInstrument } from "./instrumentChain";
 import {
   PERCUSSION_BUS_DB,
   TARGET_PERCUSSION_RMS_DB,
@@ -76,6 +77,8 @@ export class DrumKitEngine {
    * batería entera sale de un punto y suena a caja de ritmos.
    */
   private panners = new Map<number, Tone.Panner>();
+  /** Pasa-altos por pieza (maracas, güiro, hi-hats: sin lodo abajo). */
+  private filters = new Map<number, Tone.Filter>();
 
   constructor(destination: Tone.ToneAudioNode) {
     this.out = new Tone.Volume(0).connect(destination);
@@ -84,10 +87,30 @@ export class DrumKitEngine {
   private pannerFor(note: number): Tone.Panner {
     let panner = this.panners.get(note);
     if (!panner) {
+      const piece = drumPiece(note);
+      const eq = eqForInstrument(piece?.name ?? "percussion");
       panner = new Tone.Panner(panForDrumPiece(note)).connect(this.out);
+      // EQ por pieza: maracas, güiro, cabasa y hi-hats no aportan nada por
+      // debajo de ~300 Hz, y ese lodo hacía que el ritmo sonara a "shhh"
+      // constante en vez de golpes definidos.
+      if (eq.highpass > 0) {
+        const hp = new Tone.Filter({
+          type: "highpass",
+          frequency: eq.highpass,
+          rolloff: -12,
+          Q: 0.7,
+        }).connect(panner);
+        this.filters.set(note, hp);
+      }
       this.panners.set(note, panner);
     }
     return panner;
+  }
+
+  /** Nodo donde debe entrar el golpe: el filtro de la pieza, o el paneo. */
+  private inputFor(note: number): Tone.ToneAudioNode {
+    const hp = this.filters.get(note);
+    return hp ?? this.pannerFor(note);
   }
 
   /** ¿Esta pieza ya tiene sample real listo para sonar? */
@@ -216,7 +239,7 @@ export class DrumKitEngine {
           /* ignore */
         }
       },
-    }).connect(this.pannerFor(note));
+    }).connect(this.inputFor(note));
 
     try {
       source.start(time ?? Tone.now(), 0, undefined, gain);

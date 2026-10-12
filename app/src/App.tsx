@@ -31,7 +31,12 @@ import {
   getInstrumentStatus,
   getInstrumentSync,
   loadInstrument,
+  humanizeVelocity,
 } from "./engine/instrumentSources";
+import {
+  createInstrumentChain,
+  type InstrumentChain,
+} from "./engine/instrumentChain";
 import { DrumKitEngine } from "./engine/DrumKitEngine";
 import { InstrumentControlsPanel } from "./components/studio";
 import type { BrassMuteType, TrumpetTonguing } from "./engine/InstrumentEngine";
@@ -627,6 +632,8 @@ export default function App() {
 
   // Audio refs
   const samplerRef = useRef<Tone.Sampler | null>(null);
+  /** Cadena de mezcla del piano (EQ + paneo), para liberarla al desmontar. */
+  const pianoChainRef = useRef<InstrumentChain | null>(null);
   const fallbackSynthsRef = useRef<Record<number, Tone.PolySynth> | null>(null);
   const reverbRef = useRef<Tone.Reverb | null>(null);
   // GM sampler destination — set once audio is ready, used by GMSamplerEngine
@@ -954,13 +961,17 @@ export default function App() {
       // percusión). Con el envío, la señal seca queda intacta y sólo la cola de
       // medios/agudos va al reverb — que es como se hace en un estudio.
       const limiter = new Tone.Limiter(-2).toDestination();
+      // Ganancia de compensación: el EQ por familia recorta graves y barro que
+      // aportaban ~4 dB de energía, así que sin esto la mezcla quedaría más
+      // limpia pero más baja. Es el "makeup gain" de manual.
+      const makeup = new Tone.Gain(1.45).connect(limiter);
       const compressor = new Tone.Compressor({
         threshold: -18, // start compressing at -18dB
         ratio: 5, // 5:1 ratio
         attack: 0.003, // 3ms attack — catches transients fast
         release: 0.1, // 100ms release
         knee: 6, // soft knee, transparent
-      }).connect(limiter);
+      }).connect(makeup);
 
       const reverb = new Tone.Reverb({ decay: 1.5, wet: 1 }).connect(compressor);
       await reverb.generate();
@@ -1039,6 +1050,12 @@ export default function App() {
           if (SALAMANDER_SAMPLES[note]) coreUrls[note] = SALAMANDER_SAMPLES[note];
         }
 
+        // El piano es el instrumento más usado y era el único que iba derecho al
+        // bus maestro: sin EQ (retumbe y barro de 300 Hz) y sin ubicar en el
+        // estéreo. Ahora entra por la misma cadena de mezcla que los demás.
+        const pianoChain = createInstrumentChain("Acoustic Grand Piano", vol);
+        pianoChainRef.current = pianoChain;
+
         const sampler = new Tone.Sampler({
           urls: coreUrls,
           baseUrl: "https://tonejs.github.io/audio/salamander/",
@@ -1079,7 +1096,7 @@ export default function App() {
             setAudioStatusMessage("Sintetizador FM activo");
             resolve();
           },
-        }).connect(vol);
+        }).connect(pianoChain.input);
         samplerRef.current = sampler;
       });
     } finally {
@@ -1189,7 +1206,13 @@ export default function App() {
 
       // ── 1. Piano real (Salamander sampler) ──
       if (source === "piano-sampler") {
-        samplerRef.current?.triggerAttack(bentFreq, audioTime, velocity);
+        // El piano es el instrumento más usado y no pasa por la capa de fuentes:
+      // se humaniza acá para que dos notas iguales no suenen idénticas.
+      samplerRef.current?.triggerAttack(
+        bentFreq,
+        audioTime,
+        humanizeVelocity("Acoustic Grand Piano", midi, audioTime, velocity),
+      );
         return;
       }
 

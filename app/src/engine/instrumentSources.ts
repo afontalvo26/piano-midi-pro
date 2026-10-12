@@ -34,6 +34,7 @@ import { prepareSampleBuffer, releaseForInstrument } from "./sampleProcessing";
 import { loadVscoInstrument, vscoCovers } from "./vscoSampler";
 import type { InstrumentVoice } from "./vscoSampler";
 import { panForInstrument } from "./instrumentPanning";
+import { createInstrumentChain, eqForInstrument } from "./instrumentChain";
 import { TONEJS_INSTRUMENTS } from "./tonejsManifest";
 import { WAF_VARIANTS, WAF_NEEDED_PROGRAMS } from "./wafManifest";
 import {
@@ -217,6 +218,25 @@ function hash01(seed: string): number {
 }
 
 /**
+ * Variación humana de una velocidad (±0.5 dB, determinista).
+ *
+ * La usan tanto las voces de esta capa como el piano Salamander (que se dispara
+ * aparte, en App.tsx): dos notas iguales nunca suenan EXACTAMENTE igual, y esa
+ * repetición idéntica es lo que delata a un sampler.
+ */
+export function humanizeVelocity(
+  instrument: string,
+  note: number | string,
+  time: number | undefined,
+  velocity: number,
+): number {
+  const t = typeof time === "number" ? time : 0;
+  const jitter =
+    1 + (hash01(`${instrument}:${note}:${Math.floor(t * 20)}`) - 0.5) * 0.12;
+  return Math.max(0.02, Math.min(1, velocity * jitter));
+}
+
+/**
  * Voz con variación humana.
  *
  * Dos notas iguales, tocadas igual, no suenan EXACTAMENTE igual en la vida real
@@ -236,8 +256,11 @@ class HumanizedVoice implements InstrumentVoice {
 
   triggerAttack(note: Tone.Unit.Frequency, time?: Tone.Unit.Time, velocity = 1): void {
     const t = typeof time === "number" ? time : 0;
-    const jitter = 1 + (hash01(`${this.instrument}:${note}:${Math.floor(t * 20)}`) - 0.5) * 0.12;
-    this.inner.triggerAttack(note, time, Math.max(0.02, Math.min(1, velocity * jitter)));
+    this.inner.triggerAttack(
+      note,
+      time,
+      humanizeVelocity(this.instrument, note, t, velocity),
+    );
   }
 
   triggerRelease(note: Tone.Unit.Frequency, time?: Tone.Unit.Time): void {
@@ -385,12 +408,13 @@ export async function loadInstrument(
       return null;
     }
 
-    // Imagen estéreo: cada instrumento entra por su propio paneo, como en un
-    // escenario. Sin esto todo sale al centro y la mezcla suena a maqueta.
-    const pan = panForInstrument(instrument);
-    const panner = new Tone.Panner(pan).connect(dest);
+    // Cadena de mezcla: EQ por familia + paneo. Sin esto todo sale al centro y
+    // con barro en los graves (ver instrumentChain.ts).
+    const chain = createInstrumentChain(instrument, dest);
+    const panner = chain.input;
+    const famEq = eqForInstrument(instrument);
     console.log(
-      `[fuentes] "${instrument}": paneo ${pan >= 0 ? "+" : ""}${pan.toFixed(2)}`,
+      `[fuentes] "${instrument}": paneo ${panForInstrument(instrument) >= 0 ? "+" : ""}${panForInstrument(instrument).toFixed(2)}, EQ hp ${famEq.highpass || "—"} Hz / ${famEq.low}/${famEq.mid}/${famEq.high} dB`,
     );
 
     for (const candidate of candidates) {
@@ -406,7 +430,7 @@ export async function loadInstrument(
       return withPan;
     }
 
-    panner.dispose();
+    chain.dispose();
 
     if (!warned.has(k)) {
       warned.add(k);
