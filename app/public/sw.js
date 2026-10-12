@@ -1,6 +1,6 @@
 // Piano MIDI Pro service worker — minimal offline shell
 // Versioned cache name; bumping forces clients to upgrade
-const VERSION = "v1";
+const VERSION = "v2";
 const APP_CACHE = `pmp-app-${VERSION}`;
 const SAMPLE_CACHE = `pmp-samples-${VERSION}`;
 const DEMO_CACHE = `pmp-demos-${VERSION}`;
@@ -37,8 +37,8 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Demo MIDI files served from public/demo
-  if (url.origin === self.location.origin && url.pathname.startsWith("/demo/") && url.pathname.endsWith(".mid")) {
+  // Demo MIDI files served from public/demo (.kar = karaoke MIDI, same format)
+  if (url.origin === self.location.origin && url.pathname.startsWith("/demo/") && /\.(mid|kar)$/.test(url.pathname)) {
     event.respondWith(staleWhileRevalidate(DEMO_CACHE, req));
     return;
   }

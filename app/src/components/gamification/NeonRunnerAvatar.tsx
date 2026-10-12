@@ -9,7 +9,7 @@ export interface NeonRunnerAvatarProps {
   canvasWidth: number;
   canvasHeight: number;
   groundY: number;
-  activeKeys: Set<number>; // MIDI numbers of pressed keys
+  activeKeys: ReadonlySet<number>; // MIDI numbers of pressed keys
   keyPositions: Map<number, { x: number; width: number }>; // MIDI -> {x, width}
   show: boolean;
   fxColor?: string;

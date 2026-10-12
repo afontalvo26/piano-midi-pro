@@ -17,6 +17,7 @@ import {
 } from "../services/audioService";
 import { InstrumentEngineRegistry } from "../engine/InstrumentEngine";
 import { disposeAllGMSamplers } from "../engine/GMSamplerEngine";
+import { configureAudioTiming } from "../audio/audioTiming";
 
 // ─── Public types ──────────────────────────────────────────────
 
@@ -104,12 +105,15 @@ export function useAudioEngine(
     try {
       const opts = optionsRef.current;
 
-      // Configure AudioContext BEFORE start for minimum latency.
-      const ctx = Tone.getContext();
-      const isUltra = opts.latencyMode === "ultra";
-      ctx.lookAhead = isUltra ? 0 : 0.04;
-      // @ts-expect-error updateInterval exists at runtime
-      ctx.updateInterval = isUltra ? 0.01 : 0.025;
+      // Configure the AudioContext's scheduling window BEFORE start.
+      //
+      // This engine is currently unreachable (nothing consumes
+      // `useAudioContext()`; App.tsx builds the live one), but it used to arm
+      // the same trap the app did: a 0 ms window in "ultra" mode, which leaves
+      // the clock no slack and turns any late callback into a dropped or piled-up
+      // note. It goes through the shared timing module so there is exactly one
+      // definition of the window — and one place that compensates for it.
+      configureAudioTiming();
 
       await Tone.start();
 

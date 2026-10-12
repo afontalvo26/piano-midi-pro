@@ -23,6 +23,11 @@ export interface InstrumentSynthSettings {
 /**
  * Returns a Tone.js-compatible synth preset (oscillator + envelope) tuned
  * to roughly match the timbral family of the requested instrument name.
+ *
+ * Es solo el respaldo para los ~2 segundos en que el soundfont real todavía
+ * está bajando (o si no hay red), así que el objetivo es que suene neutro y
+ * corto, nunca estridente: el sawtooth pelado que había antes en el `else`
+ * hacía que una armónica o un bajo sonaran a sirena de terror.
  */
 export function getInstrumentSynthSettings(
   instrumentName: string,
@@ -38,9 +43,22 @@ export function getInstrumentSynthSettings(
       envelope: { attack: 0.005, decay: 0.15, sustain: 0.6, release: 0.3 },
     };
   } else if (
+    name.includes("bass") &&
+    !name.includes("bassoon") &&
+    !name.includes("clarinet")
+  ) {
+    // Bajo: seno con decay medio. El triangle/sawtooth en el registro grave
+    // genera el "growl" que el usuario describía como sonido de terror.
+    return {
+      oscillator: { type: "sine" },
+      envelope: { attack: 0.02, decay: 0.35, sustain: 0.5, release: 0.4 },
+    };
+  } else if (
     name.includes("string") ||
     name.includes("choir") ||
-    name.includes("pad")
+    name.includes("voice") ||
+    name.includes("pad") ||
+    name.includes("ensemble")
   ) {
     return {
       oscillator: { type: "sine" },
@@ -49,13 +67,14 @@ export function getInstrumentSynthSettings(
   } else if (
     name.includes("organ") ||
     name.includes("accordion") ||
-    name.includes("reed")
+    name.includes("reed") ||
+    name.includes("harmonica")
   ) {
     return {
-      oscillator: { type: "sawtooth" },
-      envelope: { attack: 0.06, decay: 0.1, sustain: 0.9, release: 0.1 },
+      oscillator: { type: "triangle" },
+      envelope: { attack: 0.06, decay: 0.1, sustain: 0.9, release: 0.15 },
     };
-  } else if (name.includes("guitar") || name.includes("bass")) {
+  } else if (name.includes("guitar") || name.includes("banjo")) {
     return {
       oscillator: { type: "triangle" },
       envelope: { attack: 0.01, decay: 0.25, sustain: 0.4, release: 0.35 },
@@ -65,16 +84,45 @@ export function getInstrumentSynthSettings(
     name.includes("whistle") ||
     name.includes("recorder") ||
     name.includes("pipe") ||
-    name.includes("oboe")
+    name.includes("oboe") ||
+    name.includes("clarinet") ||
+    name.includes("sax") ||
+    name.includes("bassoon")
   ) {
     return {
       oscillator: { type: "sine" },
       envelope: { attack: 0.05, decay: 0.1, sustain: 0.7, release: 0.15 },
     };
-  } else {
+  } else if (
+    name.includes("trumpet") ||
+    name.includes("trombone") ||
+    name.includes("tuba") ||
+    name.includes("horn") ||
+    name.includes("brass")
+  ) {
     return {
-      oscillator: { type: "sawtooth" },
-      envelope: { attack: 0.02, decay: 0.1, sustain: 0.6, release: 0.25 },
+      oscillator: { type: "triangle" },
+      envelope: { attack: 0.04, decay: 0.12, sustain: 0.8, release: 0.2 },
+    };
+  } else if (
+    name.includes("marimba") ||
+    name.includes("xylophone") ||
+    name.includes("vibraphone") ||
+    name.includes("glocken") ||
+    name.includes("celesta") ||
+    name.includes("bell") ||
+    name.includes("timpani") ||
+    name.includes("drum")
+  ) {
+    return {
+      oscillator: { type: "sine" },
+      envelope: { attack: 0.002, decay: 0.4, sustain: 0.05, release: 0.3 },
+    };
+  } else {
+    // Desconocido: triangle suave, no sawtooth.
+    return {
+      oscillator: { type: "triangle" },
+      envelope: { attack: 0.03, decay: 0.2, sustain: 0.55, release: 0.3 },
     };
   }
 }
@@ -82,109 +130,174 @@ export function getInstrumentSynthSettings(
 /**
  * Map a GM program number (0-127) — optionally hinted by a track name —
  * to the closest matching INSTRUMENT_FAMILIES entry.
+ *
+ * ⚠️ El orden importa: cada familia tiene sus variantes específicas ANTES del
+ * patrón genérico. Antes `/guitar/` y `/bass/` iban primero, así que
+ * "Electric Bass (pick)", "Synth Bass 2" o "Electric Guitar (clean)" caían
+ * todos al genérico (bajo acústico / guitarra de nylon) y las variantes de
+ * abajo eran código muerto. Igual `/strings/` antes de `/synth strings/`.
  */
 export function gmProgramToInstrument(
   programNumber: number,
   trackName?: string,
 ): string {
-  // ── Track name hints take priority over program number ──
   const name = (trackName || "").toLowerCase();
-  // Percussion channel (10) — filtered out by caller, but safety
+
+  // ── Batería / percusión de canal 10 (el llamador ya la filtra) ──
   if (name.match(/drum|perc|kit|beat/)) return "Acoustic Grand Piano";
-  // Brass
-  if (name.match(/muted trumpet/)) return "Muted Trumpet";
-  if (name.match(/trumpet|trpt|tpt/)) return "Trumpet";
-  if (name.match(/trombone|tbn|trb/)) return "Trombone";
-  if (name.match(/french horn|frenchhorn|fr horn/)) return "French Horn";
+
+  // ── Metales ──
+  if (name.match(/muted trumpet|mute.*trumpet/)) return "Muted Trumpet";
+  if (name.match(/trumpet|trpt|tpt|trompeta/)) return "Trumpet";
+  if (name.match(/trombone|trombón|tbn|trb/)) return "Trombone";
+  if (name.match(/french horn|frenchhorn|fr horn|trompa/)) return "French Horn";
   if (name.match(/tuba/)) return "Tuba";
-  if (name.match(/brass section|brass/)) return "Brass Section";
-  // Woodwinds
+  if (name.match(/synth brass 1/)) return "Synth Brass 1";
+  if (name.match(/synth brass 2/)) return "Synth Brass 2";
+  if (name.match(/brass section|brass|metales/)) return "Brass Section";
+
+  // ── Saxos ──
   if (name.match(/soprano sax/)) return "Soprano Sax";
   if (name.match(/alto sax/)) return "Alto Sax";
   if (name.match(/tenor sax/)) return "Tenor Sax";
   if (name.match(/baritone sax|bari sax/)) return "Baritone Sax";
-  if (name.match(/sax|saxophone/)) return "Alto Sax"; // default sax
-  // Woodwinds salsa
-  if (name.match(/flauta|flute/)) return "Flute";
-  if (name.match(/clarinet/)) return "Clarinet";
-  // Strings salsa
-  if (name.match(/violin/)) return "Violin";
-  if (name.match(/guitar|guitarra/)) return "Acoustic Guitar (nylon)";
-  if (name.match(/bass|bajo/) && !name.match(/bassoon/)) return "Acoustic Bass";
-  if (name.match(/oboe/)) return "Oboe";
-  if (name.match(/english horn/)) return "English Horn";
-  if (name.match(/bassoon/)) return "Bassoon";
-  if (name.match(/clarinet|clt/)) return "Clarinet";
+  if (name.match(/sax|saxophone|saxofón/)) return "Alto Sax"; // default sax
+
+  // ── Maderas ──
   if (name.match(/piccolo/)) return "Piccolo";
-  if (name.match(/flute|flt/)) return "Flute";
-  if (name.match(/recorder/)) return "Recorder";
-  if (name.match(/pan flute|panflute/)) return "Pan Flute";
+  if (name.match(/pan flute|panflute|zampoña/)) return "Pan Flute";
   if (name.match(/shakuhachi/)) return "Shakuhachi";
-  if (name.match(/whistle/)) return "Whistle";
   if (name.match(/ocarina/)) return "Ocarina";
-  // Strings
-  if (name.match(/violin|vln/)) return "Violin";
-  if (name.match(/viola|vla/)) return "Viola";
-  if (name.match(/cello|vcl/)) return "Cello";
-  if (name.match(/contrabass|double bass/)) return "Contrabass";
-  if (name.match(/pizzicato|pizz/)) return "Pizzicato Strings";
-  if (name.match(/tremolo str/)) return "Tremolo Strings";
-  if (name.match(/harp/)) return "Orchestral Harp";
-  if (name.match(/string ensemble|strings/)) return "String Ensemble 1";
-  // Synth strings / choir / pads
-  if (name.match(/synth strings/i)) return "Synth Strings 1";
-  if (name.match(/choir|voice|vocal|aahs|oohs/)) return "Choir Aahs";
-  if (name.match(/synth choir/)) return "Synth Choir";
-  if (name.match(/orchestra hit/)) return "Orchestra Hit";
-  if (name.match(/pad/i)) return "Pad 2 (warm)";
-  // Bass
-  if (name.match(/acoustic bass|stand.?up bass/)) return "Acoustic Bass";
-  if (name.match(/electric bass.*finger|finger.*bass/))
-    return "Electric Bass (finger)";
-  if (name.match(/electric bass.*pick|pick.*bass/))
-    return "Electric Bass (pick)";
-  if (name.match(/fretless bass/)) return "Fretless Bass";
-  if (name.match(/slap bass 1/)) return "Slap Bass 1";
-  if (name.match(/slap bass 2/)) return "Slap Bass 2";
-  if (name.match(/synth bass 1/)) return "Synth Bass 1";
-  if (name.match(/synth bass 2/)) return "Synth Bass 2";
-  if (name.match(/bass(?!oon)/)) return "Acoustic Bass"; // default bass
-  // Guitar
-  if (name.match(/acoustic guitar.*nylon|nylon/))
-    return "Acoustic Guitar (nylon)";
-  if (name.match(/acoustic guitar.*steel|steel/))
-    return "Acoustic Guitar (steel)";
-  if (name.match(/electric guitar.*jazz|jazz/)) return "Electric Guitar (jazz)";
-  if (name.match(/electric guitar.*clean|clean/))
-    return "Electric Guitar (clean)";
-  if (name.match(/electric guitar.*muted|muted/))
-    return "Electric Guitar (muted)";
-  if (name.match(/overdriven|overdrive/)) return "Overdriven Guitar";
-  if (name.match(/distortion guitar|distortion/)) return "Distortion Guitar";
-  if (name.match(/guitar harmonics/)) return "Guitar Harmonics";
-  if (name.match(/guitar/)) return "Acoustic Guitar (nylon)"; // default guitar
-  // Keys
-  if (name.match(/organ/)) return "Drawbar Organ";
-  if (name.match(/accordion/)) return "Accordion";
-  if (name.match(/harmonica/)) return "Harmonica";
+  if (name.match(/recorder|flauta dulce/)) return "Recorder";
+  if (name.match(/whistle|silbato/)) return "Whistle";
+  if (name.match(/flauta|flute|flt/)) return "Flute";
+  if (name.match(/english horn|corno inglés/)) return "English Horn";
+  if (name.match(/oboe/)) return "Oboe";
+  if (name.match(/bassoon|fagot/)) return "Bassoon";
+  if (name.match(/clarinet|clt|clarinete/)) return "Clarinet";
+
+  // ── Teclados / cromáticos ──
+  if (name.match(/electric piano 1|rhodes|e\.?piano 1/)) return "Electric Piano 1";
+  if (name.match(/electric piano 2|dx7|e\.?piano 2/)) return "Electric Piano 2";
+  if (name.match(/honky.?tonk/)) return "Honky-tonk Piano";
+  if (name.match(/bright.*piano/)) return "Bright Acoustic Piano";
+  if (name.match(/electric grand/)) return "Electric Grand Piano";
+  if (name.match(/harpsichord|clave(cín|cin)|\bcembalo\b/)) return "Harpsichord";
+  if (name.match(/clavinet|\bclav\b/)) return "Clavinet";
   if (name.match(/celesta/)) return "Celesta";
   if (name.match(/glockenspiel/)) return "Glockenspiel";
   if (name.match(/music box/)) return "Music Box";
-  if (name.match(/vibraphone|vibes/)) return "Vibraphone";
+  if (name.match(/vibraphone|vibes|vibráfono/)) return "Vibraphone";
   if (name.match(/marimba/)) return "Marimba";
-  if (name.match(/xylophone/)) return "Xylophone";
+  if (name.match(/xylophone|xilófono/)) return "Xylophone";
+  if (name.match(/tubular bell|campanas? tubulares/)) return "Tubular Bells";
+  if (name.match(/dulcimer/)) return "Dulcimer";
+  if (name.match(/church organ|órgano de iglesia/)) return "Church Organ";
+  if (name.match(/reed organ/)) return "Reed Organ";
+  if (name.match(/percussive organ/)) return "Percussive Organ";
+  if (name.match(/rock organ/)) return "Rock Organ";
+  if (name.match(/organ|órgano/)) return "Drawbar Organ";
+  if (name.match(/tango accordion/)) return "Tango Accordion";
+  if (name.match(/accordion|acordeón|acordeon/)) return "Accordion";
+  if (name.match(/harmonica|armónica|armonica/)) return "Harmonica";
   if (name.match(/piano|acoustic grand|grand piano/))
     return "Acoustic Grand Piano";
-  // Percussion (melodic)
-  if (name.match(/timpani/)) return "Timpani";
-  if (name.match(/steel drum/)) return "Steel Drums";
+
+  // ── Bajos: variantes específicas primero, genérico al final ──
+  if (name.match(/acoustic bass|stand.?up bass|contrabajo/)) return "Acoustic Bass";
+  if (name.match(/fretless/)) return "Fretless Bass";
+  if (name.match(/(electric bass|bass|bajo).*(finger|dedo)|finger.*bass/))
+    return "Electric Bass (finger)";
+  if (name.match(/(electric bass|bass|bajo).*(pick|púa|pua)|pick.*bass/))
+    return "Electric Bass (pick)";
+  if (name.match(/slap bass 1/)) return "Slap Bass 1";
+  if (name.match(/slap bass 2|slap/)) return "Slap Bass 2";
+  if (name.match(/synth bass 1/)) return "Synth Bass 1";
+  if (name.match(/synth bass 2/)) return "Synth Bass 2";
+  if (name.match(/bass(?!oon)/)) return "Acoustic Bass"; // default bass
+
+  // ── Guitarras y cuerdas pulsadas: específicas primero ──
+  if (name.match(/nylon|acoustic guitar.*nylon|guitarra.*nylon/))
+    return "Acoustic Guitar (nylon)";
+  if (name.match(/steel|acoustic guitar.*steel|guitarra.*acústica/))
+    return "Acoustic Guitar (steel)";
+  if (name.match(/jazz.*guitar|guitar.*jazz/)) return "Electric Guitar (jazz)";
+  if (name.match(/clean.*guitar|guitar.*clean/)) return "Electric Guitar (clean)";
+  if (name.match(/muted.*guitar|guitar.*muted/)) return "Electric Guitar (muted)";
+  if (name.match(/overdriven|overdrive/)) return "Overdriven Guitar";
+  if (name.match(/distortion/)) return "Distortion Guitar";
+  if (name.match(/guitar harmonics/)) return "Guitar Harmonics";
+  if (name.match(/guitar|guitarra/)) return "Acoustic Guitar (nylon)"; // default guitar
+  if (name.match(/banjo/)) return "Banjo";
+  if (name.match(/shamisen/)) return "Shamisen";
+  if (name.match(/koto/)) return "Koto";
+  if (name.match(/sitar/)) return "Sitar";
+  if (name.match(/kalimba/)) return "Kalimba";
+  if (name.match(/bagpipe|gaita/)) return "Bagpipe";
+  if (name.match(/fiddle|violín campesino/)) return "Fiddle";
+  if (name.match(/shanai/)) return "Shanai";
+
+  // ── Cuerdas frotadas y ensembles ──
+  if (name.match(/tremolo str/)) return "Tremolo Strings";
+  if (name.match(/pizzicato|pizz/)) return "Pizzicato Strings";
+  if (name.match(/orchestral harp|\bharp\b|\barpa\b/)) return "Orchestral Harp";
+  if (name.match(/violin|vln|violín/)) return "Violin";
+  if (name.match(/viola|vla/)) return "Viola";
+  if (name.match(/cello|vcl|violonchelo/)) return "Cello";
+  if (name.match(/contrabass|double bass/)) return "Contrabass";
+  if (name.match(/string ensemble 2|strings 2/)) return "String Ensemble 2";
+  if (name.match(/string ensemble|strings|cuerdas/)) return "String Ensemble 1";
+  if (name.match(/synth strings 2/)) return "Synth Strings 2";
+  if (name.match(/synth strings|synthstrings/)) return "Synth Strings 1";
+  if (name.match(/synth choir/)) return "Synth Choir";
+  if (name.match(/orchestra hit/)) return "Orchestra Hit";
+  if (name.match(/voice oohs|oohs/)) return "Voice Oohs";
+  if (name.match(/choir|voice|vocal|aahs|coro/)) return "Choir Aahs";
+
+  // ── Pads ──
+  if (name.match(/pad 1|new age/)) return "Pad 1 (new age)";
+  if (name.match(/pad 2|warm/)) return "Pad 2 (warm)";
+  if (name.match(/pad 3|polysynth/)) return "Pad 3 (polysynth)";
+  if (name.match(/pad 4|choir pad/)) return "Pad 4 (choir)";
+  if (name.match(/pad 5|bowed/)) return "Pad 5 (bowed)";
+  if (name.match(/pad 6|metallic/)) return "Pad 6 (metallic)";
+  if (name.match(/pad 7|halo/)) return "Pad 7 (halo)";
+  if (name.match(/pad 8|sweep/)) return "Pad 8 (sweep)";
+  if (name.match(/pad/)) return "Pad 2 (warm)";
+
+  // ── Leads de sintetizador (ojo: "Lead Vocals" NO es un lead de synth) ──
+  if (name.match(/lead 1|square lead/)) return "Lead 1 (square)";
+  if (name.match(/lead 2|sawtooth|saw lead/)) return "Lead 2 (sawtooth)";
+  if (name.match(/lead 3|calliope/)) return "Lead 3 (calliope)";
+  if (name.match(/lead 4|chiff/)) return "Lead 4 (chiff)";
+  if (name.match(/lead 5|charang/)) return "Lead 5 (charang)";
+  if (name.match(/lead 6/)) return "Lead 6 (voice)";
+  if (name.match(/lead 7|fifths/)) return "Lead 7 (fifths)";
+  if (name.match(/lead 8|bass \+ lead/)) return "Lead 8 (bass + lead)";
+  if (name.match(/synth lead|lead synth|lead guitar|melodía guía/))
+    return "Lead 2 (sawtooth)";
+
+  // ── Percusión melódica ──
+  if (name.match(/timpani|tímpani/)) return "Timpani";
+  if (name.match(/steel drum|steel drums/)) return "Steel Drums";
   if (name.match(/woodblock/)) return "Woodblock";
   if (name.match(/taiko/)) return "Taiko Drum";
+  if (name.match(/melodic tom/)) return "Melodic Tom";
   if (name.match(/synth drum/)) return "Synth Drum";
-  // Synth lead
-  if (name.match(/lead/i)) return "Lead 2 (sawtooth)";
-  // FX
-  if (name.match(/soundtrack|fx/i)) return "FX 2 (soundtrack)";
+  if (name.match(/reverse cymbal/)) return "Reverse Cymbal";
+  if (name.match(/tinkle bell/)) return "Tinkle Bell";
+  if (name.match(/agogo/)) return "Agogo";
+
+  // ── Efectos ──
+  // Ojo con las palabras sueltas: sin \b, "Brain" matchearía "rain".
+  if (name.match(/fx 1|\brain\b/)) return "FX 1 (rain)";
+  if (name.match(/soundtrack|fx 2/)) return "FX 2 (soundtrack)";
+  if (name.match(/fx 3|\bcrystal\b/)) return "FX 3 (crystal)";
+  if (name.match(/fx 4|\batmosphere\b/)) return "FX 4 (atmosphere)";
+  if (name.match(/fx 5|\bbrightness\b/)) return "FX 5 (brightness)";
+  if (name.match(/fx 6|\bgoblins\b/)) return "FX 6 (goblins)";
+  if (name.match(/fx 7|\bechoes\b/)) return "FX 7 (echoes)";
+  if (name.match(/fx 8|sci.?fi/)) return "FX 8 (sci-fi)";
 
   // ── Precise GM program-number mapping ──
   const p = programNumber ?? 0;

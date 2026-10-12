@@ -4171,3 +4171,199 @@ input.input-custom[type="number"] {
 .settings-group:first-child h3 {
     margin-top: 0;
 }
+
+/* ============================================================
+   Karaoke lyrics panel
+   ============================================================
+   Replaces the right-hand metrics column while lyrics mode is on. The panel
+   gets a solid, darker background than the rest of the app (the metrics panel
+   is translucent) so the active line reads with maximum contrast and nothing
+   behind it competes for attention.
+   ============================================================ */
+
+.panel-right--lyrics {
+    width: 340px;
+    background: linear-gradient(180deg, #0b0b12 0%, #08080d 100%);
+    /* Kill the inherited blur — we want an opaque, calm surface */
+    backdrop-filter: none;
+    padding: 20px 18px;
+}
+
+.panel-right--lyrics h2 {
+    color: var(--accent-primary);
+    margin-bottom: 14px;
+}
+
+/* Count badge on the "Letra" transport toggle — tells the user how many
+   synchronised lines the loaded song carries before they open the panel. */
+.lyrics-count {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: rgba(139, 92, 246, 0.28);
+    font-size: 0.65rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.5;
+}
+
+.lyrics-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+/* ── Lines ───────────────────────────────────────────────── */
+
+.lyrics-lines {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 9px;
+    overflow: hidden;
+}
+
+.lyrics-line {
+    margin: 0;
+    font-size: 0.98rem;
+    line-height: 1.4;
+    font-weight: 500;
+    color: rgba(244, 244, 247, 0.42);
+    /* Future lines are readable but clearly not "now" */
+    text-wrap: pretty;
+    transition: color 180ms ease, opacity 180ms ease;
+}
+
+/* Already sung — recede so the eye stays on the current line */
+.lyrics-line--past {
+    color: rgba(244, 244, 247, 0.2);
+}
+
+/* The line being sung right now — maximum contrast */
+.lyrics-line--active {
+    color: #ffffff;
+    font-size: 1.24rem;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: 0.005em;
+    padding-left: 12px;
+    border-left: 3px solid var(--accent-primary);
+    text-shadow: 0 0 18px var(--accent-glow);
+}
+
+/* ── Footer: progress + counter ──────────────────────────── */
+
+.lyrics-footer {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-top: 14px;
+    margin-top: 14px;
+    border-top: 1px solid var(--border-color);
+}
+
+.lyrics-progress {
+    flex: 1 1 auto;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+}
+
+.lyrics-progress__fill {
+    height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+    transition: width 120ms linear;
+}
+
+.lyrics-footer__count {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+/* ── Empty state ─────────────────────────────────────────── */
+
+.lyrics-panel--empty .lyrics-empty {
+    margin-top: 24px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.lyrics-empty__icon {
+    font-size: 2rem;
+    opacity: 0.7;
+}
+
+.lyrics-empty__title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.lyrics-empty__sub,
+.lyrics-empty__hint {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+
+.lyrics-empty__hint {
+    margin-top: 6px;
+    color: var(--text-muted);
+}
+
+.lyrics-empty__hint strong {
+    color: var(--text-secondary);
+}
+
+/* ── Toolbar toggle ──────────────────────────────────────── */
+
+.lyrics-toggle {
+    position: relative;
+}
+
+/* Small dot telling the user this song actually has lyrics before toggling */
+.lyrics-toggle__dot {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
+}
+
+/* Lyrics panel header — title of the song being sung */
+.lyrics-head {
+    flex: 0 0 auto;
+    margin-bottom: 8px;
+}
+
+.lyrics-head h2 {
+    margin-bottom: 2px;
+}
+
+.lyrics-head__song {
+    margin: 0;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: var(--text-secondary);
+    /* Two lines max, ellipsis after that */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}

@@ -37,6 +37,25 @@ export const Icons = {
       />
     </svg>
   ),
+  /**
+   * Lyrics / karaoke — "quote" glyph, the conventional marker for subtitles
+   * and song words.
+   */
+  Lyrics: () => (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 5.5h16M4 10.5h16M4 15.5h10M4 20.5h7"
+      />
+    </svg>
+  ),
   Tracks: () => (
     <svg
       xmlns="http://www.w3.org/2000/svg"

@@ -1,13 +1,31 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Navegación — 6 pantallas", () => {
+test.describe("Navegación — 8 secciones", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });
 
-  test("hay 6 botones en el sidebar rail", async ({ page }) => {
+  test("hay 8 botones en el sidebar rail", async ({ page }) => {
     const railItems = page.locator(".rail-item");
-    await expect(railItems).toHaveCount(6);
+    await expect(railItems).toHaveCount(8);
+    // Orden esperado: Studio, Juego, Música, Canciones, Pistas, MIDI, Ajustes,
+    // Partitura. "Música" es el reproductor; "Canciones" la biblioteca clásica.
+    await expect(railItems).toHaveText([
+      /Studio/,
+      /Juego/,
+      /Música/,
+      /Canciones/,
+      /Pistas/,
+      /MIDI/,
+      /Ajustes/,
+      /Partitura/,
+    ]);
+  });
+
+  test("navegar a Música (el reproductor)", async ({ page }) => {
+    await page.locator(".rail-item", { hasText: "Música" }).click();
+    await expect(page.locator(".pm-screen")).toBeVisible();
+    await expect(page.locator(".pm-nav__brand-text")).toHaveText("Mi música");
   });
 
   test("Studio activo por defecto", async ({ page }) => {
@@ -16,10 +34,21 @@ test.describe("Navegación — 6 pantallas", () => {
     await expect(page.locator(".studio-workspace")).toBeVisible();
   });
 
+  test("navegar a Juego", async ({ page }) => {
+    await page.locator(".rail-item", { hasText: "Juego" }).click();
+    await expect(page.locator(".game-panel-card h3")).toHaveText(
+      "Modo Juego 37 teclas",
+    );
+    await expect(page.locator(".studio-workspace")).toBeVisible();
+  });
+
   test("navegar a Canciones", async ({ page }) => {
     await page.locator(".rail-item", { hasText: "Canciones" }).click();
-    await expect(page.locator("h2", { hasText: "Biblioteca de Canciones" })).toBeVisible();
-    await expect(page.locator(".songs-grid")).toBeVisible();
+    await expect(page.locator(".lib-root")).toBeVisible();
+    // The library hero title replaced the old "Biblioteca de Canciones" h2
+    await expect(page.locator(".lib-hero__title")).toHaveText(
+      "Biblioteca de Canciones",
+    );
   });
 
   test("navegar a Pistas", async ({ page }) => {
@@ -50,11 +79,30 @@ test.describe("Navegación — 6 pantallas", () => {
   });
 
   test("topbar header siempre visible en todas las pantallas", async ({ page }) => {
-    const screens = ["Canciones", "Pistas", "MIDI", "Ajustes", "Partitura", "Studio"];
+    const screens = [
+      "Juego",
+      "Música",
+      "Canciones",
+      "Pistas",
+      "MIDI",
+      "Ajustes",
+      "Partitura",
+      "Studio",
+    ];
     for (const s of screens) {
       await page.locator(".rail-item", { hasText: s }).click();
       await expect(page.locator("h1", { hasText: "Piano MIDI Pro" })).toBeVisible();
       await expect(page.locator(".playback-bar")).toBeVisible();
+    }
+  });
+
+  test("la barra del reproductor sobrevive al cambio de pantalla", async ({
+    page,
+  }) => {
+    await expect(page.locator(".pm-bar")).toBeVisible();
+    for (const s of ["Música", "Juego", "Partitura", "Studio"]) {
+      await page.locator(".rail-item", { hasText: s }).click();
+      await expect(page.locator(".pm-bar")).toBeVisible();
     }
   });
 });

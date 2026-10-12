@@ -416,7 +416,7 @@ class BrassEngine {
       oscillator: { type: oscType },
       envelope: { attack: 0.015, decay: 0.1, sustain: 0.85, release: 0.25 },
     }).connect(this.distortion);
-    this.synth.maxPolyphony = 4;
+    this.synth.maxPolyphony = 8;
     this.reverb.generate();
   }
 
@@ -757,14 +757,14 @@ export class StringEngine {
       oscillator: { type: "sawtooth" },
       envelope: { attack: 0.12, decay: 0.1, sustain: 0.85, release: 0.5 },
     }).connect(this.filter);
-    this.synth.maxPolyphony = 16;
+    this.synth.maxPolyphony = 24;
 
     // Pizzicato synth: sharp attack, quick decay
     this.pizzSynth = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: "triangle" },
       envelope: { attack: 0.001, decay: 0.35, sustain: 0.0, release: 0.2 },
     }).connect(this.reverb);
-    this.pizzSynth.maxPolyphony = 8;
+    this.pizzSynth.maxPolyphony = 16;
 
     this.reverb.generate();
   }
@@ -1008,7 +1008,7 @@ export class WoodwindEngine {
           release: 0.25,
         },
       }).connect(this.filter);
-      synth.maxPolyphony = 4;
+      synth.maxPolyphony = 8;
       this.synths.set(family, synth);
     }
     return this.synths.get(family)!;
@@ -1346,11 +1346,13 @@ export type InstrumentType =
 
 export function getInstrumentType(instrument: string): InstrumentType {
   const l = instrument.toLowerCase();
+  // Ojo: el "piano" de acá engancha el PianoEngine (síntesis con articulación
+  // de teclado). Un órgano NO es un piano — antes caía acá y un órgano de
+  // iglesia terminaba sonando a triangle de piano.
   if (
     l.includes("piano") ||
     l.includes("harpsichord") ||
-    l.includes("electric piano") ||
-    l.includes("organ")
+    l.includes("clavinet")
   )
     return "piano";
   if (
@@ -1362,6 +1364,10 @@ export function getInstrumentType(instrument: string): InstrumentType {
     return "trumpet";
   if (l.includes("trombone") || l.includes("trombón") || l.includes("tuba"))
     return "trombone";
+  // Cuerdas FROTADAS. Los instrumentos pulsados (bajo, guitarra, banjo,
+  // mandolina) NO van acá: el StringEngine es un sawtooth con arco y en el
+  // registro grave de un bajo suena a growl. Esos usan su sample real y, si
+  // todavía no cargó, el sintetizador neutro.
   if (
     l.includes("violin") ||
     l.includes("viola") ||
@@ -1370,11 +1376,7 @@ export function getInstrumentType(instrument: string): InstrumentType {
     l.includes("double bass") ||
     l.includes("string") ||
     l.includes("harp") ||
-    l.includes("pizzicato") ||
-    l.includes("guitar") ||
-    (l.includes("bass") && !l.includes("bassoon")) ||
-    l.includes("banjo") ||
-    l.includes("mandolin")
+    l.includes("pizzicato")
   )
     return "strings";
   if (
@@ -1438,6 +1440,7 @@ export class InstrumentEngineRegistry {
   private woodwindEngines = new Map<string, WoodwindEngine>();
   private percEngines = new Map<string, PercussionEngine>();
   private destination: Tone.ToneAudioNode;
+  private pianoSampler: Tone.Sampler | null = null;
   private trumpetSampler: Tone.Sampler | null = null;
   private tromboneSampler: Tone.Sampler | null = null;
 
@@ -1470,9 +1473,29 @@ export class InstrumentEngineRegistry {
   }
 
   getPiano(id: string): PianoEngine {
-    if (!this.pianoEngines.has(id))
-      this.pianoEngines.set(id, new PianoEngine(this.destination));
+    if (!this.pianoEngines.has(id)) {
+      const eng = new PianoEngine(this.destination);
+      if (this.pianoSampler) eng.setSampler(this.pianoSampler);
+      this.pianoEngines.set(id, eng);
+    }
     return this.pianoEngines.get(id)!;
+  }
+
+  /**
+   * Le pasa el sampler real de piano (Salamander) a los PianoEngine.
+   *
+   * Sin esto cada PianoEngine caía a su PolySynth de triangle: las partituras
+   * (MusicXML) sonaban a piano sintético aunque el sampler estuviera cargado.
+   */
+  setPianoSampler(sampler: Tone.Sampler | null) {
+    this.pianoSampler = sampler;
+    if (!sampler) return;
+    this.pianoEngines.forEach((eng) => eng.setSampler(sampler));
+  }
+
+  /** ¿Los PianoEngine están usando samples reales? */
+  hasPianoSampler(): boolean {
+    return this.pianoSampler !== null;
   }
   getTrumpet(id: string): TrumpetEngine {
     if (!this.trumpetEngines.has(id)) {

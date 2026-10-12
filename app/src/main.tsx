@@ -8,7 +8,12 @@ import {
   ScoreProvider,
   SettingsProvider,
 } from "./contexts";
-import { schedulePianoPrefetch } from "./utils/prefetch";
+import { PlayerProvider } from "./music/PlayerContext";
+import { initLibraryStore } from "./music/libraryStore";
+
+// Hydrate the player's catalogue/playlists/likes before the first paint so the
+// library does not flash an empty state. localStorage-only and synchronous.
+initLibraryStore();
 
 // Register service worker for offline support — non-blocking, only in production
 if ("serviceWorker" in navigator && import.meta.env.PROD) {
@@ -19,8 +24,17 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
   });
 }
 
-// Idle-prefetch piano samples so the first Play feels instant
-schedulePianoPrefetch();
+// NOTE: schedulePianoPrefetch() used to run here to warm the Salamander samples
+// for the AudioProvider engine. That engine is currently unreachable — nothing
+// consumes `useAudioContext()`, so `useAudioEngine().initializeAudio` is never
+// called and its Tone.Sampler is never built. The prefetch was therefore
+// downloading ~6.6 MB across 30 requests on every cold start for samples that
+// no code path plays (App.tsx renders piano through VelocityPiano, which
+// streams @audio-samples from jsDelivr instead).
+//
+// Re-add the call below if/when the AudioProvider engine is wired up again:
+//   import { schedulePianoPrefetch } from "./utils/prefetch";
+//   schedulePianoPrefetch();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -28,7 +42,9 @@ createRoot(document.getElementById("root")!).render(
       <AudioProvider>
         <ProfileProvider>
           <ScoreProvider>
-            <App />
+            <PlayerProvider>
+              <App />
+            </PlayerProvider>
           </ScoreProvider>
         </ProfileProvider>
       </AudioProvider>

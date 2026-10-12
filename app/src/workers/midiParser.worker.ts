@@ -2,9 +2,12 @@
 // Web Worker for parsing MIDI files off the main thread.
 //
 // Receives raw ArrayBuffers, returns the structured SongData payload.
-// Keeps the UI thread responsive even when parsing 13+ demos at startup.
+// Keeps the UI thread responsive even when parsing 100+ demos at startup.
 
 import { Midi } from "@tonejs/midi";
+import { extractLyrics } from "../utils/midiLyrics";
+import type { LyricLine } from "../utils/midiLyrics";
+import { gmProgramToInstrument } from "../utils/instrumentMapping";
 
 const TRACK_COLORS = [
   "#a78bfa",
@@ -15,44 +18,12 @@ const TRACK_COLORS = [
   "#fbbf24",
 ] as const;
 
-// Inline copy of `gmProgramToInstrument` (subset — covers >95% of cases).
-// We can't import from the main bundle here — the worker has its own module graph.
-function gmInstrument(programNumber: number, trackName?: string): string {
-  const name = (trackName || "").toLowerCase();
-  if (name.match(/drum|perc|kit|beat/)) return "Acoustic Grand Piano";
-  if (name.match(/muted trumpet/)) return "Muted Trumpet";
-  if (name.match(/trumpet|trpt|tpt/)) return "Trumpet";
-  if (name.match(/trombone/)) return "Trombone";
-  if (name.match(/french horn/)) return "French Horn";
-  if (name.match(/tuba/)) return "Tuba";
-  if (name.match(/sax/)) return "Alto Sax";
-  if (name.match(/flute/)) return "Flute";
-  if (name.match(/clarinet/)) return "Clarinet";
-  if (name.match(/violin/)) return "Violin";
-  if (name.match(/cello/)) return "Cello";
-  if (name.match(/bass/)) return "Acoustic Bass";
-  if (name.match(/guitar/)) return "Acoustic Guitar (nylon)";
-  if (name.match(/organ/)) return "Drawbar Organ";
-  if (name.match(/piano|grand/)) return "Acoustic Grand Piano";
-
-  const GM: Record<number, string> = {
-    0: "Acoustic Grand Piano",
-    1: "Bright Acoustic Piano",
-    24: "Acoustic Guitar (nylon)",
-    25: "Acoustic Guitar (steel)",
-    32: "Acoustic Bass",
-    40: "Violin",
-    42: "Cello",
-    48: "String Ensemble 1",
-    52: "Choir Aahs",
-    56: "Trumpet",
-    57: "Trombone",
-    65: "Alto Sax",
-    71: "Clarinet",
-    73: "Flute",
-  };
-  return GM[programNumber] ?? "Acoustic Grand Piano";
-}
+// Nota histórica: acá vivía una copia inline con una tabla GM de 16 entradas.
+// Todo lo que no estuviera en esa lista (fretless bass, tenor sax, marimba,
+// pads, armónica, guitarras…) caía al default y sonaba como PIANO — la mitad
+// de una banda de salsa terminaba siendo piano. `instrumentMapping.ts` no
+// importa nada, así que se puede usar tal cual desde el worker y las dos
+// rutas (worker y parseo en el hilo principal) asignan el mismo instrumento.
 
 interface ParseRequest {
   type: "parse";
@@ -70,6 +41,8 @@ interface ParsedTrackOut {
   instrument: string;
   noteCount: number;
   color: string;
+  /** Canal 10: la pista es un kit de percusión. */
+  isDrumKit?: boolean;
 }
 
 interface ParsedNoteOut {
@@ -87,7 +60,11 @@ interface ParsedSongOut {
   duration: number;
   bpm: number;
   notes: ParsedNoteOut[];
+  /** Canal 10: golpes de percusión, aparte de las notas tocables. */
+  percussion: ParsedNoteOut[];
   tracks: ParsedTrackOut[];
+  /** Synchronised karaoke lyrics, empty when the file has none. */
+  lyrics: LyricLine[];
 }
 
 type ParseResponse =
@@ -102,28 +79,43 @@ self.addEventListener("message", (event: MessageEvent<ParseRequest>) => {
     const midi = new Midi(msg.buffer);
     const tracks: ParsedTrackOut[] = [];
     const notes: ParsedNoteOut[] = [];
+    const percussion: ParsedNoteOut[] = [];
 
-    const validTracks = midi.tracks
+    // El canal 10 ya no se tira: se separa en `percussion` para que el
+    // piano-roll y el juego sigan viendo sólo notas tocables, pero el
+    // transporte pueda agendarlas contra el DrumKitEngine. Los kits van al
+    // final de la lista para no correr los índices de las pistas melódicas.
+    const isDrumTrack = (track: (typeof midi.tracks)[number]) =>
+      track.channel === 9 || track.instrument?.percussion === true;
+    const withNotes = midi.tracks
       .map((track, i) => ({ track, origIdx: i }))
-      .filter(({ track }) => {
-        if (track.notes.length === 0) return false;
-        if (track.channel === 9) return false;
-        return true;
-      })
+      .filter(({ track }) => track.notes.length > 0 && !isDrumTrack(track))
       .slice(0, 8);
+    const drumTracks = midi.tracks
+      .map((track, i) => ({ track, origIdx: i }))
+      .filter(({ track }) => track.notes.length > 0 && isDrumTrack(track))
+      .slice(0, 2);
+    const validTracks = [...withNotes, ...drumTracks];
 
     validTracks.forEach(({ track, origIdx }, newIdx) => {
       const color = TRACK_COLORS[newIdx % TRACK_COLORS.length];
+      const isDrumKit = isDrumTrack(track);
       tracks.push({
         index: newIdx,
-        name: track.name?.trim() || `Pista ${newIdx + 1}`,
-        instrument: gmInstrument(track.instrument?.number ?? 0, track.name),
+        name:
+          track.name?.trim() ||
+          (isDrumKit ? "Percusión" : `Pista ${newIdx + 1}`),
+        instrument: isDrumKit
+          ? "GM Drum Kit"
+          : gmProgramToInstrument(track.instrument?.number ?? 0, track.name),
         noteCount: track.notes.length,
         color,
+        isDrumKit,
       });
+      const bucket = isDrumKit ? percussion : notes;
       track.notes.forEach((note, noteIndex) => {
-        notes.push({
-          id: `demo-${msg.id}-${origIdx}-${noteIndex}`,
+        bucket.push({
+          id: `${isDrumKit ? "perc" : "demo"}-${msg.id}-${origIdx}-${noteIndex}`,
           midi: note.midi,
           time: note.time,
           duration: Math.max(0.04, note.duration),
@@ -134,11 +126,19 @@ self.addEventListener("message", (event: MessageEvent<ParseRequest>) => {
     });
 
     notes.sort((a, b) => a.time - b.time);
-    const duration = notes.reduce(
+    const duration = [...notes, ...percussion].reduce(
       (max, note) => Math.max(max, note.time + note.duration),
       0,
     );
     const bpm = Math.round(midi.header.tempos[0]?.bpm || msg.defaultBpm);
+
+    // Karaoke lyrics. Converted with the header's own tempo map so the times
+    // live in exactly the same domain as `note.time` — that is what keeps the
+    // lyrics locked to the music when BPM or playback rate changes.
+    const lyrics = extractLyrics(
+      msg.buffer,
+      midi.header.ticksToSeconds.bind(midi.header),
+    );
 
     const response: ParseResponse = {
       type: "parsed",
@@ -149,7 +149,9 @@ self.addEventListener("message", (event: MessageEvent<ParseRequest>) => {
         duration,
         bpm,
         notes,
+        percussion,
         tracks,
+        lyrics,
       },
     };
     (self as unknown as DedicatedWorkerGlobalScope).postMessage(response);

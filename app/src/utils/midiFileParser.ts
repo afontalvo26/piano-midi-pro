@@ -6,9 +6,9 @@ import { gmProgramToInstrument } from "./instrumentMapping";
 /**
  * Parse an external MIDI file into a `SongData` payload.
  *
- * Filters out drum/percussion tracks (channel 10), keeps only the 8 tracks
- * with the most notes, sorts notes chronologically, and infers the song's
- * tempo and total duration.
+ * Keeps the 8 busiest melodic tracks, and the percussion channel (10) as a
+ * separate `percussion` list — a drum hit is not a key the user can play, but
+ * dropping it left vallenatos and boleros without their rhythm section.
  *
  * Pure: only depends on the provided file and module-level constants.
  *
@@ -24,40 +24,43 @@ export async function parseMidiFile(
   const midi = new Midi(bytes);
   const parsedTracks: SongTrack[] = [];
   const parsedNotes: SongNote[] = [];
+  const parsedPercussion: SongNote[] = [];
 
-  // Filtrar: solo pistas con notas, sin percusión (channel 10), max 8
-  const validTracks = midi.tracks
+  const isDrumTrack = (track: (typeof midi.tracks)[number]) =>
+    track.channel === 9 || track.instrument?.percussion === true;
+
+  // Melódicas: las 8 con más notas. Kits de percusión: al final de la lista.
+  const melodic = midi.tracks
     .map((track, i) => ({ track, origIdx: i }))
-    .filter(({ track }) => {
-      if (track.notes.length === 0) return false;
-      // Omitir pistas de percusión (channel 10)
-      const isDrums =
-        track.channel === 9 ||
-        track.channel === 10 ||
-        track.instrument?.percussion === true ||
-        (track.name?.toLowerCase().match(/drum|perc|kit|beat/) ?? false);
-      return !isDrums;
-    })
-    .sort((a, b) => b.track.notes.length - a.track.notes.length) // más notas primero
-    .slice(0, 8); // máximo 8 pistas
+    .filter(({ track }) => track.notes.length > 0 && !isDrumTrack(track))
+    .sort((a, b) => b.track.notes.length - a.track.notes.length)
+    .slice(0, 8);
+  const drums = midi.tracks
+    .map((track, i) => ({ track, origIdx: i }))
+    .filter(({ track }) => track.notes.length > 0 && isDrumTrack(track))
+    .slice(0, 2);
+  const validTracks = [...melodic, ...drums];
 
   validTracks.forEach(({ track, origIdx }, newIdx) => {
     const color = TRACK_COLORS[newIdx % TRACK_COLORS.length];
     const noteCount = track.notes.length;
+    const isDrumKit = isDrumTrack(track);
 
     parsedTracks.push({
       index: newIdx,
-      name: track.name?.trim() || `Pista ${newIdx + 1}`,
-      instrument: gmProgramToInstrument(
-        track.instrument?.number ?? 0,
-        track.name,
-      ),
+      name:
+        track.name?.trim() || (isDrumKit ? "Percusión" : `Pista ${newIdx + 1}`),
+      instrument: isDrumKit
+        ? "GM Drum Kit"
+        : gmProgramToInstrument(track.instrument?.number ?? 0, track.name),
       noteCount,
       color,
+      isDrumKit,
     });
 
+    const bucket = isDrumKit ? parsedPercussion : parsedNotes;
     track.notes.forEach((note, noteIndex) => {
-      parsedNotes.push({
+      bucket.push({
         id: `midi-${origIdx}-${noteIndex}-${note.midi}`,
         midi: note.midi,
         time: note.time,
@@ -69,7 +72,7 @@ export async function parseMidiFile(
   });
 
   parsedNotes.sort((a, b) => a.time - b.time);
-  const duration = parsedNotes.reduce(
+  const duration = [...parsedNotes, ...parsedPercussion].reduce(
     (max, note) => Math.max(max, note.time + note.duration),
     0,
   );
@@ -81,6 +84,7 @@ export async function parseMidiFile(
     duration,
     bpm,
     notes: parsedNotes,
+    percussion: parsedPercussion,
     tracks: parsedTracks,
   };
 }

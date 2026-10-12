@@ -8,11 +8,15 @@ import { analyzeScore } from "./analysis/MusicAnalyzer";
 import { cacheScoreXML } from "./components/score/scoreCache";
 import { PartMixer } from "./components/score/PartMixer";
 import { ImportPanel } from "./components/score/ImportPanel";
+import { SongLibrary } from "./components/songs";
+import { MusicPanel } from "./components/library";
+import { PlayerSection } from "./components/player";
+import { LyricsPanel } from "./components/studio/LyricsPanel";
 import { ScoreInfoBar } from "./components/score/ScoreInfoBar";
 const ScoreViewer = lazy(() =>
   import("./components/score/ScoreViewer").then((m) => ({ default: m.ScoreViewer })),
 );
-import type { ScoreDocument, ScorePart } from "./types/score";
+import type { ScoreDocument, ScoreNote, ScorePart } from "./types/score";
 import type { AnalysisResult } from "./analysis/MusicAnalyzer";
 import {
   InstrumentEngineRegistry,
@@ -20,11 +24,14 @@ import {
   inferTrumpetParams,
 } from "./engine/InstrumentEngine";
 import {
-  getGMSampler,
   getGMSamplerSync,
   getLoadedGMSamplers,
+  getSamplerStatus,
+  instrumentToSoundfont,
+  prefetchGMSampler,
   disposeAllGMSamplers,
 } from "./engine/GMSamplerEngine";
+import { DrumKitEngine } from "./engine/DrumKitEngine";
 import { InstrumentControlsPanel } from "./components/studio";
 import type { BrassMuteType, TrumpetTonguing } from "./engine/InstrumentEngine";
 import { KeyFxPanel } from "./components/studio";
@@ -81,6 +88,26 @@ import { GameHUD } from "./components/game";
 import { GameResultsModal } from "./components/game";
 import { Icons } from "./components/common/Icons";
 import {
+  configureAudioTiming,
+  fadeOutNodesVolume,
+  heardTransportSeconds,
+  liveNoteTime,
+  startTransportMusic,
+  stopVoicesDeferred,
+  ticksForHeardSeconds,
+} from "./audio/audioTiming";
+
+// Dev-only handle on the transport, so the audio audit
+// (`tests/e2e/verify-audio-glitches.spec.ts`) can wrap `Transport.schedule` and
+// measure how much lead time the scheduler really has. Tone ships as an ES
+// module and never lands on `window`, so without this the measurement harness
+// has nothing to instrument. Stripped from production builds; nothing in the app
+// reads it.
+if (import.meta.env.DEV) {
+  (window as unknown as { __PMP_TRANSPORT__?: unknown }).__PMP_TRANSPORT__ =
+    Tone.getTransport();
+}
+import {
   INSTRUMENT_FAMILIES,
   INITIAL_RANGE_START,
   PIANO_MAX_MIDI,
@@ -89,6 +116,25 @@ import {
 } from "./constants/piano";
 import { TRACK_COLORS } from "./constants/ui";
 import { DEMO_SONGS } from "./constants/demoSongs";
+// Song identity lives in types/song.ts (shared with the player module). These
+// local aliases keep the existing annotations in this file readable.
+import type {
+  DemoSong,
+  LyricLine,
+  SongData,
+  SongNote,
+  SongTrack,
+} from "./types/song";
+import { libraryStore } from "./music/libraryStore";
+import {
+  idForSong,
+  uploadTrackId,
+  scoreTrackId,
+  sourceInfoFor,
+} from "./music/ids";
+import { parseMidiBytes, putSessionSong } from "./music/resolve";
+import { extractLyrics } from "./utils/midiLyrics";
+import { usePlayer } from "./music/PlayerContext";
 import { salamanderSamples as SALAMANDER_SAMPLES } from "./services/audioService";
 import {
   clamp,
@@ -101,6 +147,10 @@ import {
   getInstrumentSynthSettings,
   gmProgramToInstrument,
 } from "./utils/instrumentMapping";
+import {
+  choosePlaybackSource,
+  usesSalamanderPiano,
+} from "./utils/playbackRouting";
 import { getDeviceProfile } from "./utils/deviceCapabilities";
 import {
   VELOCITY_CURVE_DESCRIPTORS,
@@ -110,7 +160,6 @@ import {
   type VelocityCurve,
   type VelocityCalibration,
 } from "./utils/velocity";
-import { parseDemoInWorker } from "./utils/midiWorkerClient";
 import {
   buildNonPianoTrackSet,
   isTrackActive,
@@ -119,37 +168,12 @@ import {
 type NavScreen =
   | "studio"
   | "game"
+  | "music"
   | "songs"
   | "tracks"
   | "midi"
   | "settings"
   | "score";
-
-type SongNote = {
-  id: string;
-  midi: number;
-  time: number;
-  duration: number;
-  velocity: number;
-  trackIndex: number;
-};
-
-type SongTrack = {
-  index: number;
-  name: string;
-  instrument: string;
-  noteCount: number;
-  color: string;
-};
-
-type SongData = {
-  title: string;
-  source: string;
-  duration: number;
-  bpm: number;
-  notes: SongNote[];
-  tracks: SongTrack[];
-};
 
 type MidiInputDevice = {
   id: string;
@@ -180,6 +204,9 @@ const EMPTY_SONG: SongData = {
 };
 
 export default function App() {
+  // Player orchestration lives in PlayerProvider (see main.tsx); App owns the
+  // audio engine and registers itself as the player's playback host below.
+  const player = usePlayer();
   const [screen, setScreen] = useLocalStorageState<NavScreen>(
     "piano_screen",
     "studio",
@@ -236,83 +263,29 @@ export default function App() {
         }
       });
 
-    async function parseDemoSong(ds: typeof DEMO_SONGS[number]): Promise<SongData | null> {
+    /**
+     * Fetches and parses one shipped demo. Parsing is delegated to
+     * `parseMidiBytes` so the Web Worker path, the in-thread fallback and the
+     * player's own resolver all produce identically-shaped songs — including
+     * `trackId`/`demoPath`, which the player needs to identify the track.
+     */
+    async function parseDemoSong(ds: DemoSong): Promise<SongData | null> {
       try {
         const res = await fetch(ds.path);
         if (!res.ok) return null;
         const bytes = await res.arrayBuffer();
-
-        // Try Web Worker first (zero main-thread cost)
-        try {
-          const id = `${ds.artist}-${ds.title}`;
-          // We must clone the buffer since postMessage transfers it
-          const bufferCopy = bytes.slice(0);
-          return await parseDemoInWorker({
-            id,
-            buffer: bufferCopy,
-            title: ds.title,
-            artist: ds.artist,
-            defaultBpm: ds.bpm,
-            source: "Demo incluida",
-          });
-        } catch {
-          // Fallback: in-thread parse
-        }
-
-        const midi = new Midi(bytes);
-
-        const parsedTracks: SongTrack[] = [];
-        const parsedNotes: SongNote[] = [];
-
-        const validTracks = midi.tracks
-          .map((track, i) => ({ track, origIdx: i }))
-          .filter(({ track }) => {
-            if (track.notes.length === 0) return false;
-            if (track.channel === 9) return false;
-            return true;
-          })
-          .slice(0, 8);
-
-        validTracks.forEach(({ track, origIdx }, newIdx) => {
-          const color = TRACK_COLORS[newIdx % TRACK_COLORS.length];
-          const noteCount = track.notes.length;
-          parsedTracks.push({
-            index: newIdx,
-            name: track.name?.trim() || `Pista ${newIdx + 1}`,
-            instrument: gmProgramToInstrument(
-              track.instrument?.number ?? 0,
-              track.name,
-            ),
-            noteCount,
-            color,
-          });
-          track.notes.forEach((note, noteIndex) => {
-            parsedNotes.push({
-              id: `demo-${ds.title}-${origIdx}-${noteIndex}`,
-              midi: note.midi,
-              time: note.time,
-              duration: Math.max(0.04, note.duration),
-              velocity: note.velocity || 0.75,
-              trackIndex: newIdx,
-            });
-          });
+        const parsed = await parseMidiBytes(bytes, {
+          id: `${ds.artist}-${ds.title}`,
+          trackId: ds.trackId,
+          title: ds.title,
+          artist: ds.artist,
+          genre: ds.genre,
+          defaultBpm: ds.bpm,
+          demoPath: ds.path,
         });
-
-        parsedNotes.sort((a, b) => a.time - b.time);
-        const duration = parsedNotes.reduce(
-          (max, note) => Math.max(max, note.time + note.duration),
-          0,
-        );
-        const bpm = Math.round(midi.header.tempos[0]?.bpm || ds.bpm);
-
-        return {
-          title: `${ds.artist} - ${ds.title}`,
-          source: "Demo incluida",
-          duration,
-          bpm,
-          notes: parsedNotes,
-          tracks: parsedTracks,
-        };
+        // Cache it so the player never re-fetches a song already parsed here.
+        putSessionSong(parsed);
+        return parsed;
       } catch {
         return null;
       }
@@ -338,6 +311,15 @@ export default function App() {
           const newOnes = loadedSongs.filter((s) => !existing.has(s.title));
           return [...newOnes, ...prev];
         });
+        // The player's catalogue only stores lightweight metadata (never note
+        // data), so it IS safe to persist — that is what makes playlists and
+        // likes survive a cold start.
+        libraryStore.registerTracks(
+          loadedSongs.map((loaded) => ({
+            song: loaded,
+            source: sourceInfoFor(loaded, idForSong(loaded)),
+          })),
+        );
         // Don't set demo_songs_loaded flag — we always want to reload demos
         // on cold start since localStorage can't hold them.
       }
@@ -368,6 +350,8 @@ export default function App() {
     1,
   );
   const [currentTime, setCurrentTime] = useState<number>(0);
+  /** Mirror of `currentTime` for imperative reads (player bridge). */
+  const currentTimeRef = useRef<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isAudioReady, setIsAudioReady] = useState<boolean>(false);
   const [isSamplerActive, setIsSamplerActive] = useState<boolean>(false);
@@ -626,6 +610,8 @@ export default function App() {
 
   // ---- InstrumentEngineRegistry ref ----
   const engineRegistryRef = useRef<InstrumentEngineRegistry | null>(null);
+  // ---- DrumKitEngine ref (percusión real del canal 10) ----
+  const drumKitRef = useRef<DrumKitEngine | null>(null);
 
   // Canvas ref & loop
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -636,6 +622,8 @@ export default function App() {
   // Audio refs
   const samplerRef = useRef<Tone.Sampler | null>(null);
   const fallbackSynthsRef = useRef<Record<number, Tone.PolySynth> | null>(null);
+  /** Instrumento con el que se configuró cada PolySynth de respaldo. */
+  const synthInstrumentRef = useRef<Record<number, string>>({});
   const reverbRef = useRef<Tone.Reverb | null>(null);
   // GM sampler destination — set once audio is ready, used by GMSamplerEngine
   const gmDestRef = useRef<Tone.ToneAudioNode | null>(null);
@@ -645,6 +633,14 @@ export default function App() {
   const metronomeRef = useRef<Tone.MetalSynth | null>(null);
   const metronomeVolRef = useRef<Tone.Volume | null>(null);
   const isInitializingAudioRef = useRef<boolean>(false);
+  /**
+   * Canceller for a pending post-fade voice cleanup (see `stopVoicesDeferred`).
+   *
+   * Pause and stop arms one so the truncated notes are dropped a few
+   * milliseconds *after* they have been faded. Any new playback must cancel it
+   * first, or the cleanup would land on the notes that just started.
+   */
+  const cancelVoiceCleanupRef = useRef<(() => void) | null>(null);
 
   // MIDI refs
   const midiAccessRef = useRef<MIDIAccess | null>(null);
@@ -654,6 +650,12 @@ export default function App() {
   const activeVoicesRef = useRef<
     { key: string; midi: number; trackIndex: number; freq: number }[]
   >([]);
+  /**
+   * Instrumento con el que se atacó cada nota activa (clave `${track}-${midi}`).
+   * El release debe liberar el MISMO motor/sampler que sonó, aunque el usuario
+   * cambie el instrumento de la pista mientras la nota sigue sonando.
+   */
+  const activeNoteInstrumentsRef = useRef<Map<string, string>>(new Map());
   const sustainedNotesRef = useRef<Set<number>>(new Set());
   const mousePressedKeysRef = useRef<Set<number>>(new Set());
   // velocity per active note (0..1 normalized) — drives visual press depth
@@ -924,12 +926,16 @@ export default function App() {
     if (stateRef.current.isAudioReady || isInitializingAudioRef.current) return;
     isInitializingAudioRef.current = true;
     try {
-      // Configure AudioContext BEFORE start for minimum latency
-      const ctx = Tone.getContext();
-      const isUltra = stateRef.current.latencyMode === "ultra";
-      ctx.lookAhead = isUltra ? 0 : 0.04;
-      // @ts-expect-error updateInterval exists at runtime
-      ctx.updateInterval = isUltra ? 0.01 : 0.025;
+      // Configure the AudioContext's scheduling window BEFORE start.
+      //
+      // This used to be 0 in "ultra" mode, which meant the clock had no slack
+      // at all: any callback that arrived a millisecond late scheduled its note
+      // in the past, Web Audio clamped it to "now", and consecutive notes piled
+      // onto the same render quantum — the crackle heard on studio monitors.
+      // The window is what buys the audio thread its margin. See
+      // `audio/audioTiming.ts` for the reasoning and for the two compensations
+      // it requires (live-input lead time and the heard playhead).
+      configureAudioTiming();
 
       await Tone.start();
 
@@ -987,6 +993,13 @@ export default function App() {
       // Initialize InstrumentEngineRegistry for Piano/Trumpet world-class synthesis
       engineRegistryRef.current = new InstrumentEngineRegistry(vol);
 
+      // Percusión real (canal 10): kit muestreado + respaldo sintetizado del
+      // PercussionEngine que ya existía.
+      drumKitRef.current = new DrumKitEngine(
+        vol,
+        engineRegistryRef.current.getPercussion("drumkit"),
+      );
+
       // GM sampler destination — all non-piano real samples route through here
       gmDestRef.current = vol;
 
@@ -999,6 +1012,9 @@ export default function App() {
           onload: () => {
             stateRef.current.isSamplerActive = true; // sync update para triggerAttack
             setIsSamplerActive(true);
+            // El PianoEngine de las partituras (MusicXML) también usa samples
+            // reales en vez de su PolySynth de triangle.
+            engineRegistryRef.current?.setPianoSampler(sampler);
             setAudioStatusMessage("Piano realista activo");
             resolve();
           },
@@ -1025,7 +1041,16 @@ export default function App() {
         synth = new Tone.PolySynth(Tone.Synth).connect(
           volNodeRef.current || Tone.getDestination(),
         );
-        synth.maxPolyphony = 6;
+        /**
+         * Voice pool size. `Tone.PolySynth` does NOT steal voices: once the
+         * pool is exhausted it logs "Max polyphony exceeded. Note dropped."
+         * and the note is silently lost. The old cap of 6 dropped keys on any
+         * fast passage, and on anything held by the sustain pedal — where each
+         * voice stays busy for the whole release time. 64 is far above what
+         * two hands plus a pedal can hold, so nothing is ever dropped in
+         * practice while the pool stays bounded.
+         */
+        synth.maxPolyphony = 64;
 
         const configuredSettings = {
           ...settings,
@@ -1036,6 +1061,13 @@ export default function App() {
         };
         synth.set(configuredSettings);
         fallbackSynthsRef.current[trackIndex] = synth;
+        synthInstrumentRef.current[trackIndex] = instrument;
+      } else if (synthInstrumentRef.current[trackIndex] !== instrument) {
+        // La pista cambió de instrumento: el PolySynth se creó con el timbre
+        // del anterior y lo seguía usando (una flauta sonaba con envolvente de
+        // bajo). Re-aplicamos el preset del instrumento nuevo.
+        synth.set(getInstrumentSynthSettings(instrument));
+        synthInstrumentRef.current[trackIndex] = instrument;
       }
       return synth;
     },
@@ -1079,6 +1111,7 @@ export default function App() {
       if (activeVoicesRef.current.length >= 32) {
         const oldest = activeVoicesRef.current.shift();
         if (oldest) {
+          activeNoteInstrumentsRef.current.delete(oldest.key);
           if (samplerActive) {
             samplerRef.current?.triggerRelease(oldest.freq, "+0.05");
           }
@@ -1099,41 +1132,70 @@ export default function App() {
 
       activeVoicesRef.current.push({ key, midi, trackIndex, freq: bentFreq });
       activeFreqsRef.current.set(key, bentFreq);
+      activeNoteInstrumentsRef.current.set(key, instrument);
 
-      // Schedule siempre 5ms adelante — evita que lookAhead=0 descarte notas
-      // en el borde de currentTime. Con MIDI timestamp se compensa el delay de JS.
-      // Si viene de Tone.Transport.schedule, usar el audioTime ya calculado directamente.
-      const now = Tone.now();
-      const safeOffset = 0.005; // 5ms — imperceptible pero garantiza scheduling futuro
+      // Note timestamp.
+      //
+      // Scheduled playback arrives with the Transport's own `audioTime`, which
+      // is already positioned inside the context's scheduling window — pass it
+      // through untouched.
+      //
+      // A human keypress must NOT pay that window, or the instrument would feel
+      // 30 ms late. `liveNoteTime()` anchors live input to the hardware clock
+      // instead (subtracting the window, plus however long the MIDI message
+      // spent queued behind React) and keeps only the couple of milliseconds
+      // Web Audio needs to render the attack cleanly.
       const audioTime =
         scheduledAudioTime !== undefined
           ? scheduledAudioTime
-          : eventTimestamp !== undefined
-            ? Math.max(
-                now + safeOffset,
-                now - (performance.now() - eventTimestamp) / 1000 + safeOffset,
-              )
-            : now + safeOffset;
+          : liveNoteTime(eventTimestamp);
 
-      const instLower = instrument.toLowerCase();
       const registry = engineRegistryRef.current;
 
+      // Qué motor toca esta nota — la política vive en `playbackRouting.ts`.
+      const source = choosePlaybackSource({
+        instrument,
+        trackIndex,
+        isPianoSamplerActive: samplerActive,
+        samplerStatus:
+          trackIndex !== -1 ? getSamplerStatus(instrument) : "unmapped",
+      });
+      const fallbackSynth = () =>
+        getOrCreateSynthForTrack(
+          trackIndex === -1 ? 99 : trackIndex,
+          instrument,
+        )?.triggerAttack(bentFreq, audioTime, velocity);
+
       // ── 1. Piano real (Salamander sampler) ──
-      if (samplerActive && (instLower.includes("piano") || trackIndex === -1)) {
+      if (source === "piano-sampler") {
         try {
           samplerRef.current?.triggerAttack(bentFreq, audioTime, velocity);
         } catch {
-          const synth = getOrCreateSynthForTrack(
-            trackIndex === -1 ? 99 : trackIndex,
-            instrument,
-          );
-          synth?.triggerAttack(bentFreq, audioTime, velocity);
+          fallbackSynth();
         }
         return;
       }
 
-      // ── 2. World-class engines (brass / strings / woodwinds / percussion) ──
-      if (registry) {
+      // ── 2. Instrumento real (soundfont GM muestreado) ──
+      //
+      // El sample real va PRIMERO. Antes el orden era al revés: los motores de
+      // síntesis (StringEngine para todo lo que dijera "bass"/"guitar", etc.)
+      // interceptaban la nota y el soundfont nunca se usaba — de ahí que los
+      // bajos sonaran a growl sawtooth y no a un bajo de verdad.
+      if (source === "soundfont") {
+        const gmSampler = getGMSamplerSync(instrument);
+        if (gmSampler) {
+          try {
+            gmSampler.triggerAttack(bentFreq, audioTime, velocity);
+          } catch {
+            fallbackSynth();
+          }
+          return;
+        }
+      }
+
+      // ── 3. Motores especializados (metales / cuerdas / maderas / percusión) ──
+      if (source === "engine" && registry) {
         const instType = registry.getType(instrument);
 
         if (instType === "trumpet") {
@@ -1186,7 +1248,7 @@ export default function App() {
               duration: 0.5,
               bowing: "legato",
               contactPoint: "ordinario",
-              pizzicato: instLower.includes("pizz"),
+              pizzicato: instrument.toLowerCase().includes("pizz"),
               harmonic: false,
               snapPizzicato: false,
               vibrato: { rate: 5.5, depth: 30, delay: 0.2 },
@@ -1249,27 +1311,8 @@ export default function App() {
         }
       }
 
-      // ── 3. GM sampler (real instrument recordings) ──
-      const gmSampler = trackIndex !== -1 ? getGMSamplerSync(instrument) : null;
-      if (gmSampler) {
-        try {
-          gmSampler.triggerAttack(bentFreq, audioTime, velocity);
-        } catch {
-          const synth = getOrCreateSynthForTrack(
-            trackIndex === -1 ? 99 : trackIndex,
-            instrument,
-          );
-          synth?.triggerAttack(bentFreq, audioTime, velocity);
-        }
-        return;
-      }
-
       // ── 4. Synthetic fallback ──
-      const synth = getOrCreateSynthForTrack(
-        trackIndex === -1 ? 99 : trackIndex,
-        instrument,
-      );
-      synth?.triggerAttack(bentFreq, audioTime, velocity);
+      fallbackSynth();
        
     },
     [getOrCreateSynthForTrack],
@@ -1290,29 +1333,32 @@ export default function App() {
         (v) => v.key !== key,
       );
 
+      // Instrumento con el que se ATACÓ esta nota. El release tiene que usar
+      // exactamente el mismo: si el usuario cambia el instrumento de la pista
+      // a mitad de la canción, resolverlo de nuevo con `song.tracks[...]`
+      // liberaba un sampler distinto y la nota quedaba sonando para siempre.
+      const resolvedInst =
+        activeNoteInstrumentsRef.current.get(key) ??
+        stateRef.current.trackInstruments[trackIndex] ??
+        stateRef.current.song.tracks[trackIndex]?.instrument ??
+        "";
+      activeNoteInstrumentsRef.current.delete(key);
+      const resolvedLower = resolvedInst.toLowerCase();
+
       // ── 1. Piano sampler (Salamander) ──
       if (
         stateRef.current.isSamplerActive &&
         (trackIndex === -1 ||
-          (() => {
-            const inst =
-              stateRef.current.song.tracks[trackIndex]?.instrument || "";
-            return (
-              inst.toLowerCase().includes("piano") ||
-              inst.toLowerCase().includes("harpsichord")
-            );
-          })())
+          resolvedLower.includes("piano") ||
+          resolvedLower.includes("harpsichord"))
       ) {
         samplerRef.current?.triggerRelease(freq);
       }
 
-      // ── 2. World-class engines release (brass / strings / woodwinds) ──
+      // ── 2. Motores especializados (brass / strings / woodwinds) ──
       const registry = engineRegistryRef.current;
       if (trackIndex !== -1 && registry) {
-        const inst =
-          stateRef.current.trackInstruments[trackIndex] ??
-          stateRef.current.song.tracks[trackIndex]?.instrument ??
-          "";
+        const inst = resolvedInst;
         const instType = registry.getType(inst);
         if (instType === "trumpet") {
           try {
@@ -1343,8 +1389,7 @@ export default function App() {
 
       // ── 3. GM sampler release ──
       if (trackIndex !== -1) {
-        const inst = stateRef.current.song.tracks[trackIndex]?.instrument || "";
-        const gmSampler = getGMSamplerSync(inst);
+        const gmSampler = getGMSamplerSync(resolvedInst);
         if (gmSampler) {
           try {
             gmSampler.triggerRelease(freq);
@@ -1373,40 +1418,57 @@ export default function App() {
     const dest = gmDestRef.current;
     if (!isAudioReady || !dest || song.tracks.length === 0) return;
 
-    // Collect unique non-piano instrument names
-    const nonPianoInstruments = [
+    // Collect unique instrument names that actually have a soundfont.
+    // Los que no lo tienen (percusión latina, nombres raros) los cubre el
+    // motor especializado: no se cuentan como fallos de carga.
+    const requested = [
       ...new Set(
         song.tracks
           .map((t) => trackInstruments[t.index] ?? t.instrument)
-          .filter((inst) => {
-            const l = inst.toLowerCase();
-            return (
-              !l.includes("piano") &&
-              !l.includes("harpsichord") &&
-              !l.includes("clavinet")
-            );
-          }),
+          .filter(Boolean),
       ),
     ];
+    const soundfontInstruments = requested.filter(
+      (inst) => instrumentToSoundfont(inst) !== null,
+    );
 
-    if (nonPianoInstruments.length === 0) return;
+    if (soundfontInstruments.length === 0) return;
 
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAudioStatusMessage(
-      `Cargando ${nonPianoInstruments.length} instrumento(s) real(es)...`,
+      `Cargando ${soundfontInstruments.length} instrumento(s) real(es)...`,
     );
 
-    const promises = nonPianoInstruments.map((inst) =>
-      getGMSampler(inst, dest).catch((err) => {
-        console.warn("[GMSampler] failed to load:", inst, err);
-        return null;
-      }),
-    );
-
-    Promise.all(promises).then((results) => {
+    Promise.all(
+      soundfontInstruments.map((inst) => prefetchGMSampler(inst, dest)),
+    ).then((results) => {
       const loaded = results.filter(Boolean).length;
       setAudioStatusMessage(
-        `✓ ${loaded}/${nonPianoInstruments.length} instrumento(s) real(es) listos`,
+        loaded === soundfontInstruments.length
+          ? `✓ ${loaded} instrumento(s) real(es) listos`
+          : `⚠ ${loaded}/${soundfontInstruments.length} instrumentos reales (el resto usa sintetizador)`,
+      );
+      setTimeout(() => setAudioStatusMessage(""), 3500);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [song.title, song.source, isAudioReady]);
+
+  // ─── Percusión: bajar SÓLO las piezas que usa la canción ──────────────────
+  //
+  // Un kit GM completo son 47 archivos; una canción usa entre 4 y 12 piezas.
+  // Bajar todo sería tirar ancho de banda y memoria, así que se piden las notas
+  // que aparecen en `song.percussion` y nada más.
+  useEffect(() => {
+    const drum = drumKitRef.current;
+    if (!isAudioReady || !drum || !song.percussion?.length) return;
+
+    const pieces = [...new Set(song.percussion.map((n) => n.midi))];
+    setAudioStatusMessage(
+      `Cargando percusión (${pieces.length} pieza${pieces.length === 1 ? "" : "s"})...`,
+    );
+    void drum.prefetch(pieces).then(() => {
+      setAudioStatusMessage(
+        `✓ Percusión lista: ${drum.loadedCount()}/${pieces.length} piezas reales`,
       );
       setTimeout(() => setAudioStatusMessage(""), 3500);
     });
@@ -1537,23 +1599,102 @@ export default function App() {
   const scheduleSongOnTransport = useCallback(() => {
     Tone.Transport.cancel(0);
 
-    // Release ALL currently sounding voices to prevent accumulation
-    samplerRef.current?.releaseAll();
-    if (fallbackSynthsRef.current) {
-      Object.values(fallbackSynthsRef.current).forEach((synth) =>
-        synth.releaseAll(),
-      );
+    // A cleanup armed by a pause/stop must not land on the notes about to
+    // start — this runs at the top of every playback and every seek.
+    cancelVoiceCleanupRef.current?.();
+    cancelVoiceCleanupRef.current = null;
+
+    // Silence whatever is still sounding — without the click.
+    //
+    // This used to be three bare `releaseAll()` calls. On the Salamander
+    // sampler `releaseAll` is a hard `source.stop()` per note with no fade at
+    // all (Tone's `Sampler.js`), so every seek, every new track and the very
+    // start of playback truncated the whole mix mid-waveform. Fading the
+    // instrument busses and stopping the voices only *after* the fade makes the
+    // transition silent.
+    //
+    // The GM samplers are the exception: their `release` is the sample's own
+    // fade-out, so they are released rather than cut.
+    const fade = fadeOutNodesVolume([
+      samplerRef.current,
+      ...(fallbackSynthsRef.current
+        ? Object.values(fallbackSynthsRef.current)
+        : []),
+    ]);
+    getLoadedGMSamplers().forEach((s) => s.releaseAll());
+    drumKitRef.current?.releaseAll();
+    if (fade.faded) {
+      const samplers = getLoadedGMSamplers();
+      stopVoicesDeferred(() => {
+        samplerRef.current?.releaseAll();
+        samplers.forEach((s) => s.releaseAll());
+        if (fallbackSynthsRef.current) {
+          Object.values(fallbackSynthsRef.current).forEach((synth) =>
+            synth.releaseAll(),
+          );
+        }
+      });
     }
+
     activeFreqsRef.current.clear();
     activeVoicesRef.current = [];
     activePlaybackNotesRef.current.clear();
     setActivePlaybackNotes(new Set());
 
+    // ── Precomputed per-scheduling data ──────────────────────────
+    //
+    // Everything below used to be derived *inside* the per-note callback, and
+    // that is exactly where it hurt: those callbacks run on the scheduler's
+    // tick, so every millisecond they spend is a millisecond the note may
+    // already be late. Two of them were quadratic in the size of the piece:
+    //
+    //   • `part.measures.flatMap(m => m.notes).find(n => n.id === note.id)`
+    //     re-flattened every measure of the part and scanned it, for every note
+    //     of every track. On a 3000-note score that is ~4.5M object visits per
+    //     scheduling pass, all of it on the audio tick.
+    //   • `buildNonPianoTrackSet` rebuilt the same set once per note.
+    //
+    // Both are now built once, here, outside the callbacks.
+
+    /** `ScoreNote.id` is unique across the whole document (the parser embeds
+     *  part, measure, pitch and onset), so one flat map is enough. */
+    const scoreNotesById = new Map<string, ScoreNote>();
+    if (scoreDocument) {
+      for (const part of scoreDocument.parts) {
+        for (const measure of part.measures) {
+          for (const scoreNote of measure.notes) {
+            scoreNotesById.set(scoreNote.id, scoreNote);
+          }
+        }
+      }
+    }
+
+    // `trackInstruments` is replaced wholesale whenever the user edits a track,
+    // so the instruments object doubles as the cache key: unchanged object means
+    // an unchanged set, and a live edit recomputes it once (not once per note).
+    let nonPianoCacheKey: Record<number, string> | null = null;
+    let nonPianoCache: Set<number> | undefined;
+    const nonPianoTrackSet = (instruments: Record<number, string>) => {
+      if (nonPianoCacheKey !== instruments) {
+        nonPianoCacheKey = instruments;
+        nonPianoCache = buildNonPianoTrackSet(song.tracks, instruments);
+      }
+      return nonPianoCache;
+    };
+
     // Schedule ALL notes regardless of current mute/solo. The actual
     // mute/solo/pianoOnly check happens AT TRIGGER TIME via stateRef so
     // toggling tracks during playback takes effect immediately for
     // upcoming notes (no re-scheduling needed).
-    song.notes.forEach((note) => {
+    //
+    // La percusión (canal 10) viaja en la MISMA pasada pero marcada: se dispara
+    // contra el DrumKitEngine y no lleva note-off (son one-shots).
+    const scheduledNotes = [
+      ...song.notes.map((note) => ({ note, percussive: false })),
+      ...(song.percussion ?? []).map((note) => ({ note, percussive: true })),
+    ];
+
+    scheduledNotes.forEach(({ note, percussive }) => {
       const duration = Math.max(0.04, note.duration);
       const tickStart = Math.round(
         (note.time / 60) * song.bpm * Tone.Transport.PPQ,
@@ -1579,7 +1720,7 @@ export default function App() {
           pianoOnlyMode: stateRef.current.pianoOnlyMode,
         };
         const nonPiano = trackState.pianoOnlyMode
-          ? buildNonPianoTrackSet(song.tracks, trackState.instruments)
+          ? nonPianoTrackSet(trackState.instruments)
           : undefined;
 
         if (!isTrackActive(note.trackIndex, trackState, nonPiano)) {
@@ -1599,72 +1740,65 @@ export default function App() {
 
         const registry = engineRegistryRef.current;
         const instType = registry?.getType(trackInst);
+        // One hash lookup instead of a flatMap + linear scan per note.
+        const scoreNote = scoreNotesById.get(note.id);
 
-        if (registry && instType === "piano" && scoreDocument) {
+        // ── Percusión (canal 10): kit muestreado, sin note-off ──
+        if (percussive) {
+          const drum = drumKitRef.current;
+          const hitVelocity = Math.max(0.05, Math.min(1, note.velocity * trackVol));
+          if (!drum || !drum.trigger(note.midi, hitVelocity, audioTime)) {
+            // Todavía no bajó el sample de esa pieza (o no existe): que suene
+            // el motor sintetizado en vez de perder el golpe.
+            drum?.triggerSynth(note.midi, hitVelocity, audioTime);
+          }
+          return;
+        }
+
+        // El PianoEngine solo si de verdad toca samples de piano: `instType`
+        // devuelve "piano" para cualquier cosa con "piano" en el nombre (un
+        // Rhodes, un piano eléctrico) y esos tienen su propio soundfont.
+        if (
+          registry &&
+          instType === "piano" &&
+          usesSalamanderPiano(trackInst) &&
+          registry.hasPianoSampler() &&
+          scoreNote
+        ) {
           // World-class Piano engine
-          const part = scoreDocument.parts[note.trackIndex];
-          const scoreNote = part?.measures
-            .flatMap((m) => m.notes)
-            .find((n) => n.id === note.id);
-          if (scoreNote) {
-            const pianoEng = registry.getPiano(String(note.trackIndex));
-            pianoEng.triggerNote(
-              {
-                ...inferPianoParams(scoreNote, pianoPedalSustain),
-                velocity: scoreNote.velocity * trackVol,
-                sustainPedal: pianoPedalSustain,
-                sostenutoActive: pianoPedalSostenuto,
-                unaChordaActive: pianoPedalUnaCorda,
-                halfPedalLevel: pianoHalfPedal,
-              },
-              audioTime,
-            );
-          } else {
-            triggerAttack(
-              note.midi,
-              note.velocity * trackVol,
-              note.trackIndex,
-              trackInst,
-              undefined,
-              audioTime,
-            );
-          }
-        } else if (registry && instType === "trumpet" && scoreDocument) {
+          const pianoEng = registry.getPiano(String(note.trackIndex));
+          pianoEng.triggerNote(
+            {
+              ...inferPianoParams(scoreNote, pianoPedalSustain),
+              velocity: scoreNote.velocity * trackVol,
+              sustainPedal: pianoPedalSustain,
+              sostenutoActive: pianoPedalSostenuto,
+              unaChordaActive: pianoPedalUnaCorda,
+              halfPedalLevel: pianoHalfPedal,
+            },
+            audioTime,
+          );
+        } else if (registry && instType === "trumpet" && scoreNote) {
           // World-class Trumpet engine
-          const part = scoreDocument.parts[note.trackIndex];
-          const scoreNote = part?.measures
-            .flatMap((m) => m.notes)
-            .find((n) => n.id === note.id);
-          if (scoreNote) {
-            const trumpetEng = registry.getTrumpet(String(note.trackIndex));
-            trumpetEng.triggerNote(
-              {
-                ...inferTrumpetParams(scoreNote),
-                velocity: scoreNote.velocity * trackVol,
-                mute: trumpetMute,
-                tonguing: trumpetTonguing,
-                vibratoDepth: trumpetVibratoDepth,
-                vibratoRate: trumpetVibratoRate,
-                vibratoDelay: trumpetVibratoDelay,
-                fall: trumpetFall ? 0.3 : undefined,
-                fallSemitones: trumpetFall ? -5 : undefined,
-                doit: trumpetDoit ? 0.2 : undefined,
-                doitSemitones: trumpetDoit ? 3 : undefined,
-                shake: trumpetShake,
-                shakeSemitones: 2,
-              },
-              audioTime,
-            );
-          } else {
-            triggerAttack(
-              note.midi,
-              note.velocity * trackVol,
-              note.trackIndex,
-              trackInst,
-              undefined,
-              audioTime,
-            );
-          }
+          const trumpetEng = registry.getTrumpet(String(note.trackIndex));
+          trumpetEng.triggerNote(
+            {
+              ...inferTrumpetParams(scoreNote),
+              velocity: scoreNote.velocity * trackVol,
+              mute: trumpetMute,
+              tonguing: trumpetTonguing,
+              vibratoDepth: trumpetVibratoDepth,
+              vibratoRate: trumpetVibratoRate,
+              vibratoDelay: trumpetVibratoDelay,
+              fall: trumpetFall ? 0.3 : undefined,
+              fallSemitones: trumpetFall ? -5 : undefined,
+              doit: trumpetDoit ? 0.2 : undefined,
+              doitSemitones: trumpetDoit ? 3 : undefined,
+              shake: trumpetShake,
+              shakeSemitones: 2,
+            },
+            audioTime,
+          );
         } else {
           // Generic fallback engine
           triggerAttack(
@@ -1681,9 +1815,10 @@ export default function App() {
         activePlaybackNotesRef.current.set(note.midi, currentCount + 1);
       }, tickStart + "i");
 
-      // Schedule note-off (only releases if note-on actually triggered)
+      // Schedule note-off (only releases if note-on actually triggered).
+      // La percusión no tiene note-off: el golpe es un one-shot.
       Tone.Transport.schedule(() => {
-        if (!triggered) return;
+        if (!triggered || percussive) return;
         triggerRelease(note.midi, note.trackIndex);
         // Decrement count, remove if reaches 0
         const currentCount = activePlaybackNotesRef.current.get(note.midi) || 0;
@@ -1697,10 +1832,11 @@ export default function App() {
     // Reads runtime mute/solo/pianoOnly/volumes from stateRef inside the
     // schedule callback, so toggling them mid-playback affects subsequent
     // notes immediately without rescheduling. Only re-schedules when the
-    // song or playback transport itself changes.
+    // song, the loaded score or the playback transport itself changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     song,
+    scoreDocument,
     triggerAttack,
     triggerRelease,
   ]);
@@ -1720,8 +1856,11 @@ export default function App() {
         return;
       }
 
-      const nextTime =
-        (Tone.Transport.ticks / Tone.Transport.PPQ / song.bpm) * 60;
+      // The Transport counts from the scheduler's future, one window ahead of
+      // the speakers. `heardTransportSeconds()` removes that window, so the
+      // playhead, the falling notes, the game's hit window and the practice
+      // pause all agree with what is being heard right now.
+      const nextTime = heardTransportSeconds();
 
       // In pitch practice mode, check if we need to pause at the next upcoming onset
       const { pitchPractice: localPractice, songOnsets: localOnsets } =
@@ -1734,10 +1873,11 @@ export default function App() {
           );
         });
         if (upcoming) {
+          // Pause the heard playhead *at* the onset, so the resume below starts
+          // from the note the player was asked to play rather than from one
+          // scheduler window further along.
           Tone.Transport.pause();
-          Tone.Transport.ticks = Math.round(
-            (upcoming.time / 60) * song.bpm * Tone.Transport.PPQ,
-          );
+          Tone.Transport.ticks = ticksForHeardSeconds(upcoming.time);
           setCurrentTime(upcoming.time);
           setIsPlaying(false);
           if (rafRef.current !== null) {
@@ -1772,10 +1912,32 @@ export default function App() {
       rafRef.current = requestAnimationFrame(tick);
     };
 
-    if (Tone.Transport.state === "started") {
-      rafRef.current = requestAnimationFrame(tick);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    /**
+     * El transporte no siempre está "started" en este instante: `startPlayback`
+     * lo arranca con `startTransportMusic()`, que agenda el comienzo unos
+     * milisegundos en el futuro (para que las primeras notas no nazcan
+     * atrasadas). Revisar el estado UNA sola vez dejaba el bucle sin arrancar
+     * nunca: el botón decía "Pausa", el transporte avanzaba por dentro, pero el
+     * cursor, el reloj y las notas que caen quedaban congelados en 0.
+     *
+     * Se espera al estado con un tope (~2 s): si el transporte nunca arranca,
+     * el bucle se rinde en vez de quedar girando para siempre.
+     */
+    const waitForTransport = (attempt = 0) => {
+      if (Tone.Transport.state === "started") {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      if (attempt >= 120) {
+        rafRef.current = null;
+        return;
+      }
+      rafRef.current = requestAnimationFrame(() =>
+        waitForTransport(attempt + 1),
+      );
+    };
+
+    waitForTransport();
   }, [song.duration, screen]);
 
   // Reactively update playing tempo when playbackRate or song changes
@@ -1784,12 +1946,27 @@ export default function App() {
   }, [playbackRate, song.bpm]);
 
   const stopPlayback = useCallback(() => {
-    // Release all sounding voices immediately
-    samplerRef.current?.releaseAll();
-    getLoadedGMSamplers().forEach((s) => s.releaseAll());
-    if (fallbackSynthsRef.current) {
-      Object.values(fallbackSynthsRef.current).forEach((s) => s.releaseAll());
-    }
+    // Stop means stop: silence the busses over a few milliseconds instead of
+    // cutting every sample mid-waveform, then hard-stop the voices once they
+    // are already inaudible.
+    const fade = fadeOutNodesVolume([
+      samplerRef.current,
+      ...(fallbackSynthsRef.current
+        ? Object.values(fallbackSynthsRef.current)
+        : []),
+    ]);
+    const gmSamplers = getLoadedGMSamplers();
+
+    // A cleanup armed by an earlier stop must not fire into this new state.
+    cancelVoiceCleanupRef.current?.();
+    cancelVoiceCleanupRef.current = stopVoicesDeferred(() => {
+      gmSamplers.forEach((s) => s.releaseAll());
+      samplerRef.current?.releaseAll();
+      if (fallbackSynthsRef.current) {
+        Object.values(fallbackSynthsRef.current).forEach((s) => s.releaseAll());
+      }
+    }, fade.fadeSec + 0.05);
+
     Tone.Transport.stop();
     Tone.Transport.ticks = 0;
     setCurrentTime(0);
@@ -1804,11 +1981,25 @@ export default function App() {
   }, []);
 
   const pausePlayback = useCallback(() => {
-    samplerRef.current?.releaseAll();
-    getLoadedGMSamplers().forEach((s) => s.releaseAll());
-    if (fallbackSynthsRef.current) {
-      Object.values(fallbackSynthsRef.current).forEach((s) => s.releaseAll());
-    }
+    // Pause releases the notes that are still held (the Transport's own
+    // note-off callbacks never fire once it is paused) and fades the busses so
+    // a sample truncated by that release cannot click.
+    const fade = fadeOutNodesVolume([
+      samplerRef.current,
+      ...(fallbackSynthsRef.current
+        ? Object.values(fallbackSynthsRef.current)
+        : []),
+    ]);
+    const gmSamplers = getLoadedGMSamplers();
+
+    cancelVoiceCleanupRef.current?.();
+    cancelVoiceCleanupRef.current = stopVoicesDeferred(() => {
+      samplerRef.current?.releaseAll();
+      if (fallbackSynthsRef.current) {
+        Object.values(fallbackSynthsRef.current).forEach((s) => s.releaseAll());
+      }
+    }, fade.fadeSec + 0.05);
+
     Tone.Transport.pause();
     setIsPlaying(false);
     setActiveMidiNotes(new Set());
@@ -1817,55 +2008,75 @@ export default function App() {
     sustainedNotesRef.current.clear();
     activeVoicesRef.current = [];
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
+
+    // Released here rather than inside the cleanup: their own `release` is what
+    // fades them out, so it has to run while the notes are still sounding.
+    gmSamplers.forEach((s) => s.releaseAll());
   }, []);
 
-  const startPlayback = useCallback(async () => {
-    if (!song.notes.length) return;
-    if (!stateRef.current.isAudioReady) {
-      setIsAudioLoading(true);
-      try {
-        await initializeAudio();
-      } finally {
-        setIsAudioLoading(false);
+  const startPlayback = useCallback(
+    async (offsetSec?: number) => {
+      if (!song.notes.length) return;
+      if (!stateRef.current.isAudioReady) {
+        setIsAudioLoading(true);
+        try {
+          await initializeAudio();
+        } finally {
+          setIsAudioLoading(false);
+        }
       }
-    }
-    scheduleSongOnTransport();
 
-    Tone.Transport.bpm.value = song.bpm * playbackRate;
-    Tone.Transport.ticks = Math.round(
-      (currentTime / 60) * song.bpm * Tone.Transport.PPQ,
-    );
-    lastPlayedTimeRef.current = currentTime - 0.01;
-    Tone.Transport.start();
-    setIsPlaying(true);
-    syncTransportClock();
-  }, [
-    song,
-    playbackRate,
-    currentTime,
-    scheduleSongOnTransport,
-    syncTransportClock,
-    initializeAudio,
-  ]);
+      // The player asks to start at an explicit offset (a new track, or a
+      // scrub made while paused) — honour it before the transport is started,
+      // because `startPlayback` otherwise resumes from `currentTime`.
+      const from = offsetSec ?? currentTime;
+      scheduleSongOnTransport();
+
+      Tone.Transport.bpm.value = song.bpm * playbackRate;
+      // `ticksForHeardSeconds` rather than a bare tick computation: it adds the
+      // scheduler's window back on, so the requested offset is what the
+      // listener hears rather than one window further into the song.
+      Tone.Transport.ticks = ticksForHeardSeconds(from);
+      lastPlayedTimeRef.current = from - 0.01;
+      // `startTransportMusic` rather than `start()`: a transport started at
+      // "now" reports its first events against a moment that has already passed,
+      // so the opening notes of every song used to be rendered all at once.
+      startTransportMusic();
+      setIsPlaying(true);
+      syncTransportClock();
+    },
+    [
+      song,
+      playbackRate,
+      currentTime,
+      scheduleSongOnTransport,
+      syncTransportClock,
+      initializeAudio,
+    ],
+  );
+
+  // Live references so the memoised engine bridge never calls a stale closure.
+  const startPlaybackRef = useRef(startPlayback);
+  const seekToRef = useRef<(sec: number) => void>(() => {});
+  const pausePlaybackRef = useRef<() => void>(() => {});
+  const stopPlaybackRef = useRef<() => void>(() => {});
+  const setMasterVolumeRef = useRef<(db: number) => void>(() => {});
 
   const seekTo = useCallback(
     (nextTime: number) => {
       const clamped = clamp(nextTime, 0, song.duration);
       setCurrentTime(clamped);
-      Tone.Transport.ticks = Math.round(
-        (clamped / 60) * song.bpm * Tone.Transport.PPQ,
-      );
+      Tone.Transport.ticks = ticksForHeardSeconds(clamped);
       activePlaybackNotesRef.current.clear();
       setActivePlaybackNotes(new Set());
       lastPlayedTimeRef.current = clamped - 0.01;
 
       if (isPlaying) {
         scheduleSongOnTransport();
-        Tone.Transport.start();
+        startTransportMusic();
         syncTransportClock();
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [song.duration, isPlaying, scheduleSongOnTransport, syncTransportClock],
   );
 
@@ -1873,6 +2084,163 @@ export default function App() {
     () => `${song.title}::${gameMode}::${gameDifficulty}`,
     [song.title, gameMode, gameDifficulty],
   );
+
+  // All engine commands now exist, so the bridge's live references can be
+  // wired up. Keeping them as refs is what lets the bridge object itself be
+  // created once. The assignments live in an effect (not in the render body)
+  // because writing to a ref during render is a React rules-of-hooks offence;
+  // effects run before any user interaction can reach these handlers, so the
+  // one-commit lag is unobservable.
+  useEffect(() => {
+    seekToRef.current = seekTo;
+    pausePlaybackRef.current = pausePlayback;
+    stopPlaybackRef.current = stopPlayback;
+    setMasterVolumeRef.current = setMasterVolume;
+    startPlaybackRef.current = startPlayback;
+  });
+
+  // ── Music player: engine bridge ───────────────────────────────
+  //
+  // The player (music/PlayerContext) owns the queue and decides what plays
+  // next; App owns Tone.Transport, the samplers and the falling-notes state.
+  // These callbacks are the only seam between them, which is what lets the
+  // Studio, the canvas and the rhythm game keep working unchanged.
+
+  /** Engine playhead in seconds, as heard. Stable identity — read imperatively. */
+  const getEnginePosition = useCallback(() => {
+    const heard = heardTransportSeconds();
+    // Before playback has started there is no transport position to report, so
+    // fall back to the last value the rAF loop published. (`heard` is 0 here,
+    // not because the tick count is 0 — it never is now that the counter starts
+    // inside the scheduler's window — but because the window cancels it out.)
+    if (Tone.Transport.state !== "started" && heard <= 0) {
+      return currentTimeRef.current;
+    }
+    return heard;
+  }, []);
+
+  // The rAF loop owns `currentTime`; this mirrors it into a ref so
+  // `getEnginePosition` can answer while the transport is stopped. The guard
+  // keeps the effect from re-running the setter on every unrelated render.
+  useEffect(() => {
+    if (currentTimeRef.current !== currentTime) {
+      currentTimeRef.current = currentTime;
+    }
+  }, [currentTime]);
+
+  /** Loads a track the player resolved into the engine (does not start it). */
+  const handlePlayerLoad = useCallback(
+    (nextSong: SongData) => {
+      // Already loaded (e.g. "play" on the current track after a manual stop) —
+      // reloading would needlessly re-centre the keyboard.
+      if (nextSong.trackId && nextSong.trackId === song.trackId) return;
+
+      stopPlayback();
+      setSong(nextSong);
+      setScoreDocument(null);
+      setScoreAnalysis(null);
+      setScoreParts([]);
+      activePlaybackNotesRef.current.clear();
+      setActivePlaybackNotes(new Set());
+      lastPlayedTimeRef.current = -1;
+
+      // Bring the 37-key window onto the range the piece actually uses, same
+      // rule as a manual import.
+      if (nextSong.notes.length > 0) {
+        const pitches = nextSong.notes.map((note) => note.midi);
+        const centre = Math.round(
+          (Math.min(...pitches) + Math.max(...pitches)) / 2,
+        );
+        setRangeStart(
+          snapToC(clamp(centre, PIANO_MIN_MIDI, PIANO_MAX_MIDI - RANGE_KEY_COUNT + 1)),
+        );
+      }
+
+      // Warm the samplers in the background so pressing play is instant.
+      if (!stateRef.current.isAudioReady) {
+        void initializeAudio().catch(() => {
+          /* stays silent until the user's next gesture retries */
+        });
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [song.trackId, stopPlayback, initializeAudio],
+  );
+
+  /**
+   * Live mirror of the engine's inputs. The bridge is memoised so the player
+   * can register it once, which means it must NOT close over render values —
+   * `startPlayback` in particular would otherwise run against the *previous*
+   * song when the player loads a new track and immediately presses play.
+   */
+  const playerBridgeRef = useRef({ song, currentTime, isPlaying });
+  useEffect(() => {
+    playerBridgeRef.current = { song, currentTime, isPlaying };
+  });
+
+  /** Waits for the render that installed `song` before it can be played. */
+  const nextFrame = () =>
+    new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+
+  /**
+   * Makes sure the audio engine is built before the transport is asked to
+   * play. `startPlayback` returns early (and silently) when the engine is not
+   * ready, which is exactly the state a cold-start player press lands in: the
+   * audio context may not even be unlocked yet.
+   */
+  const ensureEngineReady = useCallback(async () => {
+    if (stateRef.current.isAudioReady) return;
+    setIsAudioLoading(true);
+    try {
+      await initializeAudio();
+    } finally {
+      setIsAudioLoading(false);
+    }
+  }, [initializeAudio]);
+
+  /**
+   * The bridge hands the player a *live* view of the engine. Every command
+   * re-reads state on the next frame, because the player typically calls
+   * `load()` and `play()` in the same tick and React has not yet committed the
+   * new song.
+   */
+  const engineBridge = useMemo(
+    () => ({
+      load: (nextSong: SongData) => handlePlayerLoad(nextSong),
+      play: async (offsetSec?: number) => {
+        await ensureEngineReady();
+        await nextFrame();
+        if (!playerBridgeRef.current.isPlaying) {
+          await startPlaybackRef.current(offsetSec);
+        } else if (offsetSec !== undefined) {
+          seekToRef.current(offsetSec);
+        }
+      },
+      pause: () => pausePlaybackRef.current(),
+      stop: () => stopPlaybackRef.current(),
+      seek: (sec: number) => seekToRef.current(sec),
+      setVolume: (volume: number, muted: boolean) => {
+        // The player speaks 0..1 while this app's master volume is in dB (the
+        // Studio slider works in the same range), so map onto it and drive the
+        // shared state — that keeps both volume controls in agreement.
+        const db = muted ? -60 : -40 + volume * 40;
+        setMasterVolumeRef.current(db);
+        volNodeRef.current?.volume.rampTo(db, 0.05);
+      },
+    }),
+    [handlePlayerLoad, ensureEngineReady],
+  );
+
+  /**
+   * The transport stopped because the song reached its end. The player decides
+   * what plays next; this only reports the event.
+   */
+  const handleTrackFinished = useCallback(() => {
+    player.notifyEnded();
+  }, [player]);
+
   const currentGameBest = gameBestScores[gameBestKey];
 
   const clearGameTimers = useCallback(() => {
@@ -2411,41 +2779,49 @@ export default function App() {
       const midi = new Midi(bytes);
       const parsedTracks: SongTrack[] = [];
       const parsedNotes: SongNote[] = [];
+      const parsedPercussion: SongNote[] = [];
 
-      // Filtrar: solo pistas con notas, sin percusión (channel 10), max 8
-      const validTracks = midi.tracks
+      // La percusión (canal 10) ya NO se descarta: se separa. Sus golpes van a
+      // `percussion` para que el piano-roll, el juego y la práctica —que
+      // recorren `notes`— sigan mostrando sólo teclas tocables, mientras el
+      // transporte los agenda contra el DrumKitEngine.
+      const isDrumTrack = (t: (typeof midi.tracks)[number]) =>
+        t.channel === 9 || t.instrument?.percussion === true;
+      const withNotes = midi.tracks
         .map((track, i) => ({ track, origIdx: i }))
-        .filter(({ track }) => {
-          if (track.notes.length === 0) return false;
-          // Omitir pistas de percusión (channel 10)
-          const isDrums =
-            track.channel === 9 ||
-            track.channel === 10 ||
-            track.instrument?.percussion === true ||
-            (track.name?.toLowerCase().match(/drum|perc|kit|beat/) ?? false);
-          return !isDrums;
-        })
+        .filter(({ track }) => track.notes.length > 0 && !isDrumTrack(track))
         .sort((a, b) => b.track.notes.length - a.track.notes.length) // más notas primero
-        .slice(0, 8); // máximo 8 pistas
+        .slice(0, 8); // máximo 8 pistas melódicas
+      // El kit va al final: así los índices de las pistas melódicas no cambian
+      // respecto de las canciones ya cargadas y la mezcla guardada sigue válida.
+      const drumTracks = midi.tracks
+        .map((track, i) => ({ track, origIdx: i }))
+        .filter(({ track }) => track.notes.length > 0 && isDrumTrack(track))
+        .slice(0, 2);
+      const validTracks = [...withNotes, ...drumTracks];
 
       validTracks.forEach(({ track, origIdx }, newIdx) => {
         const color = TRACK_COLORS[newIdx % TRACK_COLORS.length];
         const noteCount = track.notes.length;
+        const isDrumKit = isDrumTrack(track);
 
         parsedTracks.push({
           index: newIdx,
-          name: track.name?.trim() || `Pista ${newIdx + 1}`,
-          instrument: gmProgramToInstrument(
-            track.instrument?.number ?? 0,
-            track.name,
-          ),
+          name:
+            track.name?.trim() ||
+            (isDrumKit ? "Percusión" : `Pista ${newIdx + 1}`),
+          instrument: isDrumKit
+            ? "GM Drum Kit"
+            : gmProgramToInstrument(track.instrument?.number ?? 0, track.name),
           noteCount,
           color,
+          isDrumKit,
         });
 
+        const bucket = isDrumKit ? parsedPercussion : parsedNotes;
         track.notes.forEach((note, noteIndex) => {
-          parsedNotes.push({
-            id: `midi-${origIdx}-${noteIndex}-${note.midi}`,
+          bucket.push({
+            id: `${isDrumKit ? "perc" : "midi"}-${origIdx}-${noteIndex}-${note.midi}`,
             midi: note.midi,
             time: note.time,
             duration: Math.max(0.04, note.duration),
@@ -2456,24 +2832,42 @@ export default function App() {
       });
 
       parsedNotes.sort((a, b) => a.time - b.time);
-      const duration = parsedNotes.reduce(
+      const duration = [...parsedNotes, ...parsedPercussion].reduce(
         (max, note) => Math.max(max, note.time + note.duration),
         0,
       );
       const bpm = Math.round(midi.header.tempos[0]?.bpm || 120);
 
+      const uploadName = file.name;
       const newSong: SongData = {
         title: file.name.replace(/\.[^.]+$/, ""),
         source: "Archivo subido",
         duration,
         bpm,
         notes: parsedNotes,
+        percussion: parsedPercussion,
         tracks: parsedTracks,
+        // Stable id from filename + size, so re-importing the same file keeps
+        // its likes, play count and playlist memberships.
+        trackId: uploadTrackId(uploadName, file.size),
+        uploadName,
+        uploadBytes: file.size,
+        // Uploaded .kar files carry their own lyrics — pick them up too.
+        lyrics: extractLyrics(
+          bytes,
+          midi.header.ticksToSeconds.bind(midi.header),
+        ),
       };
 
       setSongsList((prev) => [
         newSong,
         ...prev.filter((s) => s.title !== newSong.title),
+      ]);
+      // Register in the player's catalogue and cache the parsed notes so the
+      // player bar can play it without a round trip.
+      putSessionSong(newSong);
+      libraryStore.registerTracks([
+        { song: newSong, source: sourceInfoFor(newSong, idForSong(newSong)) },
       ]);
       setSong(newSong);
       stopPlayback();
@@ -2568,12 +2962,18 @@ export default function App() {
               noteCount: t.noteCount,
               color: t.color,
             })),
+            trackId: scoreTrackId(file.name),
+            uploadName: file.name,
           };
 
           setSong(newSong);
           setSongsList((prev) => [
             newSong,
             ...prev.filter((s) => s.title !== newSong.title),
+          ]);
+          putSessionSong(newSong);
+          libraryStore.registerTracks([
+            { song: newSong, source: sourceInfoFor(newSong, idForSong(newSong)) },
           ]);
           setScoreDocument(sc);
           setScoreAnalysis(analysis);
@@ -3156,8 +3556,11 @@ export default function App() {
     );
     if (allPressed) {
       lastPlayedTimeRef.current = activeWaitingOnset.time;
-      Tone.Transport.seconds = activeWaitingOnset.time;
-      Tone.Transport.start();
+      // `seconds` is a wrapper over `ticks` that counts inside the scheduler's
+      // window, so assigning the onset directly would resume one window past
+      // the note the player was asked to play. Assign the ticks instead.
+      Tone.Transport.ticks = ticksForHeardSeconds(activeWaitingOnset.time);
+      startTransportMusic();
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsPlaying(true);
       syncTransportClock();
@@ -3462,6 +3865,8 @@ export default function App() {
       window.removeEventListener("mouseup", handleGlobalMouseUp);
       if (samplerRef.current) samplerRef.current.dispose();
       disposeAllGMSamplers();
+      drumKitRef.current?.dispose();
+      engineRegistryRef.current?.disposeAll();
       if (fallbackSynthsRef.current) {
         Object.values(fallbackSynthsRef.current).forEach((s) => s.dispose());
       }
@@ -3684,12 +4089,12 @@ export default function App() {
     triggerRelease(midi);
   };
 
-  // Filter song lists on Search inputs
-  const filteredSongs = useMemo(() => {
-    if (!searchQuery.trim()) return songsList;
-    const q = searchQuery.toLowerCase();
-    return songsList.filter((s) => s.title.toLowerCase().includes(q));
-  }, [songsList, searchQuery]);
+  /**
+   * Karaoke lyrics for the loaded song, in the same time domain as the
+   * transport (so they cannot drift when the tempo or playback rate changes).
+   */
+  const lyricLines: LyricLine[] = song.lyrics ?? [];
+  const [showLyrics, setShowLyrics] = useState(false);
 
   const gameAssistNotes =
      
@@ -3719,6 +4124,14 @@ export default function App() {
           >
             <Icons.Game />
             Juego
+          </button>
+          <button
+            className={`rail-item ${screen === "music" ? "active" : ""}`}
+            onClick={() => setScreen("music")}
+            title="Música — tu reproductor"
+          >
+            <Icons.Songs />
+            Música
           </button>
           <button
             className={`rail-item ${screen === "songs" ? "active" : ""}`}
@@ -3775,6 +4188,18 @@ export default function App() {
           </button>
         </aside>
 
+        {/* Main column: the persistent player wraps the workspace so both the
+            bottom bar and every screen share the player's UI context. */}
+        <PlayerSection
+          bridge={engineBridge}
+          getPosition={getEnginePosition}
+          onTrackFinished={handleTrackFinished}
+          hasScore={Boolean(scoreDocument)}
+          onOpenStudio={() => setScreen("studio")}
+          onOpenScore={() => setScreen("score")}
+          onOpenGame={() => setScreen("game")}
+        >
+        <div className="app-shell">
         {/* Main Workspace */}
         <main className="main-workspace">
           {/* Topbar Header status */}
@@ -3828,7 +4253,7 @@ export default function App() {
             <div className="controls-left">
               <button
                 className="btn primary"
-                onClick={isPlaying ? pausePlayback : startPlayback}
+                onClick={() => (isPlaying ? pausePlayback() : void startPlayback())}
                 disabled={isAudioLoading}
               >
                 {isAudioLoading ? (
@@ -3846,6 +4271,25 @@ export default function App() {
               <button className="btn" onClick={stopPlayback}>
                 <Icons.Stop />
                 Detener
+              </button>
+              <button
+                className={`btn ${showLyrics ? "primary" : ""}`}
+                onClick={() => setShowLyrics((on) => !on)}
+                aria-pressed={showLyrics}
+                title={
+                  lyricLines.length > 0
+                    ? showLyrics
+                      ? "Volver a las métricas"
+                      : "Ver la letra sincronizada"
+                    : "Esta canción no trae letra"
+                }
+                disabled={lyricLines.length === 0 && !showLyrics}
+              >
+                <Icons.Lyrics />
+                Letra
+                {lyricLines.length > 0 && (
+                  <span className="lyrics-count">{lyricLines.length}</span>
+                )}
               </button>
               <button
                 className={`btn ${metronomeOn ? "primary" : ""}`}
@@ -3908,6 +4352,7 @@ export default function App() {
                 <input
                   type="file"
                   accept=".mid,.midi"
+                  aria-label="Cargar archivo MIDI"
                   style={{ display: "none" }}
                   onChange={handleFileUpload}
                   onClick={(e) => {
@@ -4625,8 +5070,17 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Right MIDI stats panel */}
-              <div className="panel-right">
+              {/* Right panel: live metrics, the game HUD, or the karaoke
+                  lyrics when that mode is on. The HUD always wins in game
+                  mode — it carries live scoring the player needs. */}
+              <div
+                className={
+                  "panel-right" +
+                  (showLyrics && screen !== "game"
+                    ? " panel-right--lyrics"
+                    : "")
+                }
+              >
                 {screen === "game" ? (
                   <>
                     <h2>HUD Juego</h2>
@@ -4686,6 +5140,15 @@ export default function App() {
                       </div>
                     </div>
                   </>
+                ) : showLyrics ? (
+                  <LyricsPanel
+                    lines={lyricLines}
+                    currentTime={currentTime}
+                    duration={song.duration}
+                    songTitle={
+                      song.title !== EMPTY_SONG.title ? song.title : undefined
+                    }
+                  />
                 ) : (
                   <>
                     <h2>Métricas del Sistema</h2>
@@ -4751,57 +5214,35 @@ export default function App() {
             </section>
           )}
 
-          {/* Songs view panel */}
+          {/* Songs view panel — rich browser grouped by genre */}
           {screen === "songs" && (
             <section className="panel-screen">
-              <div className="panel-screen-header">
-                <h2>Biblioteca de Canciones</h2>
-                <p>
-                  Elige una canción o arrastra un archivo MIDI en la tarjeta de
-                  subida para empezar a practicar.
-                </p>
-              </div>
-
-              <input
-                type="text"
-                className="search-field"
-                placeholder="Buscar canciones..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+              <SongLibrary
+                songs={songsList}
+                searchQuery={searchQuery}
+                onSearchQueryChange={setSearchQuery}
+                onSelectSong={(s) => {
+                  setSong(s);
+                  stopPlayback();
+                  setScreen("studio");
+                }}
+                onImportFile={handleScoreImport}
+                importLoading={scoreImportLoading}
+                importError={scoreImportError}
+                importLastFile={scoreLastImported}
               />
+            </section>
+          )}
 
-              {/* Universal import panel - accepts MusicXML + MIDI */}
-              <ImportPanel
-                onFileSelect={handleScoreImport}
-                isLoading={scoreImportLoading}
-                error={scoreImportError}
-                lastImported={scoreLastImported}
+          {/* Música — the Spotify-style player section */}
+          {screen === "music" && (
+            <section className="panel-screen panel-screen--music">
+              <MusicPanel
+                onImportFile={handleScoreImport}
+                importLoading={scoreImportLoading}
+                importError={scoreImportError}
+                importLastFile={scoreLastImported}
               />
-
-              <div className="songs-grid">
-                {filteredSongs.map((s, idx) => (
-                  <div key={idx} className="song-card">
-                    <div className="song-card-accent" />
-                    <h3 className="song-card-title">{s.title}</h3>
-                    <div className="song-card-meta">
-                      <span>{s.bpm} BPM</span>
-                      <span>{Math.floor(s.duration)}s</span>
-                      <span>{s.notes.length} notas</span>
-                      <span>{s.source}</span>
-                    </div>
-                    <button
-                      className="btn primary song-card-action"
-                      onClick={() => {
-                        setSong(s);
-                        stopPlayback();
-                        setScreen("studio");
-                      }}
-                    >
-                      Cargar y Tocar
-                    </button>
-                  </div>
-                ))}
-              </div>
             </section>
           )}
 
@@ -5718,6 +6159,8 @@ export default function App() {
             </section>
           )}
         </main>
+        </div>
+        </PlayerSection>
       </div>
 
       {/* ── Game Results Modal ──────────────────────────────── */}

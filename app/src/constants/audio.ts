@@ -23,6 +23,26 @@ export const SUSTAIN_TIME_MAX = 4;
 export const PAN_MIN = -1; // Full left
 export const PAN_MAX = 1;  // Full right
 
+// Voice allocation for the Tone.PolySynth fallback instruments.
+//
+// `Tone.PolySynth` does NOT steal voices: once the pool is exhausted it logs
+// "Max polyphony exceeded. Note dropped." and the note never sounds — heard by
+// the player as a key that was ignored. Piano music routinely holds 10-20 notes
+// (chords plus sustain pedal), so the old cap of 6 dropped notes during ordinary
+// two-hand playing.
+//
+// `DEFAULT_POLYPHONY` covers live input (track index 99) and any instrument with
+// no dedicated engine. Notes beyond the cap are still protected by the growth
+// guard in `triggerAttack`.
+export const DEFAULT_POLYPHONY = 32;
+export const MAX_POLYPHONY = 96;
+export const TRACK_POLYPHONY: Record<number, number> = {
+  0: 32,
+  1: 24,
+  2: 24,
+  99: 32,
+};
+
 // Sample Rates
 export const SAMPLE_RATE = 44100; // Hz
 export const BUFFER_SIZE = 2048;

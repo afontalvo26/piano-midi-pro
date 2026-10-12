@@ -66,6 +66,7 @@ export function ImportPanel({ onFileSelect, isLoading, error, lastImported }: Im
           ref={fileInputRef}
           type="file"
           accept=".xml,.mxl,.mid,.midi"
+          aria-label="Importar partitura MusicXML, MXL, MIDI o XML"
           onChange={handleFileChange}
           style={{ display: 'none' }}
         />

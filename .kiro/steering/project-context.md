@@ -4,6 +4,22 @@ inclusion: always
 
 # Piano MIDI Pro — Contexto del proyecto
 
+> ## ⛔ ANTES DE EJECUTAR CUALQUIER COMANDO
+>
+> Leer y cumplir **`agent-execution-rules.md`** (misma carpeta, `inclusion: always`).
+>
+> Resumen: **nada se ejecuta en primer plano si puede tardar más de 20 segundos.**
+> Todo va por `scripts/run-bounded.ps1`, que aplica un tope duro, escribe la
+> salida a `.logs/` y mata el proceso si se pasa.
+>
+> ```powershell
+> pwsh -File scripts/run-bounded.ps1 -Command "npx playwright test 03-playback" -TimeoutSec 180
+> ```
+>
+> Prohibido: la suite e2e completa en primer plano · servidores en primer plano ·
+> `comando-largo | Select-Object -Last N` · reescribir código con
+> `Set-Content`/`Get-Content -Raw` (ya destruyó App.tsx una vez).
+
 ## Stack
 - React 19 + TypeScript estricto + Vite 8 (rolldown)
 - Tone.js 15 para audio + sampler Salamander
@@ -37,10 +53,22 @@ app/src/
 ## Comandos importantes
 
 ```bash
-cd app && npm run dev          # vite dev server en http://localhost:5173/
+cd app && npm run dev          # vite dev server
 cd app && npm run build        # tsc -b && vite build (debe pasar exit 0)
 cd app && npm run lint         # eslint, debe ser 0 errores 0 warnings
 cd app && npx tsc --noEmit     # type-check estricto, debe pasar exit 0
+```
+
+> El puerto del dev server es **1234** (`app/vite.config.ts`, `strictPort: true`),
+> no 5173. Si ya hay uno levantado, se reutiliza — nunca lanzar un segundo.
+
+**Todo lo que tarde más de 20 s va acotado** (ver `agent-execution-rules.md`):
+
+```powershell
+pwsh -File scripts/run-bounded.ps1 -Command "npx tsc -b"                     -Cwd app -TimeoutSec 180
+pwsh -File scripts/run-bounded.ps1 -Command "npx vite build"                 -Cwd app -TimeoutSec 300
+pwsh -File scripts/run-bounded.ps1 -Command "npx playwright test 03-playback"         -TimeoutSec 180
+pwsh -File scripts/run-bounded.ps1 -Command "npx playwright test"                     -TimeoutSec 600 -Label e2e
 ```
 
 ## Reglas del proyecto

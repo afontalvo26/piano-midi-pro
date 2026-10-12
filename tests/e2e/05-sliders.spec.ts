@@ -1,12 +1,25 @@
 import { test, expect } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 /**
- * Helpers para arrastrar sliders con el sustain-track DIV custom
+ * Los sliders del panel izquierdo son cuatro `.sustain-section` consecutivas:
+ *   0 = Sustain, 1 = Volumen, 2 = Transponer, 3 = Velocidad click.
+ *
+ * Antes el spec apuntaba a `.sustain-section:nth-child(1)`, que ya no coincide
+ * con nada: ese panel empieza con `.range-header-row` y el minimap, así que la
+ * primera `.sustain-section` nunca es el primer hijo de su contenedor.
  */
-async function dragSlider(page: import("@playwright/test").Page, selector: string, fraction: number) {
-  const el = page.locator(selector).first();
-  const box = await el.boundingBox();
-  if (!box) throw new Error(`Slider not found: ${selector}`);
+function sectionTrack(page: Page, index: number) {
+  return page.locator(".sustain-section").nth(index).locator(".sustain-track");
+}
+
+/** Arrastra un `.sustain-track` custom (DIV, no <input>) a una fracción 0..1 */
+async function dragTrack(page: Page, index: number, fraction: number) {
+  const track = sectionTrack(page, index);
+  await expect(track).toBeVisible();
+  await track.scrollIntoViewIfNeeded();
+  const box = await track.boundingBox();
+  if (!box) throw new Error(`Sustain track ${index} has no bounding box`);
   await page.mouse.move(box.x + box.width * fraction, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.up();
@@ -30,11 +43,11 @@ test.describe("Sliders — sustain, volumen, transposición, velocidad", () => {
     const badge = page.locator(".sustain-badge").first();
     const initial = await badge.innerText();
 
-    // .sustain-section first = sustain
-    await dragSlider(page, ".sustain-section:nth-child(1) .sustain-track", 0.9);
+    await dragTrack(page, 0, 0.9);
 
     const updated = await badge.innerText();
     expect(updated).not.toBe(initial);
+    await expect(badge).toHaveText(/[1-5]\.\d+s/);
   });
 
   test("slider Volumen badge muestra porcentaje", async ({ page }) => {
@@ -50,17 +63,8 @@ test.describe("Sliders — sustain, volumen, transposición, velocidad", () => {
   });
 
   test("arrastrar slider Volumen a 0 muestra Mute", async ({ page }) => {
-    // Find the volume sustain-track (second one)
-    const sustainSections = page.locator(".sustain-section");
-    const volSection = sustainSections.nth(1);
-    const track = volSection.locator(".sustain-track");
-    const box = await track.boundingBox();
-    if (box) {
-      await page.mouse.move(box.x + 2, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.up();
-      await page.waitForTimeout(200);
-    }
+    await dragTrack(page, 1, 0);
+
     const volBadge = page.locator(".sustain-badge").nth(1);
     await expect(volBadge).toContainText("Mute");
   });
@@ -77,23 +81,20 @@ test.describe("Sliders — sustain, volumen, transposición, velocidad", () => {
     const transposeBadge = page.locator(".sustain-badge").nth(2);
     const initial = await transposeBadge.innerText();
 
-    const sustainSections = page.locator(".sustain-section");
-    const transpSection = sustainSections.nth(2);
-    const track = transpSection.locator(".sustain-track");
-    const box = await track.boundingBox();
-    if (box) {
-      await page.mouse.move(box.x + box.width * 0.9, box.y + box.height / 2);
-      await page.mouse.down();
-      await page.mouse.up();
-      await page.waitForTimeout(200);
-    }
+    await dragTrack(page, 2, 0.9);
+
     const updated = await transposeBadge.innerText();
     expect(updated).not.toBe(initial);
+    await expect(transposeBadge).toContainText("+10 st");
   });
 
   test("transponer actualiza métrica en panel derecho", async ({ page }) => {
     const metric = page.locator(".metric-card", { hasText: "Transponer" });
     await expect(metric).toBeVisible();
+    await expect(metric).toContainText("0 st");
+
+    await dragTrack(page, 2, 0.9);
+    await expect(metric).toContainText("+10 st");
   });
 
   test("slider Velocidad click muestra valor 0-127", async ({ page }) => {

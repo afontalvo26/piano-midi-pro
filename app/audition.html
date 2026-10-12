@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Audición de instrumentos — Piano MIDI Pro</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #08080c;
+        --panel: #12121a;
+        --panel-2: #1a1a26;
+        --text: #ececf4;
+        --muted: #9a9ab0;
+        --accent: #a78bfa;
+        --accent-2: #22d3ee;
+        --good: #34d399;
+        --bad: #f87171;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 24px clamp(12px, 4vw, 48px) 80px;
+        background: radial-gradient(120% 80% at 20% 0%, #16162a 0%, var(--bg) 60%);
+        color: var(--text);
+        font: 15px/1.5 "Inter", "Segoe UI", system-ui, sans-serif;
+      }
+      h1 { font-size: clamp(20px, 3vw, 30px); margin: 0 0 6px; }
+      .sub { color: var(--muted); max-width: 78ch; margin-bottom: 18px; }
+      .toolbar {
+        display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+        position: sticky; top: 0; z-index: 5;
+        padding: 12px 0; margin-bottom: 8px;
+        background: linear-gradient(#08080cf2, #08080ce0);
+        backdrop-filter: blur(6px);
+        border-bottom: 1px solid #ffffff14;
+      }
+      button {
+        font: inherit; color: var(--text); cursor: pointer;
+        background: var(--panel-2); border: 1px solid #ffffff1f;
+        border-radius: 999px; padding: 7px 14px;
+        transition: transform .08s ease, border-color .15s, background .15s;
+      }
+      button:hover:not(:disabled) { border-color: var(--accent); background: #23233a; }
+      button:active:not(:disabled) { transform: translateY(1px); }
+      button:disabled { opacity: .45; cursor: progress; }
+      button.src { min-width: 118px; }
+      button.src.synth { border-color: #f8717155; }
+      button.src.playing { background: var(--accent); color: #0b0b12; font-weight: 600; }
+      .grid { display: grid; gap: 14px; }
+      .card {
+        background: var(--panel); border: 1px solid #ffffff12;
+        border-radius: 16px; padding: 14px 16px;
+      }
+      .card h2 { margin: 0 0 2px; font-size: 16px; }
+      .meta { color: var(--muted); font-size: 12.5px; margin-bottom: 10px; }
+      .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .status { font-size: 12.5px; color: var(--muted); min-height: 18px; margin-top: 8px; }
+      .status.ok { color: var(--good); }
+      .status.err { color: var(--bad); }
+      .note {
+        border-left: 3px solid var(--accent-2); padding: 8px 12px;
+        background: #10102080; border-radius: 0 10px 10px 0; margin: 16px 0;
+        color: #cfcfe4; font-size: 13.5px;
+      }
+      code { background: #ffffff10; padding: 1px 6px; border-radius: 6px; font-size: 12.5px; }
+    </style>
+  </head>
+  <body>
+    <h1>Audición de instrumentos</h1>
+    <p class="sub">
+      El mismo riff, el mismo instrumento, distintas fuentes. Escuchá y elegí
+      cuál querés para cada pista del reproductor: el sonido que suena acá es el
+      que va a usar la app.
+    </p>
+
+    <div class="note">
+      <strong>MusyngKite</strong> / <strong>FluidR3_GM</strong> /
+      <strong>FatBoy</strong> son grabaciones reales de los instrumentos
+      (soundfonts GM). <strong>Synth viejo</strong> es lo que sonaba antes por un
+      bug de carga: osciladores, sin sample. La comparación es esa.
+    </div>
+
+    <div class="toolbar">
+      <button id="panic">◼ Cortar todo</button>
+      <button id="clear">Limpiar caché de samples</button>
+      <label class="meta">
+        <input type="checkbox" id="loop" /> repetir riff
+      </label>
+      <span class="meta" id="cacheInfo"></span>
+    </div>
+
+    <div class="grid" id="grid"></div>
+
+    <h1 style="margin-top: 36px">Ritmos — la percusión que se estaba perdiendo</h1>
+    <p class="sub">
+      El reproductor descartaba el canal 10 completo: 264.003 golpes en la
+      biblioteca, más que cualquier instrumento. Escuchá el mismo patrón con
+      samples reales (FreePats + kit GM, con varios golpes distintos por pieza)
+      y con el sintetizador que sonaba antes.
+    </p>
+    <div class="grid" id="rhythms"></div>
+
+    <script type="module" src="/src/audition.ts"></script>
+  </body>
+</html>

@@ -48,6 +48,12 @@ nul
 /screenshots/
 /.playwright-mcp/
 
+# Playwright artifacts (see playwright.config.ts)
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
 # Demo MIDI / RIVE files at root (use app/public/demo/ instead)
 /*.mid
 /*.riv
@@ -64,16 +70,27 @@ coverage/
 # Vite logs
 **/vite*.log
 
+# Salidas del runner acotado (scripts/run-bounded.ps1)
+/.logs/
+
+# Volcados crudos de la investigación de librerías de samples.
+# Son listados de API regenerables (miles de entradas, MBs); el informe con las
+# conclusiones sí se versiona en docs/investigacion-samples-instrumentos-reales.md
+/*_tree.json
+/waf_*.csv
+/waf_*.txt
+
 # Sensitive files
 *.pem
 *.key
 secrets.json
 
-# Kiro per-user settings (machine-specific MCP config etc.)
-.kiro/settings/mcp.json
 
 # AWS Bedrock credentials (NEVER commit)
 *-api-key.csv
 *-api-key.json
 bedrock-*.csv
 *.aws-credentials
+
+# Snapshot de la UI de una herramienta externa (claude-mem), no es del proyecto
+/claude-mem-viewer-snapshot.md
