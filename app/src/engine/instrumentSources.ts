@@ -30,6 +30,7 @@ import {
   loadButtonAccordion,
 } from "./freePatsAccordion";
 import { loadWebAudioFontSampler } from "./WebAudioFont";
+import { prepareSampleBuffer } from "./sampleProcessing";
 import { loadVscoInstrument, vscoCovers } from "./vscoSampler";
 import type { InstrumentVoice } from "./vscoSampler";
 import { TONEJS_INSTRUMENTS } from "./tonejsManifest";
@@ -243,7 +244,11 @@ async function buildFromCandidate(
           const url = inst.notes[midi];
           if (!url) return;
           try {
-            const buffer = await Tone.ToneAudioBuffer.load(url);
+            const raw = await Tone.ToneAudioBuffer.load(url);
+            // Micro-fades + extensión por loop en instrumentos sostenidos: sin
+            // esto una cuerda se corta a los pocos segundos y el final del
+            // archivo hace clic. Ver sampleProcessing.ts.
+            const buffer = prepareSampleBuffer(raw, instrument);
             urls[String(midi)] = buffer;
             levels.push(bufferRmsDb(buffer));
           } catch (err) {

@@ -19,6 +19,7 @@
 
 import * as Tone from "tone";
 import { VSCO_INSTRUMENTS } from "./vscoManifest";
+import { prepareSampleBuffer } from "./sampleProcessing";
 import type { VscoSample } from "./vscoManifest";
 import {
   TARGET_MELODIC_RMS_DB,
@@ -170,7 +171,10 @@ export async function loadVscoInstrument(
         const sample = instrument.layers[note]?.[layerIndex]?.[0];
         if (!sample) return;
         try {
-          const buffer = await Tone.ToneAudioBuffer.load(sample.url);
+          const raw = await Tone.ToneAudioBuffer.load(sample.url);
+          // Micro-fades + extensión por loop para los sostenidos: las cuerdas y
+          // los metales de VSCO duran pocos segundos y terminan en media onda.
+          const buffer = prepareSampleBuffer(raw, instrument.name);
           layerMaps[layerIndex][String(note)] = buffer;
           allLevels.push(bufferRmsDb(buffer));
         } catch (err) {

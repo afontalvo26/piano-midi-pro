@@ -22,6 +22,7 @@ import {
   median,
   trimDb,
 } from "./sampleLevels";
+import { prepareSampleBuffer } from "./sampleProcessing";
 
 /** El set de soundfont se sirve desde el repo de gleitz en la rama gh-pages. */
 const SOUNDFONT_SET = "MusyngKite";
@@ -424,7 +425,10 @@ export async function loadSoundfontSampler(
   const decoded = await Promise.all(
     Object.entries(rawData).map(async ([note, dataUri]) => {
       try {
-        const buffer = await raw.decodeAudioData(decodeDataUri(dataUri));
+        const rawBuffer = await raw.decodeAudioData(decodeDataUri(dataUri));
+        // Micro-fades + extensión por loop: el soundfont GM trae 3.15 s por
+        // nota y termina en media onda (clic). Ver sampleProcessing.ts.
+        const buffer = prepareSampleBuffer(rawBuffer, sfName);
         return { note, buffer };
       } catch (e) {
         console.warn(`[GMSampler] ${sfName}: no se pudo decodificar ${note}`, e);

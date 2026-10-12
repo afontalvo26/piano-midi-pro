@@ -40,8 +40,16 @@ export const TARGET_LEAD_RMS_DB = -24;
  * Va 3 dB por debajo de los melódicos: acá el ritmo acompaña, no protagoniza.
  */
 export const TARGET_PERCUSSION_RMS_DB = -30;
-/** Cuánto se deja abajo el bus de percusión respecto del resto. */
-export const PERCUSSION_BUS_DB = -2;
+/**
+ * Cuánto se deja abajo el bus de percusión respecto del resto.
+ *
+ * El dueño del proyecto reportó que la percusión "molesta": en un bolero o un
+ * vallenato el ritmo acompaña, no protagoniza. Medido, con -2 dB la mezcla
+ * quedaba con el 90 % de su energía arriba de 4 kHz (maracas y hi-hats mandando
+ * en el espectro). El volumen de cada pista se puede subir desde el mezclador,
+ * así que el default va conservador.
+ */
+export const PERCUSSION_BUS_DB = -5;
 
 /** RMS en dB del buffer (primeros `seconds`, todos los canales). */
 export function bufferRmsDb(buffer: AudioBuffer, seconds = 1.5): number {

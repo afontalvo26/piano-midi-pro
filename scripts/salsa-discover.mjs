@@ -177,12 +177,14 @@ for (const c of CANDIDATOS) {
   if (r.zip) {
     // el nombre del zip real es la fuente de verdad para el nombre de archivo
     const zipName = decodeURIComponent(r.zip.split('/').pop()).replace(/\.zip$/i, '');
-    out.push({
-      url: r.zip,
-      file: `${c.artista.replace(/[^\w]+/g, '_')}_-_${c.want.replace(/[^\w]+/g, '_')}.kar`,
-      _zipName: zipName,
-      _post: r.post,
-    });
+    const base = `Salsa_-_${zipName.replace(/[^\w]+/g, '_')}`;
+    // dedupe: el mismo zip puede salir de varias busquedas (p.ej. "Celia y
+    // Pacheco" devolvia cuatro temas distintos del mismo disco).
+    if (out.some((o) => o.url === r.zip || o.file === `${base}.kar`)) {
+      console.log(`DUP  ${c.artista} - ${c.want}  (${zipName})`);
+      continue;
+    }
+    out.push({ url: r.zip, file: `${base}.kar` });
     console.log(`OK   ${c.artista} - ${c.want}`);
     console.log(`     ${r.zip}`);
   } else {

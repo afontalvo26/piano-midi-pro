@@ -34,6 +34,7 @@ import {
   median,
   trimDb,
 } from "./sampleLevels";
+import { prepareSampleBuffer } from "./sampleProcessing";
 
 const WAF_BASES = [
   "https://surikov.github.io/webaudiofontdata/sound",
@@ -168,7 +169,8 @@ export async function loadWebAudioFontSampler(
     const note = Tone.Frequency(midi, "midi").toNote();
     if (urls[note]) continue;
     try {
-      const buffer = await raw.decodeAudioData(base64ToArrayBuffer(zone.file));
+      const rawBuffer = await raw.decodeAudioData(base64ToArrayBuffer(zone.file));
+      const buffer = prepareSampleBuffer(rawBuffer, code);
       urls[note] = buffer;
       levels.push(bufferRmsDb(buffer));
       decoded++;
