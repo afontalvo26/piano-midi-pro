@@ -190,6 +190,41 @@ export function extendSustainedBuffer(
 }
 
 /**
+ * Tiempo de release (segundos) según el instrumento.
+ *
+ * `Tone.Sampler` trae `release: 0.1` por defecto: al soltar la tecla, TODAS las
+ * notas morían en 100 ms — un corte seco que es de las cosas que más delatan a
+ * un sampler. En la vida real una cuerda sigue sonando, un metal apaga despacio
+ * y una guitarra se apaga rápido pero no al instante.
+ */
+export function releaseForInstrument(instrument: string): number {
+  const l = instrument.toLowerCase();
+  // Sostenidos: cola larga y natural.
+  if (
+    /pad|choir|voice|oohs|aahs|organ|accordion|harmonica|reed|string|violin|viola|cello|contrabass/i.test(
+      l,
+    )
+  ) {
+    return 0.65;
+  }
+  if (
+    /brass|trumpet|trombone|tuba|horn|sax|flute|oboe|clarinet|bassoon|recorder|pipe/i.test(
+      l,
+    )
+  ) {
+    return 0.45;
+  }
+  // Pulsados y percutidos: apagado corto pero audible.
+  if (/piano|guitar|guitarra|harp|banjo|koto|sitar|kalimba|dulcimer/i.test(l)) {
+    return 0.35;
+  }
+  if (/marimba|xylophone|glocken|celesta|vibraphone|bell|timpani|drum/i.test(l)) {
+    return 0.25;
+  }
+  return 0.4;
+}
+
+/**
  * Prepara un buffer crudo para el reproductor: micro-fades siempre, y extensión
  * por loop sólo si el instrumento sostiene el sonido.
  */

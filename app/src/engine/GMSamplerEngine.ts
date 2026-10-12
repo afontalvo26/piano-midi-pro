@@ -11,10 +11,7 @@
  */
 
 import * as Tone from "tone";
-import {
-  isButtonAccordionInstrument,
-  loadButtonAccordion,
-} from "./freePatsAccordion";
+import { isButtonAccordionInstrument } from "./freePatsAccordion";
 import {
   TARGET_MELODIC_RMS_DB,
   applyTrim,
@@ -22,7 +19,7 @@ import {
   median,
   trimDb,
 } from "./sampleLevels";
-import { prepareSampleBuffer } from "./sampleProcessing";
+import { prepareSampleBuffer, releaseForInstrument } from "./sampleProcessing";
 
 /** El set de soundfont se sirve desde el repo de gleitz en la rama gh-pages. */
 const SOUNDFONT_SET = "MusyngKite";
@@ -214,8 +211,7 @@ type CacheEntry = Tone.Sampler | Promise<Tone.Sampler>;
 const _cache = new Map<string, CacheEntry>();
 /** Soundfonts que ya fallaron definitivamente (no se reintenta en cada nota). */
 const _failed = new Set<string>();
-/** Carga en vuelo del acordeón de botones (no vive en `_cache` como promesa). */
-let inFlightAccordion: Promise<Tone.Sampler> | null = null;
+
 /** Blob URLs created per soundfont — must be revoked on dispose to free memory */
 const _blobUrls = new Map<string, string[]>();
 
@@ -461,6 +457,8 @@ export async function loadSoundfontSampler(
 
     const s = new Tone.Sampler({
       urls,
+      // Sin esto Tone usa 0.1 s y cada nota muere en seco al soltarla.
+      release: releaseForInstrument(sfName),
       onload: () => {
         clearTimeout(timeout);
         // El sampler recién existe acá: la compensación se aplica sobre él.
@@ -481,12 +479,6 @@ const _fetchAndCreate = loadSoundfontSampler;
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/**
- * Clave de caché del acordeón de botones (FreePats). El acordeón vallenato no
- * es un soundfont GM: es una grabación dedicada (ver freePatsAccordion.ts), y
- * para el género es EL instrumento, así que gana sobre el `accordion` de GM.
- */
-const BUTTON_ACCORDION_KEY = "freepats:button-accordion";
 
 /**
  * Async — returns a real-instrument Tone.Sampler for the given GM instrument name.
@@ -499,29 +491,6 @@ export function getGMSampler(
   instrument: string,
   dest: Tone.ToneAudioNode,
 ): Promise<Tone.Sampler> {
-  if (isButtonAccordionInstrument(instrument)) {
-    const cached = _cache.get(BUTTON_ACCORDION_KEY);
-    if (cached instanceof Tone.Sampler) return Promise.resolve(cached);
-    const task = inFlightAccordion
-      ? inFlightAccordion
-      : loadButtonAccordion(dest)
-          .then((s) => {
-            _cache.set(BUTTON_ACCORDION_KEY, s);
-            inFlightAccordion = null;
-            return s;
-          })
-          .catch((err) => {
-            inFlightAccordion = null;
-            _failed.add(BUTTON_ACCORDION_KEY);
-            console.warn(
-              "[GMSampler] acordeón de botones no disponible, se usa el GM:",
-              err,
-            );
-            throw err;
-          });
-    inFlightAccordion = task;
-    return task;
-  }
 
   const sfName = instrumentToSoundfont(instrument);
   if (!sfName) {
@@ -566,10 +535,7 @@ export function getGMSampler(
  * Safe to call inside Tone.Transport.schedule callbacks.
  */
 export function getGMSamplerSync(instrument: string): Tone.Sampler | null {
-  if (isButtonAccordionInstrument(instrument)) {
-    const hit = _cache.get(BUTTON_ACCORDION_KEY);
-    return hit instanceof Tone.Sampler ? hit : null;
-  }
+
   const sfName = instrumentToSoundfont(instrument);
   if (!sfName) return null;
   const hit = _cache.get(cacheKey(sfName));
@@ -585,11 +551,7 @@ export function getGMSamplerSync(instrument: string): Tone.Sampler | null {
  * mejor que nada.
  */
 export function getSamplerStatus(instrument: string): SamplerStatus {
-  if (isButtonAccordionInstrument(instrument)) {
-    if (_failed.has(BUTTON_ACCORDION_KEY)) return "failed";
-    const hit = _cache.get(BUTTON_ACCORDION_KEY);
-    return hit instanceof Tone.Sampler ? "loaded" : "loading";
-  }
+
   const sfName = instrumentToSoundfont(instrument);
   if (!sfName) return "unmapped";
   const key = cacheKey(sfName);
@@ -627,7 +589,6 @@ export function disposeAllGMSamplers() {
   });
   _cache.clear();
   _failed.clear();
-  inFlightAccordion = null;
   _blobUrls.forEach((urls) => urls.forEach((u) => URL.revokeObjectURL(u)));
   _blobUrls.clear();
   console.log("[GMSampler] All samplers disposed");

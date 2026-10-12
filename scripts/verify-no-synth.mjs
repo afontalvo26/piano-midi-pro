@@ -29,7 +29,7 @@ const page = await browser.newPage();
 const warns = [];
 page.on("console", (m) => {
   const t = m.text();
-  if (/fuentes|ruteo|sin sample real|se saltea|sintetiz|GMSampler|WebAudioFont|DrumKit|tonejs/i.test(t)) {
+  if (/fuentes|ruteo|sin sample real|se saltea|sintetiz|GMSampler|WebAudioFont|DrumKit|tonejs|vsco|ButtonAccordion|acorde/i.test(t)) {
     warns.push(t.slice(0, 170));
   }
 });
@@ -64,6 +64,6 @@ const seeker = await page.locator(".seeker-container input[type=range]").inputVa
 console.log("avance de la canción:", seeker, "s");
 
 console.log("\n--- avisos de ruteo/síntesis ---");
-console.log([...new Set(warns)].slice(0, 12).join("\n") || "(ninguno)");
+console.log([...new Set(warns)].slice(0, 40).join("\n") || "(ninguno)");
 
 await browser.close();

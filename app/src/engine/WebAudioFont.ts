@@ -34,7 +34,7 @@ import {
   median,
   trimDb,
 } from "./sampleLevels";
-import { prepareSampleBuffer } from "./sampleProcessing";
+import { prepareSampleBuffer, releaseForInstrument } from "./sampleProcessing";
 
 const WAF_BASES = [
   "https://surikov.github.io/webaudiofontdata/sound",
@@ -195,6 +195,7 @@ export async function loadWebAudioFontSampler(
     );
     const sampler = new Tone.Sampler({
       urls,
+      release: releaseForInstrument(code),
       onload: () => {
         clearTimeout(timeout);
         applyTrim(sampler, gain);

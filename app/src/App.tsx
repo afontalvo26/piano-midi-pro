@@ -943,7 +943,16 @@ export default function App() {
 
       await Tone.start();
 
-      // Create effects chain: vol -> chorus -> reverb -> compressor -> limiter -> out
+      // Cadena de efectos:
+      //
+      //   vol → chorus ─┬────────────────────────────→ compressor → limiter → out
+      //                 └→ highpass → reverb (100% wet) → compressor
+      //
+      // El reverb va como ENVÍO, no en serie. Antes estaba en serie y sin filtro,
+      // así que todo el bajo entraba al reverb: la mezcla quedaba embarrada y el
+      // grave perdía definición (y encima el "wet" se comía el ataque de la
+      // percusión). Con el envío, la señal seca queda intacta y sólo la cola de
+      // medios/agudos va al reverb — que es como se hace en un estudio.
       const limiter = new Tone.Limiter(-2).toDestination();
       const compressor = new Tone.Compressor({
         threshold: -18, // start compressing at -18dB
@@ -952,16 +961,26 @@ export default function App() {
         release: 0.1, // 100ms release
         knee: 6, // soft knee, transparent
       }).connect(limiter);
-      const reverb = new Tone.Reverb({ decay: 1.5, wet: 0.18 }).connect(
-        compressor,
-      );
+
+      const reverb = new Tone.Reverb({ decay: 1.5, wet: 1 }).connect(compressor);
       await reverb.generate();
-      const chorus = new Tone.Chorus(4, 2.5, 0.5).connect(reverb);
+      // Corte de graves antes del reverb: por debajo de ~200 Hz el reverb sólo
+      // agrega barro, no profundidad.
+      const reverbHighpass = new Tone.Filter({
+        type: "highpass",
+        frequency: 200,
+        Q: 0.7,
+      }).connect(reverb);
+      const reverbSend = new Tone.Gain(0.18).connect(reverbHighpass);
+
+      const chorus = new Tone.Chorus(4, 2.5, 0.5);
       chorus.wet.value = 0.0;
       chorus.start();
-      const vol = new Tone.Volume(stateRef.current.masterVolume).connect(
-        chorus,
-      );
+      // Seco hacia el compresor y, en paralelo, al envío del reverb.
+      chorus.connect(compressor);
+      chorus.connect(reverbSend);
+
+      const vol = new Tone.Volume(stateRef.current.masterVolume).connect(chorus);
       compressorRef.current = compressor;
 
       // Metronome click — MetalSynth → separate volume → limiter
@@ -1308,6 +1327,9 @@ export default function App() {
       if (track.isDrumKit) continue; // la percusión tiene su propio motor
       const inst = trackInstruments[track.index] ?? track.instrument;
       if (!inst) continue;
+      // El piano acústico lo toca el sampler Salamander (ya cargado): pedir
+      // además su versión de VSCO eran decenas de MB que nunca se oían.
+      if (usesSalamanderPiano(inst)) continue;
       const set = notesByInstrument.get(inst) ?? new Set<number>();
       for (const note of song.notes) {
         if (note.trackIndex === track.index) set.add(note.midi);

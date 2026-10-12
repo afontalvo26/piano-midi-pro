@@ -18,6 +18,7 @@ import {
 import { WAF_SUGGESTIONS, loadWebAudioFontSampler } from "./engine/WebAudioFont";
 import { loadButtonAccordion } from "./engine/freePatsAccordion";
 import { DrumKitEngine } from "./engine/DrumKitEngine";
+import type { InstrumentVoice } from "./engine/vscoSampler";
 import { InstrumentEngineRegistry } from "./engine/InstrumentEngine";
 import type { PercussionVoice } from "./engine/InstrumentEngine";
 import { getInstrumentSynthSettings } from "./utils/instrumentMapping";
@@ -188,8 +189,8 @@ const PHRASES: Phrase[] = [
 
 // ── Estado ───────────────────────────────────────────────────────────────────
 
-const samplers = new Map<string, Tone.Sampler>();
-const inFlight = new Map<string, Promise<Tone.Sampler>>();
+const samplers = new Map<string, InstrumentVoice>();
+const inFlight = new Map<string, Promise<InstrumentVoice>>();
 const synths = new Map<string, Tone.PolySynth>();
 let master: Tone.Volume | null = null;
 let started = false;
@@ -238,7 +239,7 @@ function sourcesFor(instrument: string): Source[] {
 async function loadSource(
   source: Source,
   instrument: string,
-): Promise<Tone.Sampler | null> {
+): Promise<InstrumentVoice | null> {
   if (source.kind === "synth") return null;
   const cached = samplers.get(source.id);
   if (cached) return cached;
@@ -299,7 +300,7 @@ function stopAll(): void {
 function playPhrase(
   phrase: Phrase,
   source: Source,
-  sampler: Tone.Sampler | null,
+  sampler: InstrumentVoice | null,
 ): () => void {
   const spb = 60 / phrase.bpm;
   const t0 = Tone.now() + 0.08;
@@ -313,7 +314,9 @@ function playPhrase(
     }
   } else {
     for (const [note, at, dur, vel] of phrase.notes) {
-      sampler.triggerAttackRelease(note, dur * spb, t0 + at * spb, vel);
+      const start = t0 + at * spb;
+      sampler.triggerAttack(note, start, vel);
+      sampler.triggerRelease(note, start + dur * spb);
       ends.push(t0 + at * spb + dur * spb);
     }
   }

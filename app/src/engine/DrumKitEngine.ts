@@ -26,6 +26,7 @@ import * as Tone from "tone";
 import { PERCUSSION_SAMPLES } from "./percussionSamples";
 import { loadWafZoneBuffer } from "./WebAudioFont";
 import { drumPiece, pieceTrimDb } from "../utils/gmDrums";
+import { panForDrumPiece } from "./instrumentPanning";
 import {
   PERCUSSION_BUS_DB,
   TARGET_PERCUSSION_RMS_DB,
@@ -69,9 +70,24 @@ export class DrumKitEngine {
   private failed = new Set<number>();
   /** Ganancia medida por pieza (dB) para emparejar niveles entre golpes. */
   private pieceGain = new Map<number, number>();
+  /**
+   * Paneo por pieza: un kit real está repartido en el escenario (hi-hat a un
+   * lado, ride al otro, toms abriéndose, congas enfrentadas). Sin esto la
+   * batería entera sale de un punto y suena a caja de ritmos.
+   */
+  private panners = new Map<number, Tone.Panner>();
 
   constructor(destination: Tone.ToneAudioNode) {
     this.out = new Tone.Volume(0).connect(destination);
+  }
+
+  private pannerFor(note: number): Tone.Panner {
+    let panner = this.panners.get(note);
+    if (!panner) {
+      panner = new Tone.Panner(panForDrumPiece(note)).connect(this.out);
+      this.panners.set(note, panner);
+    }
+    return panner;
   }
 
   /** ¿Esta pieza ya tiene sample real listo para sonar? */
@@ -200,7 +216,7 @@ export class DrumKitEngine {
           /* ignore */
         }
       },
-    }).connect(this.out);
+    }).connect(this.pannerFor(note));
 
     try {
       source.start(time ?? Tone.now(), 0, undefined, gain);

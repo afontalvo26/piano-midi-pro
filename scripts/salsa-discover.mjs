@@ -142,9 +142,19 @@ const CANDIDATOS = [
 ];
 
 /** Palabras que delatan que un resultado NO es salsa brava. */
-const RUIDO = /bruno-mars|olivia-rodrigo|ed-sheeran|adele|maluma|farruko|j-balvin|bad-bunny|pimpinela|eros-ramazzotti|nat-king-cole|cri-cri|joaquin-sabina|arcangel|ra fade|rafaga|guaco|aldeanos|chayanne|melany|sonora-dinamita|sonora-kaliente|banda-sonora|sonora-colorada|sonora-santanera|sonora-matancera|jesucristo|betty-la-fea|decadentes|soledad|tamara|leandro|los-ratones|el-mataor|eva-ayllon|valentin-elizalde|lou-bega|mambo-politecnico|14-bis|883-|2-be-3|5ive|50-cent|4-non-blondes|3-doors|10cc|70s-|80s-|60s-|angeles-azules|natalia-lafourcade|queens|mosquito|nunca-es-suficiente|sabanas-frias|nino-y-mana/i;
+const RUIDO = /bruno-mars|olivia-rodrigo|ed-sheeran|adele|maluma|farruko|j-balvin|bad-bunny|pimpinela|eros-ramazzotti|nat-king-cole|cri-cri|joaquin-sabina|arcangel|ra fade|rafaga|guaco|aldeanos|chayanne|melany|sonora-dinamita|sonora-kaliente|banda-sonora|sonora-colorada|sonora-santanera|sonora-matancera|jesucristo|betty-la-fea|decadentes|soledad|tamara|leandro|los-ratones|el-mataor|eva-ayllon|valentin-elizalde|lou-bega|mambo-politecnico|14-bis|883-|2-be-3|5ive|50-cent|4-non-blondes|3-doors|10cc|70s-|80s-|60s-|angeles-azules|natalia-lafourcade|queens|mosquito|nunca-es-suficiente|sabanas-frias|nino-y-mana|neil-young|im-the-ocean/i;
 
 const slugDe = (u) => u.replace(`${SITE}/`, '');
+
+/** Artistas que confirman que el post es del genero (se chequea el titulo). */
+const SELLO_SALSA =
+  /blades|celia|feliciano|lavoe|ismael rivera|ponce|gran combo|col[oó]n|barretto|la lupe|tito puente|t[ií]pica|valent[ií]n|canales|monta[nñ]ez|miranda|rodr[ií]guez|bataan|los blanco|niche|arroyo|dimensi[oó]n|joe cuba|palmieri|roena|betancourt|harlow|dimond|fania|olivencia|santamaria|richie ray|ricardo ray|gran varon|guaguanco|descarga/i;
+
+/** Tokens que NO sirven para validar coincidencia (articulos, genericos). */
+const VACIAS = new Set([
+  'el', 'la', 'los', 'las', 'de', 'del', 'y', 'su', 'un', 'una', 'varios',
+  'gran', 'combo', 'sonora', 'la', 'tito', 'joe', 'trio', 'orquesta',
+]);
 
 async function resolver(cand) {
   const r = await get(`${SITE}/?s=${encodeURIComponent(cand.q)}`);
@@ -155,6 +165,15 @@ async function resolver(cand) {
     ),
   ].filter((p) => !/\/20\d\d\/\d\d\/$/.test(p));
 
+  // tokens significativos del artista buscado: hay que ver al menos uno en el
+  // titulo de la pagina. Sin esto, el resultado comodin del buscador de
+  // WordPress ("Neil Young - Im The Ocean") pasaba la validacion porque su
+  // titulo contiene la palabra "El".
+  const tokens = cand.artista
+    .split(/[^\p{L}]+/u)
+    .map((s) => s.toLowerCase())
+    .filter((s) => s.length > 3 && !VACIAS.has(s));
+
   for (const post of posts) {
     if (RUIDO.test(post)) continue;
     const p = await get(post);
@@ -162,9 +181,9 @@ async function resolver(cand) {
     const zip = (p.t.match(/href="([^"]*\.zip)"/i) || [])[1];
     if (!zip) continue;
     const titulo = (p.t.match(/<title>([^<]*)<\/title>/i) || [])[1] || '';
-    // descartar si el titulo de la pagina no menciona al artista buscado
-    const primera = cand.artista.split(/[&(]/)[0].trim().toLowerCase().split(/\s+/)[0];
-    if (primera.length > 3 && !titulo.toLowerCase().includes(primera)) continue;
+    const bajo = titulo.toLowerCase();
+    if (tokens.length && !tokens.some((t) => bajo.includes(t))) continue;
+    if (!SELLO_SALSA.test(bajo)) continue;
     return { ...cand, post, zip, titulo: titulo.slice(0, 120) };
   }
   return { ...cand, error: 'sin post con zip' };

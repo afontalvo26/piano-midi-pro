@@ -30,9 +30,10 @@ import {
   loadButtonAccordion,
 } from "./freePatsAccordion";
 import { loadWebAudioFontSampler } from "./WebAudioFont";
-import { prepareSampleBuffer } from "./sampleProcessing";
+import { prepareSampleBuffer, releaseForInstrument } from "./sampleProcessing";
 import { loadVscoInstrument, vscoCovers } from "./vscoSampler";
 import type { InstrumentVoice } from "./vscoSampler";
+import { panForInstrument } from "./instrumentPanning";
 import { TONEJS_INSTRUMENTS } from "./tonejsManifest";
 import { WAF_VARIANTS, WAF_NEEDED_PROGRAMS } from "./wafManifest";
 import {
@@ -195,7 +196,6 @@ interface Loaded {
   covered: Set<number>;
   source: string;
 }
-
 const loaded = new Map<string, Loaded>();
 const inFlight = new Map<string, Promise<Loaded | null>>();
 const failedSources = new Set<string>();
@@ -204,6 +204,53 @@ const warned = new Set<string>();
 
 function key(instrument: string): string {
   return instrument.trim().toLowerCase();
+}
+
+/** Hash determinista y barato: misma nota + mismo instante ⇒ misma variación. */
+function hash01(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 1000) / 1000;
+}
+
+/**
+ * Voz con variación humana.
+ *
+ * Dos notas iguales, tocadas igual, no suenan EXACTAMENTE igual en la vida real
+ * — y esa repetición idéntica es lo que delata a un sampler. Se aplica una
+ * variación de ganancia de ±0.5 dB determinista (misma nota + mismo instante ⇒
+ * mismo valor, así el playback es reproducible y los tests no se vuelven
+ * aleatorios).
+ */
+class HumanizedVoice implements InstrumentVoice {
+  private inner: InstrumentVoice;
+  private instrument: string;
+
+  constructor(inner: InstrumentVoice, instrument: string) {
+    this.inner = inner;
+    this.instrument = instrument;
+  }
+
+  triggerAttack(note: Tone.Unit.Frequency, time?: Tone.Unit.Time, velocity = 1): void {
+    const t = typeof time === "number" ? time : 0;
+    const jitter = 1 + (hash01(`${this.instrument}:${note}:${Math.floor(t * 20)}`) - 0.5) * 0.12;
+    this.inner.triggerAttack(note, time, Math.max(0.02, Math.min(1, velocity * jitter)));
+  }
+
+  triggerRelease(note: Tone.Unit.Frequency, time?: Tone.Unit.Time): void {
+    this.inner.triggerRelease(note, time);
+  }
+
+  releaseAll(): void {
+    this.inner.releaseAll();
+  }
+
+  dispose(): void {
+    this.inner.dispose();
+  }
 }
 
 async function buildFromCandidate(
@@ -263,6 +310,7 @@ async function buildFromCandidate(
         const timeout = setTimeout(() => reject(new Error("timeout")), 30_000);
         const s = new Tone.Sampler({
           urls,
+          release: releaseForInstrument(instrument),
           onload: () => {
             clearTimeout(timeout);
             applyTrim(s, gain);
@@ -337,16 +385,28 @@ export async function loadInstrument(
       return null;
     }
 
+    // Imagen estéreo: cada instrumento entra por su propio paneo, como en un
+    // escenario. Sin esto todo sale al centro y la mezcla suena a maqueta.
+    const pan = panForInstrument(instrument);
+    const panner = new Tone.Panner(pan).connect(dest);
+    console.log(
+      `[fuentes] "${instrument}": paneo ${pan >= 0 ? "+" : ""}${pan.toFixed(2)}`,
+    );
+
     for (const candidate of candidates) {
-      const result = await buildFromCandidate(candidate, instrument, dest, notes);
+      const result = await buildFromCandidate(candidate, instrument, panner, notes);
       if (!result) continue;
 
       // La nivelación se hace dentro de cada cargador (cada uno ya tiene los
       // buffers decodificados en la mano y mide ahí).
-      loaded.set(k, result);
+      const voice = new HumanizedVoice(result.sampler, instrument);
+      const withPan: Loaded = { ...result, sampler: voice };
+      loaded.set(k, withPan);
       console.log(`[fuentes] "${instrument}" → ${result.source}`);
-      return result;
+      return withPan;
     }
+
+    panner.dispose();
 
     if (!warned.has(k)) {
       warned.add(k);

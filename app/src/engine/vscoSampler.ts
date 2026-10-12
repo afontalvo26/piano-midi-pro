@@ -19,7 +19,7 @@
 
 import * as Tone from "tone";
 import { VSCO_INSTRUMENTS } from "./vscoManifest";
-import { prepareSampleBuffer } from "./sampleProcessing";
+import { prepareSampleBuffer, releaseForInstrument } from "./sampleProcessing";
 import type { VscoSample } from "./vscoManifest";
 import {
   TARGET_MELODIC_RMS_DB,
@@ -83,54 +83,90 @@ function pickRecorded(
   return [...chosen].sort((a, b) => a - b);
 }
 
-/** Sampler con capas: elige la toma según la velocidad de la nota. */
+/**
+ * Sampler con capas de velocidad Y round-robin.
+ *
+ * `groups[capa]` son las variantes grabadas de esa intensidad (rr1, rr2, …). La
+ * capa se elige por velocidad y, dentro de la capa, se **rota** la variante en
+ * cada nota: repetir siempre la misma toma es lo que hace que una escala rápida
+ * suene a ametralladora, y es el truco de realismo más barato que existe.
+ */
 class LayeredSampler implements InstrumentVoice {
-  private layers: Tone.Sampler[] = [];
-  /** Índice de la capa elegida para una velocidad 0..1. */
+  /** Capa de velocidad → variantes round-robin. */
+  private groups: Tone.Sampler[][] = [];
+  private nextVariant: number[] = [];
+
+  constructor(groups: Tone.Sampler[][]) {
+    this.groups = groups.filter((g) => g.length > 0);
+    this.nextVariant = this.groups.map(() => 0);
+  }
+
+  /**
+   * Índice de la capa elegida para una velocidad 0..1.
+   *
+   * Umbrales musicales, no `floor(v × n)`: con 2 capas, cortar en 0.5 hacía que
+   * un *mezzo-forte* (MIDI 64) disparara ya la toma *forte* y el instrumento
+   * sonara siempre fuerte. Un `mf` tiene que caer en la toma media/suave.
+   */
   private layerFor(velocity: number): number {
-    if (this.layers.length === 1) return 0;
+    const n = this.groups.length;
+    if (n <= 1) return 0;
     const v = Math.max(0, Math.min(1, velocity));
-    const index = Math.floor(v * this.layers.length);
-    return Math.max(0, Math.min(this.layers.length - 1, index));
+    const thresholds: Record<number, number[]> = {
+      2: [0.62],
+      3: [0.42, 0.74],
+      4: [0.34, 0.58, 0.8],
+    };
+    const cuts =
+      thresholds[n] ?? Array.from({ length: n - 1 }, (_, i) => (i + 1) / n);
+    let index = 0;
+    for (const cut of cuts) {
+      if (v >= cut) index++;
+    }
+    return Math.max(0, Math.min(n - 1, index));
   }
 
-  constructor(layers: Tone.Sampler[]) {
-    this.layers = layers;
+  /** Suma una variante que llegó después (carga en segundo plano). */
+  addVariant(layerIndex: number, sampler: Tone.Sampler): void {
+    const group = this.groups[layerIndex] ?? (this.groups[layerIndex] = []);
+    group.push(sampler);
+    this.nextVariant[layerIndex] = this.nextVariant[layerIndex] ?? 0;
   }
 
-  /** Suma una capa que llegó después (carga en segundo plano). */
-  addLayer(sampler: Tone.Sampler): void {
-    this.layers.push(sampler);
-  }
-
-  layerCount(): number {
-    return this.layers.length;
+  variantCount(): number {
+    return this.groups.reduce((n, g) => n + g.length, 0);
   }
 
   triggerAttack(note: Tone.Unit.Frequency, time?: Tone.Unit.Time, velocity = 1): void {
-    const layer = this.layers[this.layerFor(velocity)];
+    const layer = this.layerFor(velocity);
+    const group = this.groups[layer];
+    if (!group || group.length === 0) return;
+    const index = (this.nextVariant[layer] ?? 0) % group.length;
+    this.nextVariant[layer] = index + 1;
     // La dinámica dentro de la capa la da el propio sampler (volumen por nota).
-    layer?.triggerAttack(note, time, velocity);
+    group[index]?.triggerAttack(note, time, velocity);
   }
 
   triggerRelease(note: Tone.Unit.Frequency, time?: Tone.Unit.Time): void {
-    // Se libera en TODAS las capas: no se sabe con certeza en cuál entró.
-    for (const layer of this.layers) {
-      try {
-        layer.triggerRelease(note, time);
-      } catch {
-        /* la nota no estaba sonando en esa capa */
+    // Se libera en TODAS las variantes: no se sabe con certeza en cuál entró.
+    for (const group of this.groups) {
+      for (const sampler of group) {
+        try {
+          sampler.triggerRelease(note, time);
+        } catch {
+          /* la nota no estaba sonando en esa variante */
+        }
       }
     }
   }
 
   releaseAll(): void {
-    this.layers.forEach((l) => l.releaseAll());
+    this.groups.forEach((g) => g.forEach((s) => s.releaseAll()));
   }
 
   dispose(): void {
-    this.layers.forEach((l) => l.dispose());
-    this.layers = [];
+    this.groups.forEach((g) => g.forEach((s) => s.dispose()));
+    this.groups = [];
   }
 }
 
@@ -153,33 +189,51 @@ export async function loadVscoInstrument(
   const picked = pickRecorded(neededNotes, available);
   if (picked.length === 0) return null;
 
-  // Por cada capa (v1, v2, …) se arma su mapa de notas. La variante
-  // round-robin se rota por nota, que es como lo haría un sampler real.
+  // Capa de velocidad × variante round-robin: `buffers[layer][variant][nota]`.
   const layerCount = Math.max(
     ...picked.map((n) => instrument.layers[n]?.length ?? 0),
   );
-  const layerMaps: Record<string, AudioBuffer>[] = Array.from(
+  const variantCount = Math.max(
+    1,
+    ...picked.map((n) =>
+      Math.max(...(instrument.layers[n] ?? []).map((v) => v.length)),
+    ),
+  );
+  const buffers: Record<string, AudioBuffer>[][] = Array.from(
     { length: layerCount },
-    () => ({}),
+    () => Array.from({ length: variantCount }, () => ({})),
   );
   const allLevels: number[] = [];
 
-  /** Baja las notas de UNA capa (v1, v2, …). */
-  const loadLayer = async (layerIndex: number): Promise<void> => {
+  /**
+   * Baja las notas de UNA combinación capa+variante.
+   *
+   * Si una nota no tiene esa variante grabada, se cae a la última disponible:
+   * así ninguna nota queda muda sólo porque ese banco no grabó la rr2.
+   */
+  const loadCombo = async (
+    layerIndex: number,
+    variantIndex: number,
+  ): Promise<void> => {
     await Promise.all(
       picked.map(async (note) => {
-        const sample = instrument.layers[note]?.[layerIndex]?.[0];
+        const variants = instrument.layers[note]?.[layerIndex];
+        if (!variants || variants.length === 0) return;
+        const sample =
+          variants[Math.min(variantIndex, variants.length - 1)];
         if (!sample) return;
         try {
           const raw = await Tone.ToneAudioBuffer.load(sample.url);
           // Micro-fades + extensión por loop para los sostenidos: las cuerdas y
           // los metales de VSCO duran pocos segundos y terminan en media onda.
           const buffer = prepareSampleBuffer(raw, instrument.name);
-          layerMaps[layerIndex][String(note)] = buffer;
-          allLevels.push(bufferRmsDb(buffer));
+          buffers[layerIndex][variantIndex][String(note)] = buffer;
+          // Sólo la primera variante cuenta para el nivel: las otras son la
+          // misma intensidad y promediarlas dos veces sesgaría la compensación.
+          if (variantIndex === 0) allLevels.push(bufferRmsDb(buffer));
         } catch (err) {
           console.warn(
-            `[vsco] ${instrument.name}: nota ${note} capa ${layerIndex + 1} falló`,
+            `[vsco] ${instrument.name}: nota ${note} capa ${layerIndex + 1} variante ${variantIndex + 1} falló`,
             err,
           );
         }
@@ -187,36 +241,40 @@ export async function loadVscoInstrument(
     );
   };
 
-  // FASE 1 — la capa más suave, sólo para tener sonido ya.
-  // Los WAV de VSCO son grandes (~1.9 MB): esperar las 3 capas de todos los
-  // instrumentos antes de arrancar la canción costaba ~16 s de silencio.
-  await loadLayer(0);
-  if (Object.keys(layerMaps[0]).length === 0) return null;
+  // FASE 1 — capa más suave, primera variante: sonido ya.
+  // Los WAV de VSCO son grandes (~1.9 MB): esperar todo antes de arrancar la
+  // canción costaba ~16 s de silencio.
+  await loadCombo(0, 0);
+  if (Object.keys(buffers[0][0]).length === 0) return null;
 
   const gain = trimDb(median(allLevels), TARGET_MELODIC_RMS_DB);
-  const first = await createSampler(layerMaps[0], gain, dest);
-  const voice = new LayeredSampler([first]);
+  const first = await createSampler(buffers[0][0], gain, dest, instrument.name);
+  const voice = new LayeredSampler([[first]]);
 
-  // FASE 2 — el resto de las capas, en segundo plano: llegan unos segundos
-  // después y ahí la dinámica pasa a cambiar timbre (que es el punto).
-  for (let layerIndex = 1; layerIndex < layerCount; layerIndex++) {
-    void loadLayer(layerIndex)
-      .then(async () => {
-        const urls = layerMaps[layerIndex];
-        if (Object.keys(urls).length === 0) return;
-        const sampler = await createSampler(urls, gain, dest);
-        voice.addLayer(sampler);
-        console.log(
-          `[vsco] ${instrument.name}: capa ${layerIndex + 1} sumada (${voice.layerCount()} capas)`,
-        );
-      })
-      .catch(() => {
-        /* una capa de más es una mejora, nunca un bloqueante */
-      });
+  // FASE 2 — el resto de variantes y capas, en segundo plano: las variantes
+  // quitan el efecto ametralladora y las capas hacen que la dinámica cambie de
+  // timbre (que es el punto de la expresividad).
+  for (let layerIndex = 0; layerIndex < layerCount; layerIndex++) {
+    for (let variantIndex = 0; variantIndex < variantCount; variantIndex++) {
+      if (layerIndex === 0 && variantIndex === 0) continue;
+      void loadCombo(layerIndex, variantIndex)
+        .then(async () => {
+          const urls = buffers[layerIndex][variantIndex];
+          if (Object.keys(urls).length === 0) return;
+          const sampler = await createSampler(urls, gain, dest, instrument.name);
+          voice.addVariant(layerIndex, sampler);
+          console.log(
+            `[vsco] ${instrument.name}: capa ${layerIndex + 1} variante ${variantIndex + 1} sumada (${voice.variantCount()} tomas)`,
+          );
+        })
+        .catch(() => {
+          /* una toma de más es una mejora, nunca un bloqueante */
+        });
+    }
   }
 
   console.log(
-    `[vsco] ${instrument.name}: ${picked.length} notas, capa base ${median(allLevels).toFixed(1)} dB → ${gain.toFixed(1)} dB (${layerCount} capas en total)`,
+    `[vsco] ${instrument.name}: ${picked.length} notas, ${layerCount} capa(s) × ${variantCount} variante(s), nivel ${median(allLevels).toFixed(1)} dB → ${gain.toFixed(1)} dB`,
   );
 
   return voice;
@@ -226,11 +284,13 @@ function createSampler(
   urls: Record<string, AudioBuffer>,
   gain: number,
   dest: Tone.ToneAudioNode,
+  instrumentName: string,
 ): Promise<Tone.Sampler> {
   return new Promise<Tone.Sampler>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("timeout")), 45_000);
     const s = new Tone.Sampler({
       urls,
+      release: releaseForInstrument(instrumentName),
       onload: () => {
         clearTimeout(timeout);
         applyTrim(s, gain);
