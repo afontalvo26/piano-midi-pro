@@ -965,7 +965,7 @@ export default function App() {
       // Ganancia de compensación: el EQ por familia recorta graves y barro que
       // aportaban ~4 dB de energía, así que sin esto la mezcla quedaría más
       // limpia pero más baja. Es el "makeup gain" de manual.
-      const makeup = new Tone.Gain(1.45).connect(limiter);
+      const makeup = new Tone.Gain(1.12).connect(limiter);
       const compressor = new Tone.Compressor({
         threshold: -18, // start compressing at -18dB
         ratio: 5, // 5:1 ratio

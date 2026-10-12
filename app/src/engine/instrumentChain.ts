@@ -38,6 +38,26 @@ export interface FamilyEq {
   highFreq: number;
 }
 
+/**
+ * Interruptor maestro del EQ por familia.
+ *
+ * Es una decisión de GUSTO, no de corrección: si preferís el sonido crudo, se
+ * pone en `false` y la cadena queda sólo con el paneo. Existe para que apagarlo
+ * sea una línea y no una excavación.
+ */
+const EQ_ENABLED = true;
+
+/**
+ * Cuánto se aplica el EQ (0 = nada, 1 = los valores de la tabla).
+ *
+ * Se bajó a la mitad después de que el dueño reportara que la mezcla sonaba
+ * peor: los cortes originales (pasa-altos de 300 Hz en percusión, 160 en pads)
+ * más ±2 dB dejaban el conjunto flaco, y la ganancia de compensación empujaba
+ * todo al compresor. Los valores de la tabla quedan como referencia, pero se
+ * aplican al 50 %.
+ */
+const EQ_SCALE = 0.5;
+
 const FLAT: FamilyEq = {
   highpass: 0,
   low: 0,
@@ -129,11 +149,27 @@ export function createInstrumentChain(
   let input: Tone.ToneAudioNode = panner;
 
   // EQ de 3 bandas (sólo si aporta algo).
-  if (eq.low !== 0 || eq.mid !== 0 || eq.high !== 0) {
+  // Sin EQ activo, la cadena es sólo el paneo.
+  if (!EQ_ENABLED) {
+    return {
+      input,
+      dispose() {
+        nodes.forEach((n) => n.dispose());
+      },
+    };
+  }
+
+  // Se aplican los valores escalados (ver EQ_SCALE).
+  const low = eq.low * EQ_SCALE;
+  const mid = eq.mid * EQ_SCALE;
+  const high = eq.high * EQ_SCALE;
+  const highpass = eq.highpass * EQ_SCALE;
+
+  if (low !== 0 || mid !== 0 || high !== 0) {
     const eq3 = new Tone.EQ3({
-      low: eq.low,
-      mid: eq.mid,
-      high: eq.high,
+      low,
+      mid,
+      high,
       lowFrequency: eq.lowFreq,
       highFrequency: eq.highFreq,
     }).connect(input);
@@ -142,10 +178,10 @@ export function createInstrumentChain(
   }
 
   // Pasa-altos al final de la cadena (lo último antes del paneo).
-  if (eq.highpass > 0) {
+  if (highpass > 0) {
     const hp = new Tone.Filter({
       type: "highpass",
-      frequency: eq.highpass,
+      frequency: highpass,
       rolloff: -12,
       Q: 0.7,
     }).connect(input);
