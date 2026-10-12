@@ -505,7 +505,7 @@ Otras 10 descargas de archivo de archive.org, todas `200` + `ACAO:"*"`:
 > El `got=` es mayor que el `content-length` porque GitHub Pages sirve gzip y `content-length` es el
 > tamaño comprimido; los bytes reales descomprimidos son los de la columna derecha.
 
-### 6.1-bis Segunda tanda (`raw.githubusercontent.com` + `surikov.github.io`) — todas 200 / `ACAO: *`
+### 6.5 Segunda tanda (`raw.githubusercontent.com` + `surikov.github.io`) — todas 200 / `ACAO: *`
 
 ```
 200 | ACAO:"*" | audio/wav  |  331892B | .../VSCO-2-CE/master/Percussion/Guiro-M_v1_Sum.wav
@@ -532,7 +532,7 @@ Otras 10 descargas de archivo de archive.org, todas `200` + `ACAO:"*"`:
 200 | ACAO:"*" | application/javascript | 330543B | .../sound/0240_FluidR3_GM_sf2_file.js
 ```
 
-### 6.1-ter Niveles medidos con `ffmpeg -af volumedetect`
+### 6.6 Niveles medidos con `ffmpeg -af volumedetect`
 
 ```
 VSCO_LogDrumLo.wav            mean_volume: -50.1 dB   max_volume: -29.0 dB
@@ -541,7 +541,7 @@ FP_Claves_01.flac             mean_volume: -24.9 dB   max_volume:   0.0 dB
 Cabasa_bw_rr1_01.flac         mean_volume: -45.4 dB   max_volume: -20.1 dB
 ```
 
-### 6.5 Hosts SIN CORS (`ACAO` literalmente vacío)
+### 6.7 Hosts SIN CORS (`ACAO` literalmente vacío)
 
 ```
 200 | ACAO:'' | (7z)        | 237775919B | freepats.zenvoid.org/SoundSets/FreePats-GeneralMIDI/FreePatsGM-SF2-20221026.7z
@@ -558,7 +558,7 @@ Cabasa_bw_rr1_01.flac         mean_volume: -45.4 dB   max_volume: -20.1 dB
 200 | ACAO:'' | (HTML) | soundbible.com/
 ```
 
-### 6.6 Licencias — textos literales vistos
+### 6.8 Licencias — textos literales vistos
 
 ```
 VSCO-2-CE/LICENSE              (200, 2560B)  -> "CC0 1.0 Universal / Statement of Purpose ..."

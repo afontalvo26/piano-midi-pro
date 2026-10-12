@@ -62,6 +62,8 @@ export const PERCUSSION_SAMPLES: Record<number, string[]> = {
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/CajonFlamenco/210.flac"
   ],
   "37": [
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/drums/snare/OldSnare/snare_mf.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/varWood/claves_mp.wav",
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/CajonFlamenco/106.flac",
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/CajonFlamenco/107.flac",
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/CajonFlamenco/109.flac",
@@ -204,6 +206,12 @@ export const PERCUSSION_SAMPLES: Record<number, string[]> = {
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/MutedLowConga/v3_02_02.flac"
   ],
   "69": [
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/varMetal/various/cabasa_1.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/varMetal/various/cabasa_2.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/varMetal/various/cabasa_3.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/varMetal/various/cabasa_4.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/varMetal/various/cabasa_5.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/varMetal/various/cabasa_6.wav",
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/EggShaker/soft_01.wav",
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/EggShaker/soft_02.wav",
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/EggShaker/soft_03.wav",
@@ -254,6 +262,14 @@ export const PERCUSSION_SAMPLES: Record<number, string[]> = {
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/Maracas/02_12.flac"
   ],
   "75": [
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Claves1_Hit_v1_rr1_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Claves1_Hit_v1_rr2_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Claves1_Hit_v2_rr1_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Claves1_Hit_v2_rr2_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Claves1_Hit_v3_rr1_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Claves1_Hit_v3_rr2_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/varWood/claves_mf.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/varWood/claves_ff.wav",
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/Claves/01.flac",
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/Claves/02.flac",
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/Claves/03.flac",
@@ -317,5 +333,26 @@ export const PERCUSSION_SAMPLES: Record<number, string[]> = {
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/Castanets/14.flac",
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/Castanets/15.flac",
     "https://raw.githubusercontent.com/freepats/world-percussion/main/samples/Castanets/16.flac"
+  ],
+  "38": [
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/drums/snare/OldSnare/snare_ff.wav"
+  ],
+  "73": [
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Guiro-Fast_v1_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Guiro-M_v1_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Guiro-Hit_v1_rr1_Sum.wav"
+  ],
+  "74": [
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Guiro-Slow_v1_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Guiro-M_v1_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Guiro-Fast_v1_Sum.wav"
+  ],
+  "76": [
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Claves1_Hit_v3_rr1_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/varWood/claves_ff.wav"
+  ],
+  "77": [
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Claves1_Hit_v1_rr1_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/varWood/claves_pp1.wav"
   ]
 };
