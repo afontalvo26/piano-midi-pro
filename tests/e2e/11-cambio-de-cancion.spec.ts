@@ -48,9 +48,11 @@ test.use({
 const DEMO_DIR = path.join(__dirname, "..", "..", "app", "public", "demo");
 const SONG_A = path.join(DEMO_DIR, "Bolero_-_Besame_Mucho.kar");
 const SONG_B = path.join(DEMO_DIR, "BinomioDeOro_-_El_Osito_Dormilon.kar");
+const SONG_C = path.join(DEMO_DIR, "Salsa_-_Ruben_Blades_Pedro_Navaja.kar");
 /** El título de un archivo subido es el nombre sin extensión. */
 const TITLE_A = "Bolero_-_Besame_Mucho";
 const TITLE_B = "BinomioDeOro_-_El_Osito_Dormilon";
+const TITLE_C = "Salsa_-_Ruben_Blades_Pedro_Navaja";
 
 /** Tap de salida real — copiado de `scripts/qa-switch.mjs`. */
 const AUDIO_TAP = `
@@ -193,9 +195,12 @@ test.describe("La barra sigue a la canción que carga el Studio", () => {
     await expect(
       page.locator('.pm-bar__transport button[aria-label="Canción anterior"]'),
     ).toBeEnabled();
+    // "Siguiente" queda deshabilitado a propósito: cargar un archivo NO arma una
+    // cola (ver BUG 5), así que no hay nada por delante que ofrecer.
     await expect(
       page.locator('.pm-bar__transport button[aria-label="Canción siguiente"]'),
-    ).toBeEnabled();
+    ).toBeDisabled();
+    await expect(page.locator(".pm-bar__queue-count")).toHaveText("0");
     await expect
       .poll(async () => Number(await barRange(page).getAttribute("max")), {
         timeout: 15_000,
@@ -304,5 +309,44 @@ test.describe("Cambiar de canción", () => {
     });
     await expect.poll(() => barPosition(page), { timeout: 15_000 }).toBeLessThan(0.5);
     await expectSilenceAfterSwitch(page, tapWasLive);
+  });
+
+  test("cargar archivos no deja cola navegable: 'siguiente' no salta a la biblioteca", async ({
+    page,
+  }) => {
+    // Escenario exacto del BUG 5 del QA: barra vacía → tres archivos por el
+    // input del Studio → "siguiente". Antes la cola quedaba con la biblioteca
+    // entera detrás (158 → 159 → 160 entradas) y "siguiente" pasaba a una demo
+    // que el usuario nunca encoló (−22,1 dB).
+    await page.goto("/");
+    await expect(page.locator(".studio-workspace")).toBeVisible();
+
+    await loadInStudio(page, SONG_A, TITLE_A);
+    await loadInStudio(page, SONG_B, TITLE_B);
+    await loadInStudio(page, SONG_C, TITLE_C);
+
+    // La cola es la canción cargada y nada más.
+    await expect(barTitle(page)).toContainText(TITLE_C, { timeout: 20_000 });
+    await expect(page.locator(".pm-bar__queue-count")).toHaveText("0");
+    await page.locator(".pm-bar__queue-btn").click();
+    await expect(page.locator(".pm-queue__row")).toHaveCount(1, { timeout: 15_000 });
+    await page.locator('.pm-queue button[aria-label="Cerrar la cola"]').click();
+
+    // "Siguiente" no puede ofrecer material que nadie encoló.
+    const nextButton = page.locator(
+      '.pm-bar__transport button[aria-label="Canción siguiente"]',
+    );
+    await expect(nextButton).toBeDisabled();
+
+    // Y si se dispara por teclado (N), no puede tener efecto destructivo:
+    // antes pausaba la música ("apreté siguiente y se cortó").
+    await barTransport(page).click();
+    await expect(barTransport(page)).toHaveAttribute("aria-label", "Pausar", {
+      timeout: 30_000,
+    });
+    await page.keyboard.press("n");
+    await page.waitForTimeout(1500);
+    await expect(barTitle(page)).toContainText(TITLE_C);
+    await expect(barTransport(page)).toHaveAttribute("aria-label", "Pausar");
   });
 });

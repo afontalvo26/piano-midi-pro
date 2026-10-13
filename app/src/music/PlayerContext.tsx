@@ -414,8 +414,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setTransportPlaying(true);
       return;
     }
-    pause();
-  }, [pause, setTransportPlaying]);
+    // No hay siguiente: "siguiente" es un botón que aprieta el usuario, así que
+    // no puede tener un efecto destructivo (antes pausaba la música, y el
+    // usuario leía "apreté siguiente y se cortó"). La barra además lo muestra
+    // deshabilitado cuando no queda nada por delante y repeat está en off.
+  }, [setTransportPlaying]);
 
   const previous = useCallback(() => {
     // Spotify's rule: past a few seconds, "previous" restarts the track.
@@ -482,30 +485,41 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // ── collection commands ───────────────────────────────────────
 
   /**
-   * Selects `trackId` as the current one. `autoplay: false` is the
-   * "load it, don't start it" flavour (see `loadTrack`); everything else that
-   * picks a track wants sound, so it plays.
+   * Reproduce una pista con el resto de la biblioteca detrás.
+   *
+   * Es el camino de "esta canción y que siga sonando algo": el usuario la pidió
+   * y espera que la reproducción continúe.
    */
-  const selectTrack = useCallback((trackId: string, autoplay: boolean) => {
+  const playTrack = useCallback((trackId: string) => {
     if (!store.getTrack(trackId)) return;
     const rest = store.getTrackIds().filter((id) => id !== trackId);
-    store.setQueue(
-      [trackId, ...rest],
-      trackId,
-      { kind: "track", label: "Reproducción" },
-      { autoplay },
-    );
+    store.setQueue([trackId, ...rest], trackId, {
+      kind: "track",
+      label: "Reproducción",
+    });
   }, []);
 
-  const playTrack = useCallback(
-    (trackId: string) => selectTrack(trackId, true),
-    [selectTrack],
-  );
-
-  const loadTrack = useCallback(
-    (trackId: string) => selectTrack(trackId, false),
-    [selectTrack],
-  );
+  /**
+   * Deja `trackId` como pista actual SIN reproducirla y SIN cola detrás.
+   *
+   * La cola es "lo que el usuario encoló o el contexto que estaba navegando";
+   * cargar un archivo para practicarlo no es ninguna de las dos cosas. Antes
+   * esto armaba `[pista, ...catálogo]` y dejaba 157 canciones navegables que
+   * nadie pidió: medido por el QA en el escenario de los 3 archivos,
+   * "siguiente" pasaba de la canción cargada a una demo de la biblioteca
+   * (índice 0 → 1, −22,1 dB), y la cola crecía en cada import (158 → 159 → 160).
+   * Para navegar una colección está la fila de Música, que arma el contexto
+   * real con `playCollection`.
+   */
+  const loadTrack = useCallback((trackId: string) => {
+    if (!store.getTrack(trackId)) return;
+    store.setQueue(
+      [trackId],
+      trackId,
+      { kind: "track", label: "Reproducción" },
+      { autoplay: false },
+    );
+  }, []);
 
   const playCollection = useCallback<PlayerContextValue["playCollection"]>(
     (trackIds, options) => {

@@ -177,6 +177,13 @@ export function PlayerBar({
   const displayTitle = current?.title ?? (idle ? "Nada en reproducción" : "Cargando…");
   const displayArtist = current?.artist ?? "Elegí una canción para empezar";
   const upcoming = queueIndex >= 0 ? queue.length - queueIndex - 1 : 0;
+  /**
+   * ¿Hay algo por delante? Con la canción cargada sola (un archivo del Studio no
+   * arma contexto) o al final de la cola no lo hay, y el botón se muestra
+   * deshabilitado en vez de ofrecer un salto a material que nadie encoló. Con
+   * repeat en "all"/"one" sí hay siguiente (da la vuelta).
+   */
+  const hasNext = upcoming > 0 || repeat !== "off";
 
   const handleRepeat = useCallback(() => {
     const mode = cycleRepeat();
@@ -286,9 +293,9 @@ export function PlayerBar({
             type="button"
             className="pm-tbtn pm-tbtn--bare pm-tbtn--md"
             onClick={next}
-            disabled={idle}
+            disabled={idle || !hasNext}
             aria-label="Canción siguiente"
-            title="Siguiente (N)"
+            title={hasNext ? "Siguiente (N)" : "No hay ninguna canción después de esta"}
           >
             <NextIcon />
           </button>
