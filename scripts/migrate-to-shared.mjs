@@ -180,6 +180,21 @@ function under(rel, prefix) {
 }
 
 /**
+ * Un movimiento de archivo puede nombrarse con o sin extensión, y hay que
+ * aceptar las dos: un import escribe `from "./PartMixer"`, no
+ * `from "./PartMixer.tsx"`. Sin esto, el único movimiento de archivo de la
+ * tabla (`components/score/PartMixer.tsx`) no matchea nunca y sus dos imports
+ * quedan apuntando a una ruta que ya no existe — que es exactamente lo que pasó
+ * en el ensayo de la fase 3 antes de arreglarlo.
+ */
+function fileAliases(m) {
+  const sinExt = (p) => p.replace(/\.[^./\\]+$/, "");
+  const pares = [{ from: m.from, to: m.to }];
+  if (sinExt(m.from) !== m.from) pares.push({ from: sinExt(m.from), to: sinExt(m.to) });
+  return pares;
+}
+
+/**
  * Ubicación POST-movimiento de una ruta que hoy está en `rel`.
  *
  * Si `rel` está fuera de todo subárbol movido, se devuelve igual: la mayoría
@@ -188,7 +203,8 @@ function under(rel, prefix) {
 function afterMove(rel) {
   for (const m of activeMoves) {
     if (m.kind === "file") {
-      if (rel === m.from) return m.to;
+      const hit = fileAliases(m).find((a) => a.from === rel);
+      if (hit) return hit.to;
       continue;
     }
     if (under(rel, m.from)) return m.to + rel.slice(m.from.length);
@@ -203,7 +219,8 @@ function afterMove(rel) {
 function beforeMove(rel) {
   for (const m of activeMoves) {
     if (m.kind === "file") {
-      if (rel === m.to) return m.from;
+      const hit = fileAliases(m).find((a) => a.to === rel);
+      if (hit) return hit.from;
       continue;
     }
     if (under(rel, m.to)) return m.from + rel.slice(m.to.length);
@@ -317,6 +334,19 @@ const MATCHERS = [
   { form: "url", re: /\bnew\s+URL\s*\(\s*(["'])([^"'`\n]+)\1\s*,\s*import\.meta\.url\s*\)/g },
   // CSS: @import "X"
   { form: "css", re: /@import\s+(?:url\(\s*)?(["'])([^"')\n;]+)\1/g },
+  // CSS: url("X") — en particular el `src: url(...)` de un @font-face.
+  //
+  // Esto existe por una advertencia concreta del agente de letras: el panel de
+  // letra usa Figtree autoalojada y su CSS la referencia con URL RELATIVA. Si el
+  // CSS se mueve y la fuente no, la URL deja de resolver y **la letra se queda
+  // sin tipografía sin tirar ningún error** — el modo de falla más caro, porque
+  // no se ve en la consola ni en `tsc`, sólo en la cara del usuario.
+  //
+  // Un `url(data:...)` no es candidato (`isCandidate` sólo acepta `.`/`..` y los
+  // alias), así que las imágenes embebidas de App.css quedan intactas.
+  { form: "asset", re: /\burl\(\s*(["'])([^"')\n]+)\1\s*\)/g },
+  // CSS: url(./x.png) sin comillas
+  { form: "asset", re: /\burl\(\s*(\.\.?\/[^"'):\s]+)\s*\)/g, group: 1 },
 ];
 
 /** ¿Este especificador merece que lo miremos? */
@@ -326,20 +356,30 @@ function isCandidate(spec) {
 }
 
 /**
- * Analiza un archivo y devuelve `{ edits, stats }`.
- * `edits` = [{ line, from, to, form, inverse }] — sólo los que cambian.
+ * Analiza un archivo y devuelve `{ edits, refs }`.
+ *
+ *   · `edits` — sólo los especificadores que CAMBIAN de texto.
+ *   · `refs`  — TODAS las referencias relativas/de alias que se encontraron,
+ *               cambien o no.
+ *
+ * La distinción importa: verificar sólo lo que se reescribe deja pasar el modo
+ * de falla más caro de una migración de archivos, que es una referencia
+ * relativa que **no había que tocar** pero que igual se rompe porque el archivo
+ * que la contiene se movió (el `url()` de una fuente, un `new URL()` de un
+ * worker). Esa referencia no aparece en ningún diff y no la reporta `tsc`.
  */
 function analyzeFile(rel, text) {
   const sourcePre = beforeMove(rel);
   const sourceAfter = afterMove(sourcePre);
   const edits = [];
+  const refs = [];
   const seen = new Set();
 
-  for (const { form, re } of MATCHERS) {
+  for (const { form, re, group = 2 } of MATCHERS) {
     re.lastIndex = 0;
     let m;
     while ((m = re.exec(text)) !== null) {
-      const spec = m[2];
+      const spec = m[group];
       if (!isCandidate(spec)) continue;
 
       // Rango exacto del especificador dentro del archivo (sin las comillas).
@@ -352,9 +392,18 @@ function analyzeFile(rel, text) {
 
       const targetAfter = afterMove(targetPre);
       const next = canonicalSpecifier(sourceAfter, targetAfter, form);
+      const line = text.slice(0, specStart).split("\n").length;
+
+      // La verificación mira las DOS ubicaciones (pre y post movimiento), y
+      // tiene que ser así porque el script corre en los dos momentos:
+      //   · ANTES del `git mv`: existe la pre-movimiento, no la post.
+      //   · DESPUÉS del `git mv`: existe la post, no la pre.
+      // Un import realmente roto no existe en ninguna de las dos.
+      const roto = !existsAsModule(targetPre) && !existsAsModule(targetAfter);
+      refs.push({ line, spec, to: next, form, targetPre, targetAfter, roto });
+
       if (next === spec) continue;
 
-      const line = text.slice(0, specStart).split("\n").length;
       edits.push({
         start: specStart,
         end: specStart + spec.length,
@@ -365,12 +414,7 @@ function analyzeFile(rel, text) {
         // Heurística de reporte: el origen termina compartido y el destino no.
         inverse: under(sourceAfter, "packages") && !under(targetAfter, "packages"),
         typeOnly: isTypeOnly(text, specStart),
-        // La verificación se hace contra la ruta PRE-movimiento: es la que
-        // existe en disco ahora, y el movimiento es mecánico, así que si el
-        // destino pre-movimiento existe, el post-movimiento también. Chequear
-        // la ruta POST-movimiento daría "no existe" para todos los `@shared/*`
-        // cuando el codemod corre en dry-run ANTES del `git mv`.
-        broken: !existsAsModule(targetPre),
+        broken: roto,
         targetPre,
         targetAfter,
       });
@@ -378,7 +422,7 @@ function analyzeFile(rel, text) {
   }
 
   edits.sort((a, b) => a.start - b.start);
-  return edits;
+  return { edits, refs };
 }
 
 /** Reemplaza de atrás hacia adelante para que los índices no se corran. */
@@ -409,6 +453,20 @@ async function walk(root, out = []) {
 }
 
 // ── main ────────────────────────────────────────────────────────────────────
+
+/**
+ * `--print-moves` emite la tabla como JSON y termina.
+ *
+ * Existe para que `scripts/rehearse-migration.ps1` (el ensayo en un sandbox)
+ * mueva exactamente los mismos archivos sin duplicar la tabla: si la tabla
+ * cambia, el ensayo cambia solo. Una tabla copiada en dos lugares se
+ * desincroniza, y el ensayo pasaría a validar algo distinto de lo que se aplica.
+ */
+if (has("--print-moves")) {
+  console.log(JSON.stringify(activeMoves, null, 2));
+  process.exit(0);
+}
+
 const files = (await Promise.all(SCAN_ROOTS.map((r) => walk(r)))).flat().sort();
 
 const report = {
@@ -418,6 +476,7 @@ const report = {
   toShared: 0,
   inverse: 0,
   broken: 0,
+  refs: 0,
   byFile: [],
 };
 const inverseList = [];
@@ -427,7 +486,19 @@ for (const rel of files) {
   if (ONLY && !rel.includes(`/${ONLY}/`) && !rel.includes(ONLY)) continue;
 
   const text = readFileSync(path.join(REPO, rel), "utf8");
-  const edits = analyzeFile(rel, text);
+  const { edits, refs } = analyzeFile(rel, text);
+
+  // Las referencias rotas se cuentan SIEMPRE, cambien o no de texto: una
+  // referencia que no había que reescribir pero que se rompe igual porque el
+  // archivo que la contiene se movió es justo la que ningún diff muestra.
+  report.refs += refs.length;
+  for (const r of refs) {
+    if (r.roto) {
+      report.broken += 1;
+      brokenList.push({ rel, line: r.line, from: r.spec, to: r.to, form: r.form });
+    }
+  }
+
   if (edits.length === 0) {
     if (VERBOSE) console.log(c.dim(`  = ${rel} (sin cambios)`));
     continue;
@@ -443,12 +514,9 @@ for (const rel of files) {
       report.inverse += 1;
       inverseList.push({ rel, ...e });
     }
-    if (e.broken) {
-      report.broken += 1;
-      brokenList.push({ rel, ...e });
-    }
+    // Ojo: los destinos rotos NO se cuentan acá. Se cuentan una sola vez en el
+    // bucle de `refs`, que incluye también las referencias que no se reescriben.
   }
-
   if (!APPLY) {
     console.log(c.bold(rel));
     for (const e of edits) {
@@ -480,6 +548,9 @@ for (const m of skippedMoves) {
 }
 console.log(`[codemod] archivos      : ${report.files} recorridos, ${report.changedFiles} con cambios`);
 console.log(`[codemod] imports       : ${report.edits} reescritos (${report.toShared} → @shared/*)`);
+console.log(
+  `[codemod] referencias   : ${report.refs} verificadas (imports, CSS url(), @import, new URL)`,
+);
 
 if (report.inverse > 0) {
   const typeOnlyCount = inverseList.filter((e) => e.typeOnly).length;
@@ -503,13 +574,18 @@ if (report.inverse > 0) {
 
 if (report.broken > 0) {
   console.log("");
-  console.log(c.red(`[codemod] ✗ ${report.broken} destino(s) que NO existen como módulo:`));
+  console.log(c.red(`[codemod] ✗ ${report.broken} referencia(s) que NO resuelven a nada:`));
   for (const e of brokenList) {
     console.log(`            ${e.rel}:${e.line}  ${e.from} → ${e.to}`);
   }
-  console.log(c.dim("          Revisar: puede ser un asset (no es .ts/.css) o un error de la tabla."));
-} else if (report.edits > 0) {
-  console.log(c.grn("[codemod] ✓ todos los destinos reescritos resuelven a un módulo real"));
+  console.log(
+    c.dim("          Un asset roto NO lo ve `tsc` ni la consola: se ve en la cara del"),
+  );
+  console.log(c.dim("          usuario (una fuente que no carga, una imagen que no aparece)."));
+} else if (report.refs > 0) {
+  console.log(
+    c.grn(`[codemod] ✓ las ${report.refs} referencias resuelven (incluidos los url() de fuentes)`),
+  );
 }
 
 console.log(c.bold("─".repeat(72)));

@@ -60,7 +60,6 @@ es **mover eso también a `packages/`**, no importarlo de la app.
 **Total: 96 archivos.**
 
 ### Qué se queda en cada app, y por qué
-
 | Se queda | Dónde | Por qué |
 |---|---|---|
 | `App.tsx` (6.500 líneas, con el Studio) | `app/src/` | **Regla dura del encargo**: es el consumidor principal del código compartido. Si un movimiento obligara a partirlo, hay que parar y avisar. |
@@ -106,15 +105,41 @@ Detalles que importan y ya nos mordieron:
 de npm/pnpm: es una carpeta de código fuente.
 
 - `app/node_modules/` es el único `node_modules` real.
-- `player/node_modules` es una **junction** a `app/node_modules`
-  (`New-Item -ItemType Junction`). **Hay que mantenerla.**
-- Los `tsconfig`/Vite de `player/` resuelven los paquetes desde ahí.
+- `player/node_modules` y **`packages/node_modules`** son **junctions** a él
+  (`New-Item -ItemType Junction -Path packages/node_modules -Target app/node_modules`).
+  **Las dos hay que mantenerlas.** `scripts/start-servers.ps1` las recrea si
+  faltan.
 
-**Por qué esto no es un atajo, es un requisito:** si hubiera dos copias de React
-o de Tone.js, habría **dos `AudioContext`** — dos grafos de audio que no se ven
-entre sí, dos `Tone.Transport`, y los samples de una app sonando encima de la
-otra sin forma de pararlos. Es exactamente el bug histórico de "los samples
-siguen sonando" pero hecho arquitectura. Una sola copia es la garantía.
+### ⚠ `packages/node_modules` NO es cosmético
+
+Sin esa junction, la fase 2 **rompe las dos apps**, y rompe de una forma que
+despista: Node y TypeScript resuelven los paquetes caminando **hacia arriba**
+desde el archivo que importa. Un archivo en `packages/engine/` busca `tone` en
+`packages/engine/node_modules`, después `packages/node_modules`, después
+`<raíz>/node_modules` — donde sólo está Playwright — y **ahí se queda: nunca
+mira `app/node_modules`**. El resultado es `Cannot find module 'tone'` en todo
+el motor, más una cascada de `Parameter 'err' implicitly has an 'any' type` que
+parecen un problema de tipos y son sólo la consecuencia de que `Tone` quedó en
+`any`.
+
+Esto no es teoría: apareció en el primer ensayo de la fase 2 (ver §5). Hoy está
+resuelto con la junction.
+
+**Por qué una junction y no una copia — y por qué no es un atajo:**
+
+Si hubiera dos copias de React o de Tone.js, habría **dos `AudioContext`** — dos
+grafos de audio que no se ven entre sí, dos `Tone.Transport`, y los samples de
+una app sonando encima de la otra sin forma de pararlos. Es exactamente el bug
+histórico de "los samples siguen sonando" pero hecho arquitectura.
+
+Con la junction los tres caminos apuntan a los **mismos archivos físicos** (mismo
+File ID de NTFS), así que Tone se instancia una sola vez. Verificado:
+
+```
+app\node_modules\tone\package.json       -> FileId 0x…160ca7
+packages\node_modules\tone\package.json  -> FileId 0x…160ca7   (idéntico)
+player\node_modules\tone\package.json    -> FileId 0x…160ca7   (idéntico)
+```
 
 `packages/` **no declara dependencias**: las hereda de la app que lo consume
 (ambas apps ya declaran `tone`, `@tonejs/midi`, `react`, `tonal`…). Si algún día
@@ -161,6 +186,118 @@ Reporta tres cosas que hay que mirar:
 
 **Regla dura: si una fase no compila o el audio no suena, se revierte esa fase
 y se reporta.** Nunca se deja una app rota.
+
+### Ensayar antes de mover: `scripts/rehearse-migration.ps1`
+
+Las fases 2 y 3 mueven 96 archivos y reescriben ~390 imports **sobre el árbol de
+trabajo**, donde además hay otros agentes editando. El ensayo hace la migración
+entera en una copia descartable (`.logs/rehearsal`, gitignoreada) y corre
+`tsc -b` ahí adentro, así que se sabe si compila **antes** de tocar el repo:
+
+```powershell
+pwsh -File scripts/run-bounded.ps1 -Command "pwsh -NoProfile -File scripts/rehearse-migration.ps1 -Stage 3" -TimeoutSec 900
+```
+
+Tres detalles del ensayo que valen la pena:
+
+1. **Pide la tabla de movimientos al codemod** (`--print-moves`), no la
+   duplica: una tabla copiada en dos lugares se desincroniza y el ensayo
+   terminaría validando algo distinto de lo que se aplica.
+2. **Compara contra un control**: corre `tsc -b` también en el repo real, que es
+   el estado sin migrar, y reporta sólo los errores que aparecen **de nuevo**.
+   Sin eso, un archivo a medio editar por otro agente se leería como "la
+   migración rompió".
+3. **Detecta si el árbol se movió durante el ensayo** (huella de `app/src` y
+   `player/src` antes y después). Si se movió, el veredicto es *no concluyente*
+   en vez de *falló*: con otro agente guardando archivos, "error nuevo" y "bug
+   de la migración" no son lo mismo, y confundirlos manda a buscar un bug que no
+   existe.
+
+**Resultado ya medido** (23:23–23:25, árbol de ese momento):
+`fase 2 → COMPILA en las dos apps` · `fase 3 → COMPILA en las dos apps`.
+Los dos bugs del codemod que aparecieron en el camino están arreglados (§5.1).
+
+**Lo que el ensayo NO verifica**: audio, HTTP, e2e y paridad visual. Eso sólo se
+puede medir con las apps corriendo. El ensayo dice que **compila**, no que
+**suena**.
+
+### 5.1 Los dos bugs que encontró el ensayo (y por qué el ensayo valía la pena)
+
+Ninguno de los dos se veía leyendo el codemod. Los dos aparecieron al mover de
+verdad y compilar:
+
+1. **`Cannot find module 'tone'` / `'react'` en todo el motor.** No era el
+   codemod: `packages/` no tenía `node_modules`, y Node/TS no suben hasta
+   `app/node_modules`. Se arregló con la junction (§4). **Sin el ensayo, la
+   fase 2 habría roto las dos apps en el primer intento.**
+2. **`components/score/PartMixer.tsx` quedaba con sus dos imports roto.** Es el
+   único movimiento de **archivo** de la tabla (no de carpeta), y el matcher
+   comparaba `app/src/components/score/PartMixer.tsx`, mientras que un import
+   escribe `./PartMixer` (sin extensión) — así que no matcheaba nunca.
+   Consecuencia: `App.tsx` y `components/score/index.ts` seguían apuntando a una
+   ruta que ya no existía → 2 errores `TS2307`. Se arregló aceptando el nombre
+   con y sin extensión; los totales pasaron de 90 archivos/388 imports a
+   **91/390**, que son exactamente los 2 que faltaban.
+
+También se corrigió la verificación de destinos del codemod: mira la ruta
+PRE y POST movimiento, porque el script puede correr antes o después del
+`git mv` y en cada caso existe sólo una de las dos.
+
+### 5.2 El chequeo de assets (fuentes, imágenes, workers)
+
+Hay un modo de falla que **no lo ve `tsc` ni la consola**: una referencia
+relativa a un asset que no había que reescribir, pero que se rompe igual porque
+el archivo que la contiene se movió. Se ve en la cara del usuario — una fuente
+que no carga, una imagen que no aparece — y en ningún otro lado.
+
+Por eso el codemod no verifica sólo lo que reescribe: resuelve **todas** las
+referencias relativas del árbol (imports, `@import` de CSS, `url()` de CSS y
+`new URL(..., import.meta.url)`) contra la ubicación post-movimiento y avisa si
+alguna no resuelve a nada.
+
+```powershell
+# Hoy: "✓ las 518 referencias resuelven (incluidos los url() de fuentes)"
+node scripts/migrate-to-shared.mjs --dry-run --stage=all
+```
+
+**El caso concreto que esto cubre (y su verificación).** El panel de letra usa
+la tipografía **Figtree** autoalojada en `app/src/assets/fonts/` (2 subsets
+`.woff2`, licencia SIL OFL 1.1), y `components/studio/lyrics.css` la referencia
+con URL **relativa**: `url("../../assets/fonts/figtree-latin.woff2")`. Si el CSS
+se moviera a `packages/` y la fuente se quedara en `app/src/assets/`, esa URL
+dejaría de resolver **en silencio**.
+
+No pasa, y está medido: `components/studio/` y `app/src/assets/` **se quedan los
+dos** en el piano, así que conservan su posición relativa. Verificado en el
+sandbox migrado de la fase 3:
+
+```
+lyrics.css sigue en app/src/components/studio/   -> True
+url(../../assets/fonts/figtree-latin.woff2)      -> EXISTE: True
+url(../../assets/fonts/figtree-latin-ext.woff2)  -> EXISTE: True
+```
+
+**Si algún día se mueve `components/studio/` o `assets/`**, el chequeo de
+referencias lo va a marcar antes de que llegue a producción. Y la verificación
+final en el navegador (no alcanza con que la ruta exista: la fuente tiene que
+cargar de verdad):
+
+```js
+document.fonts.check('400 16px "Figtree"') === true
+```
+
+### 5.3 Lo que el codemod NO toca (a propósito)
+
+- **Claves de `localStorage`.** `pm_lyrics_open` (estado del cajón de letra) y
+  `piano_groove_amount` (perilla Groove) las comparten el piano y el reproductor
+  a propósito. Los matchers son delimitados y sólo aceptan especificadores que
+  empiezan con `.`/`..` o con un alias, así que un literal como
+  `"piano_groove_amount"` no es candidato. Verificado en el sandbox: los dos
+  aparecen la misma cantidad de veces antes y después (1 y 3).
+
+**Lo que el ensayo NO verifica**: audio, HTTP, e2e y paridad visual. Eso sólo se
+puede medir con las apps corriendo. El ensayo dice que **compila**, no que
+**suena**.
 
 ---
 
