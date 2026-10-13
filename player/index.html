@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f0f17" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="Reproductor MIDI independiente: el mismo reproductor del piano (misma UI, mismo motor de audio), sin el piano."
+    />
+
+    <title>Reproductor MIDI · Piano MIDI Pro</title>
+
+    <!--
+      Las MISMAS tipografías que el piano, y por la misma razón: el reproductor
+      usa sus componentes, así que su CSS pide 'Outfit' e 'Inter'. Sin esto el
+      texto cae a la fuente del sistema y la comparación visual lado a lado
+      falla por tipografía, no por componentes.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
+
+    <!-- DNS prefetch del banco de samples del piano (calienta sin bloquear) -->
+    <link rel="dns-prefetch" href="https://tonejs.github.io" />
+    <link rel="preconnect" href="https://tonejs.github.io" crossorigin />
+
+    <style>
+      /* CSS crítico: pinta el fondo oscuro al instante para que no haya flash
+         blanco antes de que React monte. Mismos colores que el piano. */
+      html,
+      body {
+        margin: 0;
+        background: #0f0f17;
+        color: #e5e7eb;
+        font-family: "Outfit", -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+        overscroll-behavior: none;
+      }
+      #root {
+        min-height: 100vh;
+        min-height: 100dvh;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

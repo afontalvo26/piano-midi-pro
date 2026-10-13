@@ -1,0 +1,17 @@
+/* ============================================================
+   shell.css — lo ÚNICO que el reproductor ajusta del CSS del piano.
+
+   El resto del estilo es literalmente el del piano: `main.tsx` importa
+   `@app/index.css` (variables + reset) y `@app/App.css` (armazón, botones,
+   mezclador, importador), y cada componente importa el suyo (`player.css`,
+   `music.css`, `SongLibrary.css`).
+
+   REGLA PARA ESTE ARCHIVO: nada de reescribir reglas del piano. Si algo no
+   encaja, o se arregla en el componente (usando la clase que ya existe) o se
+   agrega acá una regla NUEVA, acotada al armazón, con el porqué escrito.
+
+   Hoy no hay ninguna: el armazón es el mismo DOM con las mismas clases que
+   `app/src/App.tsx` (`.app-container` › `.sidebar-rail` + `.pm-section` ›
+   `.app-shell` › `.main-workspace`), así que el CSS del piano lo resuelve solo.
+   El archivo queda para no tener que inventar dónde poner el próximo ajuste.
+   ============================================================ */

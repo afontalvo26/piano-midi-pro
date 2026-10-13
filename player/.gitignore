@@ -1,0 +1,23 @@
+# El reproductor es el producto principal, pero NO tiene dependencias propias:
+# resuelve todo desde `../app/node_modules` por una junction (ver README.md →
+# "Dependencias", y packages/README.md §4). Por eso lo que hay que ignorar acá
+# no son dependencias instaladas sino artefactos y enlaces.
+
+# La junction a `app/node_modules`. Es un ENLACE, no una carpeta: si entrara al
+# repo, git intentaría versionar los ~300 MB de dependencias del piano por
+# duplicado, y una copia real de Tone.js sería un segundo AudioContext.
+node_modules
+
+# Bundle de producción (`npm run build`).
+dist
+
+# Caché de dependencias de Vite (`node_modules/.vite` cae dentro de la junction,
+# pero por si alguna corrida deja una carpeta propia).
+.vite
+
+# Salidas de Playwright si algún script las escribe acá.
+test-results
+playwright-report
+
+# tsbuildinfo del type-check incremental.
+*.tsbuildinfo
