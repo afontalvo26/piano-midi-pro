@@ -419,6 +419,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const previous = useCallback(() => {
     // Spotify's rule: past a few seconds, "previous" restarts the track.
+    // La posición se pide al motor (fuente de verdad, ver `getPosition`), nunca
+    // al estado de React: un frame de atraso decidía "reiniciar" cuando el
+    // usuario todavía estaba en los primeros segundos de la canción.
     if (getPosition() > RESTART_THRESHOLD) {
       positionRef.current = 0;
       bridgeRef.current?.seek(0);
@@ -447,6 +450,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       store.setIndex(q.length - 1);
       return;
     }
+    // No hay ranura anterior: la canción actual es la PRIMERA de la cola (pasa
+    // al elegir la primera fila de la biblioteca, que arma la cola con esa
+    // canción al frente). Antes se reiniciaba la misma desde 1-2 s, que se ve
+    // como si el botón no hiciera nada. Ahora se vuelve a la última que sonó
+    // antes de esta, que el historial del reproductor ya tiene.
+    const played = state.library.history.find(
+      (entry) => entry.trackId !== q[i]?.trackId,
+    );
+    if (played && store.insertBeforeCurrent(played.trackId)) return;
+
     positionRef.current = 0;
     bridgeRef.current?.seek(0);
   }, [getPosition]);

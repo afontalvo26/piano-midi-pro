@@ -183,6 +183,18 @@ export function initLibraryStore(): void {
 
   snapshot = { ...snapshot, library, settings };
   emit();
+
+  // Dev-only handle for the measurement harnesses, same precedent as
+  // `__PMP_TRANSPORT__` in App.tsx: lets a script read the *real* queue and
+  // index while the bar is playing, instead of inferring them from the DOM.
+  // Stripped from production builds; nothing in the app reads it.
+  if (import.meta.env.DEV) {
+    (window as unknown as { __PMP_PLAYER__?: unknown }).__PMP_PLAYER__ = {
+      getSnapshot,
+      getCurrentTrackId,
+      getTrack,
+    };
+  }
 }
 
 // ── selectors ──────────────────────────────────────────────────
@@ -619,6 +631,29 @@ export function setIndexByUid(uid: string): void {
   setState({ index, playNextQueue: snapshot.playNextQueue.filter((e) => e.uid !== uid) });
 }
 
+/**
+ * Mete `trackId` justo delante de la ranura actual y salta a ella.
+ *
+ * Lo usa "canción anterior" cuando la actual es la PRIMERA de la cola (no hay
+ * ranura anterior que recorrer): en vez de reiniciar la misma canción desde una
+ * posición de 1-2 s —que se siente como que el botón no hace nada— se vuelve a
+ * la última que sonó antes, sin perder la cola.
+ */
+export function insertBeforeCurrent(trackId: string): boolean {
+  if (!snapshot.library.tracks[trackId]) return false;
+  const entry = entryFor(trackId);
+  const at = snapshot.index < 0 ? 0 : snapshot.index;
+  const queue = [...snapshot.queue];
+  queue.splice(at, 0, entry);
+  setState({
+    queue,
+    index: at,
+    playNextQueue: snapshot.playNextQueue,
+    shuffleOrder: snapshot.shuffleOrder ? [entry.uid, ...snapshot.shuffleOrder] : null,
+  });
+  return true;
+}
+
 /** Pops the next entry that the user explicitly queued with "reproducir siguiente". */
 export function consumePlayNext(): QueueEntry | null {
   if (snapshot.playNextQueue.length === 0) return null;
@@ -680,6 +715,7 @@ export const libraryStore = {
   clearUpcoming,
   setIndex,
   setIndexByUid,
+  insertBeforeCurrent,
   consumePlayNext,
   setPaused,
   setOrigin,
