@@ -25,6 +25,14 @@ import fs from "node:fs";
 const fixture = process.argv[2] ?? "app/public/demo/BinomioDeOro_-_El_Osito_Dormilon.kar";
 const seconds = Number(process.argv[3] ?? 30);
 const label = process.argv[4] ?? "medicion";
+/**
+ * Base de la app. Por defecto el dev server (1234); para medir el build de
+ * producción se apunta al preview con `PMP_BASE_URL` (p. ej.
+ * `PMP_BASE_URL=http://localhost:4321/`): el preview no puede usar 1234 porque
+ * `app/vite.config.ts` fija ese puerto también para `preview` y ya lo ocupa el
+ * dev server.
+ */
+const baseUrl = process.env.PMP_BASE_URL ?? "http://localhost:1234/";
 
 /**
  * Densidad del archivo: cuántos callbacks de `Tone.Transport.schedule` hay que
@@ -150,7 +158,7 @@ if (prefs) {
   console.log(`[perf] preferencias forzadas: ${prefs}`);
 }
 
-await page.goto("http://localhost:1234/");
+await page.goto(baseUrl);
 await page.waitForSelector(".pm-bar, .studio-workspace", { timeout: 25000 });
 
 const harnessError = await page.evaluate(() => window.__PERF_ERROR ?? null);
