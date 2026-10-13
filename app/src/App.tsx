@@ -2826,12 +2826,18 @@ export default function App() {
       ]);
       // Register in the player's catalogue and cache the parsed notes so the
       // player bar can play it without a round trip.
+      const newSongId = idForSong(newSong);
       putSessionSong(newSong);
       libraryStore.registerTracks([
-        { song: newSong, source: sourceInfoFor(newSong, idForSong(newSong)) },
+        { song: newSong, source: sourceInfoFor(newSong, newSongId) },
       ]);
       setSong(newSong);
       stopPlayback();
+      // …and hand it to the player as its *current* track. Registering it in
+      // the catalogue is not enough: the bar draws `queue[index]`, so without
+      // this line it kept showing the previous song — "Nada en reproducción"
+      // on a cold start — with its transport controls disabled forever.
+      player.loadTrack(newSongId);
 
       // Auto-centrar el rango sobre el rango de notas del MIDI importado
       if (parsedNotes.length > 0) {
@@ -2848,7 +2854,7 @@ export default function App() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [stopPlayback],
+    [stopPlayback, player.loadTrack],
   );
 
   const handleFileUpload = useCallback(
@@ -2858,6 +2864,36 @@ export default function App() {
       await parseMidiFile(file);
     },
     [parseMidiFile],
+  );
+
+  /**
+   * "Tocar" in the Canciones library: the song goes to the Studio *and*
+   * becomes the player's current track, so the bottom bar shows it (it used to
+   * keep the previous song — or "Nada en reproducción" — with the seeker and
+   * next/previous disabled).
+   *
+   * Rows restored from localStorage may come from a previous session and are
+   * not in the player's catalogue: registering them here is what lets the bar
+   * resolve and play them.
+   */
+  const handleLibrarySongSelect = useCallback(
+    (selected: SongData) => {
+      try {
+        const selectedId = idForSong(selected);
+        putSessionSong(selected);
+        libraryStore.registerTracks([
+          { song: selected, source: sourceInfoFor(selected, selectedId) },
+        ]);
+        player.loadTrack(selectedId);
+      } catch {
+        // A row too old to identify still loads in the Studio.
+      }
+      setSong(selected);
+      stopPlayback();
+      setScreen("studio");
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stopPlayback, player.loadTrack],
   );
 
   // ---- MusicXML / Universal score importer ----
@@ -2903,6 +2939,7 @@ export default function App() {
 
           // Convert to SongData format for existing playback
           const songData = scoreToParts(sc);
+          const scoreSongId = scoreTrackId(file.name);
           const newSong: SongData = {
             title: songData.title,
             source: "MusicXML",
@@ -2923,7 +2960,7 @@ export default function App() {
               noteCount: t.noteCount,
               color: t.color,
             })),
-            trackId: scoreTrackId(file.name),
+            trackId: scoreSongId,
             uploadName: file.name,
           };
 
@@ -2934,8 +2971,11 @@ export default function App() {
           ]);
           putSessionSong(newSong);
           libraryStore.registerTracks([
-            { song: newSong, source: sourceInfoFor(newSong, idForSong(newSong)) },
+            { song: newSong, source: sourceInfoFor(newSong, scoreSongId) },
           ]);
+          // Same as the MIDI import: the partitura becomes the player's
+          // current track so the bar follows instead of going stale.
+          player.loadTrack(scoreSongId);
           setScoreDocument(sc);
           setScoreAnalysis(analysis);
           setScoreParts(sc.parts);
@@ -2955,7 +2995,7 @@ export default function App() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [parseMidiFile, stopPlayback],
+    [parseMidiFile, stopPlayback, player.loadTrack],
   );
 
   // Sync scoreParts changes back to song tracks
@@ -5183,11 +5223,7 @@ export default function App() {
                 songs={songsList}
                 searchQuery={searchQuery}
                 onSearchQueryChange={setSearchQuery}
-                onSelectSong={(s) => {
-                  setSong(s);
-                  stopPlayback();
-                  setScreen("studio");
-                }}
+                onSelectSong={handleLibrarySongSelect}
                 onImportFile={handleScoreImport}
                 importLoading={scoreImportLoading}
                 importError={scoreImportError}

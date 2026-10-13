@@ -102,6 +102,12 @@ export type PlayerContextValue = {
   setAutoplay: (on: boolean) => void;
   // queue commands
   playTrack: (trackId: string) => void;
+  /**
+   * Makes `trackId` the current track **without** starting it — the path the
+   * Studio (importing a MIDI) and the library's "Tocar" take. The bar shows it
+   * and its controls operate; the engine stays stopped until the user asks.
+   */
+  loadTrack: (trackId: string) => void;
   playCollection: (
     trackIds: string[],
     options?: {
@@ -149,6 +155,27 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const advancingRef = useRef(false);
   /** Fallback playhead for when no engine is attached yet. */
   const positionRef = useRef(0);
+  /**
+   * Latest `isPlaying` for callbacks that must stay identity-stable. The
+   * play/pause button renders the opposite of this value, so it has to decide
+   * from the very same value it draws (see `toggle`).
+   */
+  const isPlayingRef = useRef(isPlaying);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  /**
+   * Single writer for "is it playing?". `isPlaying` drives the bar and the
+   * media session, while the store's `paused` is the queue's own record of it;
+   * writing `isPlaying` alone left `paused` stuck at its initial `true`, which
+   * is what made the bar's play button unable to ever pause.
+   */
+  const setTransportPlaying = useCallback((playing: boolean) => {
+    setIsPlaying(playing);
+    store.setPaused(!playing);
+  }, []);
 
   // ── store subscription ────────────────────────────────────────
   useEffect(() => {
@@ -286,20 +313,26 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       positionRef.current = offset;
       const host = bridgeRef.current;
+      if (!playNow) {
+        // "Show it, don't start it" (a Studio import, "Tocar" in the library):
+        // whatever was sounding has to go quiet now. `load` alone cannot
+        // promise that — it is skipped when the song is already the engine's.
+        host?.stop();
+      }
       host?.load(song);
       setIsLoading(false);
-      setIsPlaying(playNow);
+      setTransportPlaying(playNow);
 
       if (playNow) {
         store.recordPlay(entry.trackId);
         // The engine may still be building its audio graph on a cold start;
         // `play` resolves once the transport is genuinely running.
         void Promise.resolve(host?.play(offset)).catch(() => {
-          setIsPlaying(false);
+          setTransportPlaying(false);
         });
       }
     },
-    [],
+    [setTransportPlaying],
   );
 
   // Load whenever the *slot* changes (uid, not trackId — the same song can
@@ -318,7 +351,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
     if (loadedUidRef.current === currentEntry.uid) return;
     loadedUidRef.current = currentEntry.uid;
-    void loadEntryRef.current?.(index, true);
+    // `autoStart: false` is a slot picked to be shown, not played.
+    void loadEntryRef.current?.(index, currentEntry.autoStart !== false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentEntry?.uid]);
 
@@ -346,22 +380,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
     const entry = state.queue[state.index];
     store.recordPlay(entry.trackId);
-    setIsPlaying(true);
+    setTransportPlaying(true);
     // `play` may need to build the audio engine first, so it can reject.
     void Promise.resolve(bridgeRef.current?.play(positionRef.current)).catch(() => {
-      setIsPlaying(false);
+      setTransportPlaying(false);
     });
-  }, []);
+  }, [setTransportPlaying]);
 
   const pause = useCallback(() => {
     bridgeRef.current?.pause();
-    store.setPaused(true);
-    setIsPlaying(false);
-  }, []);
+    setTransportPlaying(false);
+  }, [setTransportPlaying]);
 
   const toggle = useCallback(() => {
-    if (store.getSnapshot().paused) play();
-    else pause();
+    // The button draws `isPlaying` inverted, so it must decide from that same
+    // value: reading the store's `paused` made it call `play()` forever (a
+    // paused flag that is never cleared cannot hand the button back).
+    if (isPlayingRef.current) pause();
+    else play();
   }, [pause, play]);
 
   const next = useCallback(() => {
@@ -375,11 +411,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       bridgeRef.current?.seek(0);
       store.recordPlay(store.getCurrentTrackId() ?? "");
       bridgeRef.current?.play(0);
-      setIsPlaying(true);
+      setTransportPlaying(true);
       return;
     }
     pause();
-  }, [pause]);
+  }, [pause, setTransportPlaying]);
 
   const previous = useCallback(() => {
     // Spotify's rule: past a few seconds, "previous" restarts the track.
@@ -432,14 +468,31 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // ── collection commands ───────────────────────────────────────
 
-  const playTrack = useCallback((trackId: string) => {
+  /**
+   * Selects `trackId` as the current one. `autoplay: false` is the
+   * "load it, don't start it" flavour (see `loadTrack`); everything else that
+   * picks a track wants sound, so it plays.
+   */
+  const selectTrack = useCallback((trackId: string, autoplay: boolean) => {
     if (!store.getTrack(trackId)) return;
     const rest = store.getTrackIds().filter((id) => id !== trackId);
-    store.setQueue([trackId, ...rest], trackId, {
-      kind: "track",
-      label: "Reproducción",
-    });
+    store.setQueue(
+      [trackId, ...rest],
+      trackId,
+      { kind: "track", label: "Reproducción" },
+      { autoplay },
+    );
   }, []);
+
+  const playTrack = useCallback(
+    (trackId: string) => selectTrack(trackId, true),
+    [selectTrack],
+  );
+
+  const loadTrack = useCallback(
+    (trackId: string) => selectTrack(trackId, false),
+    [selectTrack],
+  );
 
   const playCollection = useCallback<PlayerContextValue["playCollection"]>(
     (trackIds, options) => {
@@ -494,6 +547,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const toggleLike = useCallback((trackId: string) => store.toggleLike(trackId), []);
+
   const isLiked = useCallback(
     (trackId: string) => library.liked.includes(trackId),
     [library.liked],
@@ -533,7 +587,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       positionRef.current = 0;
       bridgeRef.current?.seek(0);
       bridgeRef.current?.play(0);
-      setIsPlaying(true);
+      setTransportPlaying(true);
       return;
     }
     const target = computeNextRef.current();
@@ -551,9 +605,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
     positionRef.current = 0;
     bridgeRef.current?.seek(0);
-    setIsPlaying(false);
-    store.setPaused(true);
-  }, [startRadio]);
+    setTransportPlaying(false);
+  }, [startRadio, setTransportPlaying]);
 
   // ── public value ──────────────────────────────────────────────
 
@@ -590,6 +643,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       cycleRepeat,
       setAutoplay,
       playTrack,
+      loadTrack,
       playCollection,
       addToQueue,
       removeFromQueue,
@@ -632,6 +686,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       cycleRepeat,
       setAutoplay,
       playTrack,
+      loadTrack,
       playCollection,
       addToQueue,
       removeFromQueue,

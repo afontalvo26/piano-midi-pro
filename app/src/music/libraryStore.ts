@@ -92,6 +92,12 @@ export type QueueEntry = {
   /** Unique per queue slot so the same track can appear twice. */
   uid: string;
   trackId: string;
+  /**
+   * `false` marks a slot that was picked to be *shown*, not started (a MIDI
+   * imported into the Studio): the engine loads it and waits for the user.
+   * A normal slot omits it, which means "play it".
+   */
+  autoStart?: boolean;
 };
 
 export type LibrarySnapshot = {
@@ -522,12 +528,20 @@ export function setQueue(
   trackIds: string[],
   startTrackId: string,
   origin: LibrarySnapshot["origin"] = null,
+  options: { autoplay?: boolean } = {},
 ): void {
   const queue = trackIds.map(entryFor);
   const index = Math.max(
     0,
     queue.findIndex((entry) => entry.trackId === startTrackId),
   );
+  // `autoplay: false` is the "load it, don't start it" selection (a Studio
+  // import, "Tocar" in the library). The flag rides on the slot rather than on
+  // the snapshot, so the next genuine selection plays normally instead of
+  // inheriting the mute intent.
+  if (options.autoplay === false && queue[index]) {
+    queue[index] = { ...queue[index], autoStart: false };
+  }
   const anchorUid = queue[index]?.uid ?? null;
   setState({
     queue,
