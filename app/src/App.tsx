@@ -988,14 +988,63 @@ export default function App() {
 
   const activeNotes = mergedNotes;
 
-  // Setup/tear down audio nodes
+  // ─── Píldora de estado del audio: un solo escritor ────────────────────────
+  //
+  // Varias cosas cargan en paralelo (motor, piano, instrumentos de la canción,
+  // percusión) y cada una escribía el texto a mano: la última en hablar ganaba y
+  // `startPlayback` lo dejaba VACÍO al soltar la espera. Medido por el QA con
+  // MutationObserver: entre 3,1 s y 3,9 s del click la pantalla no decía nada,
+  // justo mientras faltaban samples. Ahora el texto es la composición de cuatro
+  // partes con prioridad (motor → canción → percusión → aviso) y sólo queda
+  // vacío cuando no queda nada pendiente.
+  const statusPartsRef = useRef({ engine: "", song: "", drums: "", notice: "" });
+  const noticeTimerRef = useRef<number | null>(null);
+
+  const renderAudioStatus = useCallback(() => {
+    const { engine, song, drums, notice } = statusPartsRef.current;
+    const text = engine || song || drums || notice || "";
+    setAudioStatusMessage((prev) => (prev === text ? prev : text));
+  }, []);
+
+  const setStatusPart = useCallback(
+    (part: "engine" | "song" | "drums" | "notice", value: string) => {
+      statusPartsRef.current[part] = value;
+      renderAudioStatus();
+    },
+    [renderAudioStatus],
+  );
+
+  /** Aviso de resultado ("✓ …"): se muestra solo y se borra solo. */
+  const flashStatus = useCallback(
+    (text: string) => {
+      setStatusPart("notice", text);
+      if (noticeTimerRef.current !== null) {
+        window.clearTimeout(noticeTimerRef.current);
+      }
+      noticeTimerRef.current = window.setTimeout(() => {
+        noticeTimerRef.current = null;
+        setStatusPart("notice", "");
+      }, 3500);
+    },
+    [setStatusPart],
+  );
+
+  useEffect(
+    () => () => {
+      if (noticeTimerRef.current !== null) {
+        window.clearTimeout(noticeTimerRef.current);
+      }
+    },
+    [],
+  );
+
   const initializeAudio = useCallback(async () => {
     if (stateRef.current.isAudioReady || isInitializingAudioRef.current) return;
     isInitializingAudioRef.current = true;
     // La píldora de estado tiene que decir qué está pasando: durante el arranque
     // en frío el motor tarda en construirse y antes seguía diciendo "Esperando
     // activación" con el botón ya en "Cargando...".
-    setAudioStatusMessage("Preparando el motor de audio…");
+    setStatusPart("engine", "Preparando el motor de audio…");
     try {
       // Configure the AudioContext's scheduling window BEFORE start.
       //
@@ -1088,7 +1137,7 @@ export default function App() {
       // el siguiente ciclo de render y triggerAttack descarta las notas)
       stateRef.current.isAudioReady = true;
       setIsAudioReady(true);
-      setAudioStatusMessage("Cargando piano real...");
+      setStatusPart("engine", "Cargando piano real...");
 
       // El registro queda sólo por el PianoEngine (que toca el sampler real de
       // Salamander). Los motores de osciladores que vivían acá ya no se rutean.
@@ -1132,7 +1181,7 @@ export default function App() {
             // El PianoEngine de las partituras (MusicXML) también usa samples
             // reales en vez de su PolySynth de triangle.
             engineRegistryRef.current?.setPianoSampler(sampler);
-            setAudioStatusMessage("Piano realista activo");
+            flashStatus("Piano realista activo");
             resolve();
 
             // Fase 2: el registro completo, en segundo plano.
@@ -1159,7 +1208,7 @@ export default function App() {
             });
           },
           onerror: () => {
-            setAudioStatusMessage("Sintetizador FM activo");
+            flashStatus("Sintetizador FM activo");
             resolve();
           },
         }).connect(pianoChain.input);
@@ -1167,6 +1216,9 @@ export default function App() {
       });
     } finally {
       isInitializingAudioRef.current = false;
+      // El motor ya está construido: la píldora pasa a lo que falte de la
+      // canción (instrumentos/percepción) o se vacía si no queda nada.
+      setStatusPart("engine", "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1442,10 +1494,15 @@ export default function App() {
 
     samplesProgressRef.current = { done: 0, total: notesByInstrument.size };
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setAudioStatusMessage(
-      `Cargando ${notesByInstrument.size} instrumento(s) real(es)...`,
-    );
+    // La píldora muestra el contador EN VIVO mientras falte cualquier
+    // instrumento (no sólo mientras alguien espera): así nunca queda vacía en la
+    // espera larga. El intervalo se apaga cuando `pending` termina.
+    const mostrarInstrumentos = () => {
+      const { done, total } = samplesProgressRef.current;
+      setStatusPart("song", `Cargando instrumentos ${done}/${total}…`);
+    };
+    mostrarInstrumentos();
+    const progressTimer = window.setInterval(mostrarInstrumentos, 250);
 
     // Qué instrumentos suenan en los primeros segundos: la reproducción espera
     // SÓLO por esos. Antes esperaba por el repertorio completo de la canción
@@ -1490,14 +1547,15 @@ export default function App() {
     void Promise.all(earlyPending).then(() => Promise.all(latePending));
 
     pending.then((results) => {
+      window.clearInterval(progressTimer);
+      setStatusPart("song", "");
       const total = notesByInstrument.size;
       const ok = results.filter(Boolean).length;
-      setAudioStatusMessage(
+      flashStatus(
         ok === total
           ? `✓ ${ok} instrumento(s) real(es) listos`
           : `⚠ ${ok}/${total} instrumentos con sample real (los que falten quedan en silencio, nunca en sintetizador)`,
       );
-      setTimeout(() => setAudioStatusMessage(""), 3500);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [song.title, song.source, isAudioReady]);
@@ -1527,7 +1585,8 @@ export default function App() {
     ];
     const latePieces = pieces.filter((p) => !earlyPieces.includes(p));
 
-    setAudioStatusMessage(
+    setStatusPart(
+      "drums",
       `Cargando percusión (${pieces.length} pieza${pieces.length === 1 ? "" : "s"})...`,
     );
     drumReadyRef.current =
@@ -1538,10 +1597,13 @@ export default function App() {
       void drumReadyRef.current.then(() => drum.prefetch(latePieces));
     }
     void drumReadyRef.current.then(() => {
-      setAudioStatusMessage(
+      // La parte de percusión se libera recién cuando están las piezas del
+      // arranque; el resto sigue bajando sin dejar la píldora en blanco (queda
+      // el contador de instrumentos hasta que terminen).
+      setStatusPart("drums", "");
+      flashStatus(
         `✓ Percusión lista: ${drum.loadedCount()}/${pieces.length} piezas reales`,
       );
-      setTimeout(() => setAudioStatusMessage(""), 3500);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [song.title, song.source, isAudioReady]);
@@ -2173,29 +2235,21 @@ export default function App() {
       // arrancaba el transporte en frío, porque el tope era de 7 s), así que el
       // tope es corto y lo que falte se suma solo cuando termina de bajar
       // (cada nota consulta su fuente al dispararse: el llenado es progresivo).
+      //
+      // OJO: acá NO se escribe la píldora de estado. El texto lo compone
+      // `setStatusPart` y el contador de instrumentos lo mantiene el efecto de
+      // precarga mientras falte alguno; cuando esta espera la escribía acá, al
+      // soltarla la dejaba VACÍA con samples todavía bajando (medido por el QA:
+      // 3,1 s → 3,9 s sin ningún mensaje).
       if (samplesPendingRef.current) {
         setIsAudioLoading(true);
-        const mostrarProgreso = () => {
-          const { done, total } = samplesProgressRef.current;
-          setAudioStatusMessage(
-            total > 0
-              ? `Cargando instrumentos ${done}/${total}…`
-              : "Cargando instrumentos…",
-          );
-        };
-        mostrarProgreso();
-        // El contador se refresca mientras se espera: la píldora dice qué está
-        // pasando en vez de un "Esperando activación" que no explica nada.
-        const progressTimer = window.setInterval(mostrarProgreso, 250);
         try {
           await Promise.race([
             Promise.all([songSamplesReadyRef.current, drumReadyRef.current]),
             new Promise((resolve) => setTimeout(resolve, SAMPLES_WAIT_MS)),
           ]);
         } finally {
-          window.clearInterval(progressTimer);
           setIsAudioLoading(false);
-          setAudioStatusMessage("");
         }
       }
 
