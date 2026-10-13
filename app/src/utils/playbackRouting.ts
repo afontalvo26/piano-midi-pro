@@ -21,22 +21,51 @@ import type { InstrumentStatus } from "../engine/instrumentSources";
 export type PlaybackSource = "piano-sampler" | "soundfont" | "wait" | "none";
 
 /**
+ * Memo de las dos resoluciones por nombre de instrumento.
+ *
+ * Las dos se llamaban por NOTA dentro del callback del `Tone.Transport.schedule`,
+ * y cada una hace `toLowerCase()` + una decena de `includes()`. Ese callback
+ * corre en el tick del scheduler: lo que gaste ahí se le suma a la latencia de
+ * la nota. Los nombres de instrumento son un conjunto chico y fijo, así que el
+ * memo es de tamaño acotado por la canción.
+ */
+const salamanderCache = new Map<string, boolean>();
+const typeCache = new Map<string, ReturnType<typeof getInstrumentType>>();
+/** Instrumentos que ya avisaron que no tienen fuente real (una vez por nombre). */
+const warnedInstruments = new Set<string>();
+
+function cachedType(instrument: string): ReturnType<typeof getInstrumentType> {
+  const hit = typeCache.get(instrument);
+  if (hit !== undefined) return hit;
+  const value = getInstrumentType(instrument);
+  typeCache.set(instrument, value);
+  return value;
+}
+
+/**
  * ¿Este instrumento debe sonar con el sampler Salamander (piano acústico real)?
  *
  * Los pianos eléctricos (Rhodes/DX7), el piano eléctrico de cola, el clave y el
  * clavinet NO: tienen su propio sample en el soundfont.
  */
 export function usesSalamanderPiano(instrument: string): boolean {
+  const hit = salamanderCache.get(instrument);
+  if (hit !== undefined) return hit;
+
   const l = instrument.toLowerCase();
+  let value: boolean;
   if (
     l.includes("electric piano") ||
     l.includes("electric grand") ||
     l.includes("harpsichord") ||
     l.includes("clavinet")
   ) {
-    return false;
+    value = false;
+  } else {
+    value = l.includes("piano");
   }
-  return l.includes("piano");
+  salamanderCache.set(instrument, value);
+  return value;
 }
 
 export interface RoutingInput {
@@ -71,10 +100,13 @@ export function choosePlaybackSource({
   if (samplerStatus === "loading") return "wait";
 
   // 3. No hay fuente real conocida para este nombre.
-  //    `getInstrumentType` queda sólo como dato de diagnóstico en el log.
-  if (getInstrumentType(instrument) !== "generic") {
+  //    `getInstrumentType` queda sólo como dato de diagnóstico en el log, y el
+  //    aviso se emite UNA vez por instrumento: antes se repetía en cada nota
+  //    (miles de líneas de consola por canción, con su costo en el tick).
+  if (cachedType(instrument) !== "generic" && !warnedInstruments.has(instrument)) {
+    warnedInstruments.add(instrument);
     console.warn(
-      `[ruteo] "${instrument}" no tiene sample real asignado (tipo ${getInstrumentType(instrument)}); se saltea la nota en vez de sintetizarla`,
+      `[ruteo] "${instrument}" no tiene sample real asignado (tipo ${cachedType(instrument)}); se saltea la nota en vez de sintetizarla`,
     );
   }
   return "none";

@@ -203,8 +203,19 @@ const failedSources = new Set<string>();
 /** Instrumentos que ya avisaron que no tienen ninguna fuente real. */
 const warned = new Set<string>();
 
+/**
+ * Memo de `key(instrument)`: el callback del scheduler y el release lo llaman
+ * por nota y cada llamada hacía `trim().toLowerCase()` (dos strings nuevos).
+ * Los nombres posibles son un puñado, así que el memo no crece sin Control.
+ */
+const keyCache = new Map<string, string>();
+
 function key(instrument: string): string {
-  return instrument.trim().toLowerCase();
+  const hit = keyCache.get(instrument);
+  if (hit !== undefined) return hit;
+  const value = instrument.trim().toLowerCase();
+  keyCache.set(instrument, value);
+  return value;
 }
 
 /** Hash determinista y barato: misma nota + mismo instante ⇒ misma variación. */

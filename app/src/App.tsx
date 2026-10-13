@@ -121,6 +121,7 @@ import {
   PIANO_MIN_MIDI,
   RANGE_KEY_COUNT,
 } from "./constants/piano";
+import { midiToFrequency } from "./constants/audio";
 import { TRACK_COLORS } from "./constants/ui";
 import { DEMO_SONGS } from "./constants/demoSongs";
 // Song identity lives in types/song.ts (shared with the player module). These
@@ -206,6 +207,30 @@ const EMPTY_SONG: SongData = {
   notes: [],
   tracks: [],
 };
+
+/**
+ * Cada cuánto React se entera del reloj de reproducción y del resaltado de
+ * teclas, en milisegundos.
+ *
+ * El camino de audio NO pasa por acá: Tone agenda los eventos por su cuenta y
+ * todo lo imperativo (canvas de notas, avatar, `stateRef`) se actualiza por
+ * frame. Publicar esto a 60 fps re-renderizaba la app entera por frame y medía
+ * 265 long tasks / 16,9 s de hilo ocupado en 30 s de una canción densa, con
+ * 22,9 % de las notas agendadas tarde (hasta 162 ms) — los cortes y pops que
+ * reportó el dueño. A 10 Hz el seeker y el resaltado se ven igual y el
+ * scheduler respira.
+ */
+const PLAYBACK_PUBLISH_MS = 100;
+
+/**
+ * Firma barata del conjunto de notas sonando. Si no cambió, no hay nada que
+ * repintar: en pasajes densos cambia casi siempre, pero en los lentos (notas
+ * largas y sostenidas) ahorra el re-render completo.
+ */
+function activeNotesSignature(notes: Map<number, number>): string {
+  if (notes.size === 0) return "";
+  return [...notes.keys()].sort((a, b) => a - b).join(",");
+}
 
 export default function App() {
   // Player orchestration lives in PlayerProvider (see main.tsx); App owns the
@@ -811,7 +836,10 @@ export default function App() {
 
   // Keep stateRef always in sync (assign directly, no useEffect needed)
   /* eslint-disable react-hooks/refs */
-  stateRef.current.currentTime = currentTime;
+  // Mientras suena una canción el reloj lo escribe el rAF por frame (y React se
+  // entera a ~10 Hz): si este sync lo pisara con el valor del estado, el canvas
+  // daría un salto atrás cada publicación.
+  if (!stateRef.current.isPlaying) stateRef.current.currentTime = currentTime;
   stateRef.current.rangeStart = rangeStart;
   stateRef.current.activeNotes = mergedNotes;
   stateRef.current.song = song;
@@ -1136,18 +1164,23 @@ export default function App() {
       } = stateRef.current;
       const bendOffset = trackIndex === -1 ? (pb / 100) * pbr : 0;
       const transposeOffset = trackIndex === -1 ? 0 : transp;
-      const bentFreq = Tone.Frequency(
-        midi + bendOffset + transposeOffset,
-        "midi",
-      ).toFrequency();
+      // `Tone.Frequency(...)` construía un objeto por nota para calcular lo
+      // mismo que esta función. En el callback del scheduler eso es latencia
+      // pura: la nota se agenda tarde y se pega con lo que ya suena.
+      const bentFreq = midiToFrequency(midi + bendOffset + transposeOffset);
 
       const key = `${trackIndex}-${midi}`;
 
       // Implement voice stealing to limit concurrent audio play nodes (max 16)
       // Remove if voice already active (re-triggering key)
-      activeVoicesRef.current = activeVoicesRef.current.filter(
-        (v) => v.key !== key,
-      );
+      //
+      // El chequeo evita el `filter` (array nuevo) en el caso normal de una
+      // canción: la tecla que suena ahora no estaba sonando ya.
+      if (activeFreqsRef.current.has(key)) {
+        activeVoicesRef.current = activeVoicesRef.current.filter(
+          (v) => v.key !== key,
+        );
+      }
 
       if (activeVoicesRef.current.length >= 32) {
         const oldest = activeVoicesRef.current.shift();
@@ -1650,6 +1683,51 @@ export default function App() {
       ...(song.percussion ?? []).map((note) => ({ note, percussive: true })),
     ];
 
+    /**
+     * Plan de disparo por pista, cacheado por identidad del mapa de
+     * instrumentos.
+     *
+     * `getType` y `usesSalamanderPiano` se resolvían por NOTA dentro del
+     * callback del Transport — y ese callback corre en el tick del scheduler,
+     * donde cada microsegundo se le suma a la latencia de la nota. Acá se
+     * resuelven una vez por pista y se rehacen sólo cuando el usuario cambia un
+     * instrumento (el mapa se reemplaza entero: misma convención que
+     * `nonPianoCacheKey`). Lo que sí cambia con el tiempo — si el sampler está
+     * cargado, el mute/solo, el volumen — se sigue leyendo por nota, que es
+     * barato.
+     */
+    type NoteFirePlan = {
+      instrument: string;
+      /** El PianoEngine de Salamander puede encargarse de esta pista. */
+      pianoCapable: boolean;
+    };
+    const planSlots: (NoteFirePlan | undefined)[] = [];
+    let planKey: Record<number, string> | null = null;
+    const planFor = (
+      trackIndex: number,
+      instruments: Record<number, string>,
+    ): NoteFirePlan => {
+      if (planKey !== instruments) {
+        planKey = instruments;
+        planSlots.length = 0;
+      }
+      const cached = planSlots[trackIndex];
+      if (cached) return cached;
+
+      const instrument = instruments[trackIndex] || "Acoustic Grand Piano";
+      const registry = engineRegistryRef.current;
+      const plan: NoteFirePlan = {
+        instrument,
+        pianoCapable: Boolean(
+          registry &&
+            registry.getType(instrument) === "piano" &&
+            usesSalamanderPiano(instrument),
+        ),
+      };
+      planSlots[trackIndex] = plan;
+      return plan;
+    };
+
     scheduledNotes.forEach(({ note, percussive }) => {
       const duration = Math.max(0.04, note.duration);
       const tickStart = Math.round(
@@ -1686,8 +1764,8 @@ export default function App() {
         }
         triggered = true;
 
-        const trackInst =
-          trackState.instruments[note.trackIndex] || "Acoustic Grand Piano";
+        const plan = planFor(note.trackIndex, trackState.instruments);
+        const trackInst = plan.instrument;
         const liveVolumes = stateRef.current.trackVolumes;
         const trackVol =
           liveVolumes[note.trackIndex] !== undefined
@@ -1695,7 +1773,6 @@ export default function App() {
             : 0.8;
 
         const registry = engineRegistryRef.current;
-        const instType = registry?.getType(trackInst);
         // One hash lookup instead of a flatMap + linear scan per note.
         const scoreNote = scoreNotesById.get(note.id);
 
@@ -1712,14 +1789,14 @@ export default function App() {
           return;
         }
 
-        // El PianoEngine solo si de verdad toca samples de piano: `instType`
+        // El PianoEngine solo si de verdad toca samples de piano: `getType`
         // devuelve "piano" para cualquier cosa con "piano" en el nombre (un
-        // Rhodes, un piano eléctrico) y esos tienen su propio soundfont.
+        // Rhodes, un piano eléctrico) y esos tienen su propio soundfont. El
+        // nombre/tipo ya vienen precalculados en el plan; acá sólo se consulta
+        // lo que cambia en caliente (sampler cargado, nota de partitura).
         if (
-          registry &&
-          instType === "piano" &&
-          usesSalamanderPiano(trackInst) &&
-          registry.hasPianoSampler() &&
+          plan.pianoCapable &&
+          registry?.hasPianoSampler() &&
           scoreNote
         ) {
           // World-class Piano engine
@@ -1781,6 +1858,32 @@ export default function App() {
   ]);
 
   // Playback state control loops
+  /** Última vez que React recibió el reloj (ver PLAYBACK_PUBLISH_MS). */
+  const lastPublishAtRef = useRef(0);
+  /** Última firma de notas publicada, para no repintar de gusto. */
+  const lastHighlightSigRef = useRef("");
+
+  /**
+   * Lleva el reloj y el resaltado a estado de React, como máximo cada
+   * `PLAYBACK_PUBLISH_MS` (o ya mismo con `force`).
+   *
+   * Es el único puente entre el camino de audio y el render: el audio no espera
+   * a React, y el canvas lee `stateRef` (que sí se actualiza por frame).
+   */
+  const publishPlayback = useCallback((time: number, force = false) => {
+    const now = performance.now();
+    if (!force && now - lastPublishAtRef.current < PLAYBACK_PUBLISH_MS) return;
+    lastPublishAtRef.current = now;
+    setCurrentTime(time);
+
+    const active = activePlaybackNotesRef.current;
+    const signature = activeNotesSignature(active);
+    if (signature !== lastHighlightSigRef.current) {
+      lastHighlightSigRef.current = signature;
+      setActivePlaybackNotes(new Set(active.keys()));
+    }
+  }, []);
+
   const syncTransportClock = useCallback(() => {
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
@@ -1817,7 +1920,8 @@ export default function App() {
           // scheduler window further along.
           Tone.Transport.pause();
           Tone.Transport.ticks = ticksForHeardSeconds(upcoming.time);
-          setCurrentTime(upcoming.time);
+          stateRef.current.currentTime = upcoming.time;
+          publishPlayback(upcoming.time, true);
           setIsPlaying(false);
           if (rafRef.current !== null) {
             cancelAnimationFrame(rafRef.current);
@@ -1827,11 +1931,11 @@ export default function App() {
         }
       }
 
-      setCurrentTime(nextTime);
+      // El reloj imperativo se actualiza SIEMPRE (lo leen el canvas de notas y
+      // el avatar); el estado de React, a ~10 Hz.
+      stateRef.current.currentTime = nextTime;
       updateGameRuntimeRef.current(nextTime);
-      // Sync active notes a React state: 1 vez por frame (60fps) en vez de por nota
-      // Convert Map keys to Set for React state
-      setActivePlaybackNotes(new Set(activePlaybackNotesRef.current.keys()));
+      publishPlayback(nextTime);
 
       if (nextTime >= song.duration) {
         if (screen === "game" && stateRef.current.gameStatus === "playing") {
@@ -1841,9 +1945,11 @@ export default function App() {
         }
         Tone.Transport.stop();
         Tone.Transport.ticks = 0;
+        stateRef.current.currentTime = 0;
         setCurrentTime(0);
         setIsPlaying(false);
         activePlaybackNotesRef.current.clear();
+        lastHighlightSigRef.current = "";
         setActivePlaybackNotes(new Set());
         lastPlayedTimeRef.current = -1;
         return;
@@ -1877,7 +1983,7 @@ export default function App() {
     };
 
     waitForTransport();
-  }, [song.duration, screen]);
+  }, [song.duration, screen, publishPlayback]);
 
   // Reactively update playing tempo when playbackRate or song changes
   useEffect(() => {
@@ -1910,10 +2016,12 @@ export default function App() {
 
     Tone.Transport.stop();
     Tone.Transport.ticks = 0;
+    stateRef.current.currentTime = 0;
     setCurrentTime(0);
     setIsPlaying(false);
     setActiveMidiNotes(new Set());
     setActivePlaybackNotes(new Set());
+    lastHighlightSigRef.current = "";
     activePlaybackNotesRef.current.clear();
     sustainedNotesRef.current.clear();
     activeVoicesRef.current = [];
@@ -1942,9 +2050,14 @@ export default function App() {
     }, fade.fadeSec + 0.05);
 
     Tone.Transport.pause();
+    // El reloj de React se publica a ~10 Hz: al pausar hay que fijarlo ya, si no
+    // el seeker queda hasta 100 ms atrás y el canvas no lo ve hasta el próximo
+    // frame (que ya no llega: el rAF se corta acá abajo).
+    publishPlayback(stateRef.current.currentTime, true);
     setIsPlaying(false);
     setActiveMidiNotes(new Set());
     setActivePlaybackNotes(new Set());
+    lastHighlightSigRef.current = "";
     activePlaybackNotesRef.current.clear();
     sustainedNotesRef.current.clear();
     activeVoicesRef.current = [];
@@ -1955,7 +2068,7 @@ export default function App() {
     gmSamplers.forEach((s) => s.releaseAll());
     // Las fuentes nuevas (VSCO/tonejs/WAF/acordeón) no son samplers GM.
     releaseAllInstruments();
-  }, []);
+  }, [publishPlayback]);
 
   const startPlayback = useCallback(
     async (offsetSec?: number) => {
@@ -1990,7 +2103,9 @@ export default function App() {
       // The player asks to start at an explicit offset (a new track, or a
       // scrub made while paused) — honour it before the transport is started,
       // because `startPlayback` otherwise resumes from `currentTime`.
-      const from = offsetSec ?? currentTime;
+      // Se lee del ref y no del estado: con la publicación a ~10 Hz, el estado
+      // puede estar hasta 100 ms atrás y reanudar daría un salto hacia atrás.
+      const from = offsetSec ?? stateRef.current.currentTime;
       scheduleSongOnTransport();
 
       Tone.Transport.bpm.value = song.bpm * playbackRate;
@@ -2009,7 +2124,6 @@ export default function App() {
     [
       song,
       playbackRate,
-      currentTime,
       scheduleSongOnTransport,
       syncTransportClock,
       initializeAudio,
