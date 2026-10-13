@@ -179,11 +179,15 @@ borde del umbral— elegían una toma distinta a la del piano**; con el arreglo,
 
 Efecto: **no cambia el nivel** (en las dos ramas el sampler termina con
 `v × amplitud`) — cambia el timbre, que es justo lo que se escucha como "suena
-peor" sin poder decir por qué. Aparte de esto quedó abierta una diferencia de
-**nivel** entre las dos apps (el reproductor entre 0.8 y 6.3 dB por debajo según
-el tramo, Δ medio −3.3 dB sobre 8 posiciones de `Bolero_-_Besame_Mucho.kar`),
-medida con `scripts/qa-ab-piano-vs-player.mjs`; no se toca sin decidir antes si
-es carga de samples (la medición tiene esa varianza) o una causa real.
+peor" sin poder decir por qué.
+
+El **nivel** de las dos apps, medido con repeticiones y no con una sola pasada
+(`scripts/qa-ab-repeticion.mjs`, `Bolero_-_Besame_Mucho.kar`, 3 muestras por app
+y por posición), **coincide**: Δ medio +0.07 dB a los 15 s, −0.33 dB a los 24 s y
+−0.92 dB a los 30 s (|Δ| medio 0.44 dB) contra una dispersión dentro de cada app
+de hasta 0.84 dB. O sea: no hay diferencia de balance entre las dos apps; una
+medición de una sola pasada daba hasta 6 dB de diferencia, y eso era carga de
+samples y el instante exacto, no mezcla.
 
 ---
 
