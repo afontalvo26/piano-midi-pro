@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { DEMO_SONGS } from "../../app/src/constants/demoSongs";
+import { GENRE_META, GENRE_ORDER } from "../../app/src/types/song";
 
 // The library is populated after the curated demo MIDI files are fetched and
 // parsed (a few seconds on a cold load, more when several pages parse in
@@ -7,10 +9,20 @@ import type { Page } from "@playwright/test";
 // web-first assertions instead of fixed sleeps.
 test.describe.configure({ timeout: 180_000 });
 
-// Only these genres ship in app/src/constants/demoSongs.ts, rendered in
-// GENRE_ORDER order (see app/src/types/song.ts). Genres with zero songs are
-// omitted by the library, so this list must stay exactly the non-empty ones.
-const GENRES = ["Vallenato", "Bolero", "Pop & Rock", "Clásica"];
+/**
+ * Géneros que la biblioteca va a mostrar, derivados del propio catálogo demo y
+ * en el orden en que `SongLibrary` los renderiza (`GENRE_ORDER`, sin los
+ * géneros que no tienen canciones).
+ *
+ * Antes esto era una lista escrita a mano y quedó stale cuando
+ * `constants/demoSalsa.ts` sumó el pack de salsa: el spec esperaba 4 géneros y
+ * la UI mostraba 5 ("Salsa"), así que dos tests quedaban en rojo por datos, no
+ * por código. Derivarla del catálogo hace imposible que se vuelva a
+ * desincronizar.
+ */
+const GENRES = GENRE_ORDER.filter((genre) =>
+  DEMO_SONGS.some((song) => song.genre === genre),
+).map((genre) => GENRE_META[genre].label);
 
 /** Espera a que la biblioteca termine de parsear los MIDI demo. */
 async function waitForLibrary(page: Page, min = 30): Promise<number> {
