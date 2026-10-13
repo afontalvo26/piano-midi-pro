@@ -515,19 +515,29 @@ function planTrack(
   const musicianSeed = hash32(input.songSeed, track.trackIndex, 0x9e3779b9);
   const dynamicSeed = hash32(musicianSeed, 0x2f1b3c5d, track.trackIndex);
   const durationSeed = hash32(musicianSeed, 0x11aa22bb, 0);
-  const barMeanCache = new Map<number, number>();
-  const anchoredMean = (
-    seed: number,
-    barIndex: number,
-  ): number => {
-    const cached = barMeanCache.get(barIndex);
+  /**
+   * Media del ruido por compás, cacheada POR SEMILLA.
+   *
+   * Son tres señales distintas (timing, dinámica y duración) y cada una tiene su
+   * propia media por compás: una caché sola por compás devolvería la media de la
+   * primera señal para las otras dos y el re-anclado quedaría mal (la dinámica y
+   * la duración volverían a tener una deriva lenta).
+   */
+  const barMeanCaches = new Map<number, Map<number, number>>();
+  const anchoredMean = (seed: number, barIndex: number): number => {
+    let cache = barMeanCaches.get(seed);
+    if (!cache) {
+      cache = new Map<number, number>();
+      barMeanCaches.set(seed, cache);
+    }
+    const cached = cache.get(barIndex);
     if (cached !== undefined) return cached;
     let sum = 0;
     for (let i = 0; i < BAR_MEAN_SAMPLES; i++) {
       sum += pinkNoise(seed, barIndex * barLength + (i / BAR_MEAN_SAMPLES) * barLength);
     }
     const mean = sum / BAR_MEAN_SAMPLES;
-    barMeanCache.set(barIndex, mean);
+    cache.set(barIndex, mean);
     return mean;
   };
 

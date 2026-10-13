@@ -441,6 +441,44 @@ test("R5: sin deriva acumulativa en una canción larga", async ({ page }) => {
   ).toBeLessThan(1);
 });
 
+test("R5b: la dinámica y la duración tampoco derivan (re-anclado por compás)", async ({
+  page,
+}) => {
+  // Cada señal (timing, dinámica, duración) tiene su PROPIO ruido y su propia
+  // media por compás; si compartieran la caché, dos de las tres quedarían con
+  // una deriva lenta. Se verifica sobre la misma rejilla pareja de 5 minutos.
+  const bpm = 120;
+  const eighth = 60 / bpm / 2;
+  const times: number[] = [];
+  for (let i = 0; i < 1200; i++) times.push(i * eighth);
+  const plan = await planGroove(page, {
+    songKey: "deriva-senales",
+    bpm,
+    timeSignature: [4, 4],
+    amount: 1,
+    tracks: [{ trackIndex: 0, role: "harmony", times }],
+  });
+  const values = Object.entries(plan)
+    .sort((a, b) => Number(a[0].split(":")[1]) - Number(b[0].split(":")[1]))
+    .map(([, v]) => v);
+
+  const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const half = Math.floor(values.length / 2);
+  for (const field of ["velocityFactor", "durationFactor"] as const) {
+    const all = values.map((v) => v[field]);
+    const head = all.slice(0, half);
+    const tail = all.slice(half);
+    // Valor medio del archivo intacto (ni sube ni baja el nivel global)…
+    expect(Math.abs(mean(all) - 1)).toBeLessThan(0.005);
+    // …y sin diferencia entre la primera y la segunda mitad de la canción.
+    expect(Math.abs(mean(tail) - mean(head))).toBeLessThan(0.005);
+  }
+  // Los topes de articulación siguen respetados (±8 % de duración).
+  for (const v of values) {
+    expect(Math.abs(v.durationFactor - 1)).toBeLessThanOrEqual(0.08 + 1e-9);
+  }
+});
+
 test("R1..R5 con canciones REALES (densas y rápidas)", async ({ page }) => {
   const songs = [
     "/demo/fur_elise.mid",
