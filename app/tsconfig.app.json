@@ -19,7 +19,20 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* El código compartido vive fuera de `app/` (en `packages/`, la raíz del
+       repo). Los alias son los MISMOS que los de `vite.config.ts`: si se
+       declaran en un solo lado, la app compila pero `tsc -b` falla, o al revés.
+
+       Sin `baseUrl`: está deprecado en TypeScript 6 y las rutas de `paths` se
+       resuelven relativas a este archivo, que es exactamente lo que queremos. */
+    "paths": {
+      "@shared/*": ["../packages/*"],
+      "@app/*": ["./src/*"]
+    }
   },
-  "include": ["src"]
+  /* Se incluye `../packages` entero: el piano type-checkea TODO el código
+     compartido, igual que el reproductor. */
+  "include": ["src", "../packages"]
 }

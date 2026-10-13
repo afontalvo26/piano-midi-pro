@@ -1,12 +1,43 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath, URL } from "node:url";
+
+/**
+ * Rutas del código compartido.
+ *
+ * `packages/` está en la raíz del repo, o sea FUERA de `app/`. Dos
+ * consecuencias que hay que declarar sí o sí:
+ *
+ *  1. El alias `@shared/*` (acá y en `tsconfig.app.json`) — si se declara en un
+ *     solo lado, la app compila pero `tsc -b` falla, o al revés.
+ *  2. `server.fs.allow` con la raíz del repo — sin esto el dev server responde
+ *     **403** a los módulos de `packages/` y el error no dice por qué.
+ */
+const packagesDir = fileURLToPath(new URL("../packages", import.meta.url));
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: [
+      // El hogar neutro del código compartido (motor, componentes compartidos,
+      // estado del reproductor, utilidades). Es el alias de todo lo nuevo.
+      { find: /^@shared\//, replacement: `${packagesDir}/` },
+      // `@app/*` existe SÓLO para las dependencias inversas que el codemod
+      // reporta (`packages/README.md` §6): código compartido que necesita algo
+      // que se queda en el piano. No se usa para código nuevo.
+      { find: /^@app\//, replacement: `${fileURLToPath(new URL("./src", import.meta.url))}/` },
+    ],
+  },
   server: {
     port: 1234,
     strictPort: true,
+    fs: {
+      // El dev server tiene que poder servir `packages/`, que está fuera de
+      // `app/`. La raíz del repo contiene a `app/`, así que no se pierde nada.
+      allow: [repoRoot],
+    },
   },
   preview: {
     port: 1234,
