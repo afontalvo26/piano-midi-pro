@@ -158,6 +158,33 @@ Se arregla con dos cosas en el host:
 Verificado con `scripts/qa-player-isplaying.mjs`, que recorre los 7 caminos de
 arranque y falla si hay señal audible (> −40 dB) con `isPlaying` en false.
 
+### 7. La velocity elige la toma; el volumen de pista va como amplitud
+
+**Nunca multiplicar el volumen de pista por la velocity antes de disparar.** En
+`audio/scheduler.ts` la velocity que sale del archivo (sólo con la dinámica del
+Groove encima) viaja **cruda** y el volumen de pista entra como **amplitud** (4º
+argumento de `InstrumentVoice`, o `outGain` en el `DrumKitEngine`), exactamente
+como en el piano (`app/src/App.tsx` → `noteOutGain` + el contrato de
+`app/src/engine/vscoSampler.ts`).
+
+Por qué: la velocity es lo que elige la **capa grabada**
+(`LayeredSampler.layerFor`: umbral 0.62 con 2 capas, 0.42/0.74 con 3). Si el
+volumen de pista se hornea adentro, el 0.8 por defecto —y más aún bajar un
+fader— hace entrar **otra toma**: el nivel queda igual y el **timbre** se apaga.
+Era el bug que el piano ya tenía arreglado y que acá quedó vivo. Medido con
+`scripts/qa-paridad-capas.mjs` (String Ensemble 1, VSCO, **2 capas** por nota,
+umbral 0.62): **7 de 26 notas —todas las de velocity MIDI 79 a 98, justo el
+borde del umbral— elegían una toma distinta a la del piano**; con el arreglo,
+0 de 26, y el nivel de cada nota cambia **0.000000 dB** (Δ = 0 exacto).
+
+Efecto: **no cambia el nivel** (en las dos ramas el sampler termina con
+`v × amplitud`) — cambia el timbre, que es justo lo que se escucha como "suena
+peor" sin poder decir por qué. Aparte de esto quedó abierta una diferencia de
+**nivel** entre las dos apps (el reproductor entre 0.8 y 6.3 dB por debajo según
+el tramo, Δ medio −3.3 dB sobre 8 posiciones de `Bolero_-_Besame_Mucho.kar`),
+medida con `scripts/qa-ab-piano-vs-player.mjs`; no se toca sin decidir antes si
+es carga de samples (la medición tiene esa varianza) o una causa real.
+
 ---
 
 ## Cómo se verifica
@@ -173,6 +200,8 @@ arranque y falla si hay señal audible (> −40 dB) con `isPlaying` en false.
 | `node scripts/qa-player-consola.mjs` | Compara el ruido de consola con el del piano, con el mismo flujo | 500 s |
 | `node scripts/qa-player-diag.mjs` | Traza RMS/voces/transporte cada 250 ms (diagnóstico) | 300 s |
 | `node scripts/qa-pixel-probe.mjs` | RGB de puntos concretos de dos PNG (decide si un diff es real o sub-píxel) | 90 s |
+| `node scripts/qa-paridad-capas.mjs` | Carga el MISMO fixture en las dos apps y compara, nota por nota, la velocity que llega a la fuente y la **capa elegida** (paridad con el piano) + que el nivel no cambie | 400 s |
+| `node scripts/qa-ab-piano-vs-player.mjs` | A/B 1234 vs 1235 con la misma canción y el mismo instante: fuentes resueltas, nivel del maestro por tramos y balance con una pista sola | 900 s |
 
 Los scripts de QA del piano (`scripts/qa-all-*.mjs`) siguen siendo del piano: usan
 `window.__PMP_TRANSPORT__` y el DOM del Studio.
@@ -276,6 +305,18 @@ es una pérdida: es la canción.
   `app/src` a mitad de una medición se ve como *"Execution context was destroyed"*.
   Los scripts de QA imprimen la huella de `app/src` antes y después para poder
   distinguir eso de un fallo real.
+- **Las dos apps ordenan las pistas DISTINTO, y comparar por índice engaña.** El
+  piano ordena por cantidad de notas (la más cargada primero: `parseMidiFile` de
+  `App.tsx`); el reproductor conserva el orden del archivo (`resolve.ts` /
+  `midiImport.ts`). En `Bolero_-_Besame_Mucho.kar` el piano pone "piano" (418
+  notas) en la pista 0 y el reproductor pone "bajo" (290). Cualquier comparación
+  entre apps —nivel, capas, capturas— tiene que unir las pistas por **nombre +
+  cantidad de notas**, no por índice; hacerlo por índice da diferencias de hasta
+  17 dB que no existen.
+- **La mezcla del reproductor tiene UN SOLO escritor** (`PlayerShell` →
+  `host.setMix`). Una medición que llame `host.setMix` por su cuenta (por ejemplo
+  para aislar una pista) puede ser pisada por el efecto del shell en el siguiente
+  render: para aislar pistas hay que usar la UI de Pistas del reproductor.
 
 ---
 

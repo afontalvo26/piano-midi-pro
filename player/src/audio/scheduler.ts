@@ -226,6 +226,8 @@ export function scheduleSongOnTransport(
         grooveVelocityFactor === 1
           ? note.velocity
           : Math.max(0.02, Math.min(1, note.velocity * grooveVelocityFactor));
+      /** Volumen de pista vigente: es la AMPLITUD con la que se dispara la nota. */
+      const amplitude = trackVolume(note.trackIndex, host.getMix());
       qaRows.push({
         id: note.id,
         track: note.trackIndex,
@@ -239,6 +241,10 @@ export function scheduleSongOnTransport(
         offsetMs: grooveResult.offsetMs,
         velocityIn: note.velocity,
         velocityOut,
+        // Lo que recibe la fuente: `velocityOut` elige la capa y `amplitude` es
+        // el nivel externo (volumen de pista). Antes los dos venían
+        // multiplicados dentro de `velocityOut`.
+        amplitude,
         durationFactor: grooveResult.durationFactor,
         legatoMs: grooveResult.legatoMs,
       });
@@ -274,11 +280,30 @@ export function scheduleSongOnTransport(
       if (!isTrackAudible(note.trackIndex, mix)) return;
 
       const instrument = mix.instruments[note.trackIndex] ?? "Acoustic Grand Piano";
-      const velocity = clamp01(
-        grooveVelocity(note.velocity * trackVolume(note.trackIndex, mix)),
-      );
 
-      const source = fireNote(host, instrument, note.midi, velocity, audioTime);
+      /**
+       * PARIDAD CON EL PIANO (no cambiar sin leer esto)
+       * ───────────────────────────────────────────────
+       * La VELOCITY del archivo viaja CRUDA (sólo la dinámica del Groove) y el
+       * volumen de pista entra como AMPLITUD, igual que en `app/src/App.tsx`
+       * (`noteGain` = fader → 4º argumento de `InstrumentVoice`).
+       *
+       * Antes acá se hacía `note.velocity * trackVolume` y ese producto entraba
+       * como velocity. Como la velocity es lo que elige la CAPA grabada
+       * (`LayeredSampler.layerFor`: umbrales 0.62 con 2 capas, 0.42/0.74 con 3),
+       * el volumen de pista por defecto (0.8) —y más aún bajarlo— hacía que
+       * entrara OTRA TOMA: mismo nivel, timbre más apagado. El piano ya lo tenía
+       * arreglado; el reproductor no, y por eso la misma canción sonaba distinta
+       * en el 1235 que en el 1234.
+       *
+       * El NIVEL no cambia con esto: en las voces de una sola capa `level` sigue
+       * siendo `velocity × amplitude`, y en las de capas el sampler elige la
+       * toma con `velocity` y aplica `velocityToGain(velocity) × amplitude`.
+       */
+      const velocity = clamp01(grooveVelocity(note.velocity));
+      const amplitude = trackVolume(note.trackIndex, mix);
+
+      const source = fireNote(host, instrument, note.midi, velocity, audioTime, amplitude);
       if (source === "wait" || source === "none") {
         // La nota se saltea (silencio, nunca un oscilador) y se cuenta: es el
         // único indicador honesto de que faltó un sample.
@@ -322,6 +347,11 @@ export function scheduleSongOnTransport(
  *
  * Devuelve de dónde salió el sonido, para que el llamador sepa si la nota sonó
  * de verdad (y para poder contarla en el indicador de estado).
+ *
+ * @param velocity velocity del ARCHIVO (0..1, ya con la dinámica del Groove).
+ *   Elige la capa grabada: NO se le mete el volumen de pista adentro.
+ * @param amplitude ganancia externa de la nota (volumen de pista). Va aparte
+ *   para que mover un fader no cambie la toma elegida (ver `InstrumentVoice`).
  */
 export function fireNote(
   host: SchedulerHost,
@@ -329,6 +359,7 @@ export function fireNote(
   midi: number,
   velocity: number,
   audioTime: number,
+  amplitude = 1,
 ): FireSource {
   // El instrumento se resuelve ACÁ, en el momento del disparo: si el usuario
   // cambia el instrumento de una pista a mitad de la canción, las notas que
@@ -340,12 +371,16 @@ export function fireNote(
     const piano = host.getPianoVoice();
     if (!piano) return "wait";
     const frequency = midiToFrequency(midi);
+    // El piano Salamander tiene UNA sola toma por nota: acá la velocity ES el
+    // nivel, así que la amplitud se multiplica (misma cuenta que el piano:
+    // `velocityToGain(v) × noteGain`, con γ = 1 ⇒ `v × fader`).
+    const level = velocity * amplitude;
     // El piano no pasa por la capa de fuentes: se humaniza acá para que dos notas
     // iguales no suenen idénticas.
     piano.triggerAttack(
       frequency,
       audioTime,
-      humanizeVelocity("Acoustic Grand Piano", midi, audioTime, velocity),
+      humanizeVelocity("Acoustic Grand Piano", midi, audioTime, level),
     );
     return "piano-sampler";
   }
@@ -353,7 +388,10 @@ export function fireNote(
   // ── 2. Cualquier otro instrumento → sample real de la capa de fuentes ──
   const sampler = host.engine.samplerFor(instrument);
   if (sampler) {
-    sampler.triggerAttack(midiToFrequency(midi), audioTime, velocity);
+    // 4º argumento = amplitud. Las voces con capas (VSCO) eligen la toma con
+    // `velocity` y aplican la amplitud después; las de una sola capa la usan
+    // como nivel. Mismo contrato que `App.tsx` en el piano.
+    sampler.triggerAttack(midiToFrequency(midi), audioTime, velocity, amplitude);
     return "sample";
   }
 
