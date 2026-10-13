@@ -223,6 +223,27 @@ const EMPTY_SONG: SongData = {
 const PLAYBACK_PUBLISH_MS = 100;
 
 /**
+ * Tope de espera por los samples de la canción antes de arrancar el transporte.
+ *
+ * Medido en frío: con el tope anterior (7 s) el transporte arrancaba a los
+ * 7,8 s del click y el primer sonido audible llegaba a los 13,7 s. Los samples
+ * que falten se suman solos (cada nota resuelve su fuente al dispararse), así
+ * que esperar más sólo retrasa el arranque. 2,5 s cubre el caso en que el
+ * sample está a milisegundos de llegar sin castigar al que no.
+ */
+const SAMPLES_WAIT_MS = 2_500;
+
+/**
+ * Ventana de la canción que decide *por qué* instrumentos espera el arranque.
+ *
+ * La reproducción bloquea sólo por los instrumentos (y las piezas de percusión)
+ * que suenan en estos primeros segundos; el resto del repertorio sigue bajando
+ * en segundo plano. Es la diferencia entre "espero los 6 instrumentos de toda la
+ * canción" (medido: 9,2 s en frío) y esperar sólo por lo que se va a oír ya.
+ */
+const EARLY_AUDIO_WINDOW_SEC = 6;
+
+/**
  * Firma barata del conjunto de notas sonando. Si no cambió, no hay nada que
  * repintar: en pasajes densos cambia casi siempre, pero en los lentos (notas
  * largas y sostenidas) ahorra el re-render completo.
@@ -642,6 +663,12 @@ export default function App() {
   /** Promesas de precarga: la reproducción espera a que resuelvan. */
   const songSamplesReadyRef = useRef<Promise<void>>(Promise.resolve());
   const drumReadyRef = useRef<Promise<void>>(Promise.resolve());
+  /**
+   * Progreso de la precarga de instrumentos de la canción, para poder decir
+   * "Cargando instrumentos 3/6" mientras se espera (antes la píldora quedaba en
+   * "Esperando activación" y el usuario no sabía por qué no sonaba nada).
+   */
+  const samplesProgressRef = useRef({ done: 0, total: 0 });
   /** ¿Hay samples de la canción bajando ahora mismo? */
   const samplesPendingRef = useRef(false);
 
@@ -965,6 +992,10 @@ export default function App() {
   const initializeAudio = useCallback(async () => {
     if (stateRef.current.isAudioReady || isInitializingAudioRef.current) return;
     isInitializingAudioRef.current = true;
+    // La píldora de estado tiene que decir qué está pasando: durante el arranque
+    // en frío el motor tarda en construirse y antes seguía diciendo "Esperando
+    // activación" con el botón ya en "Cargando...".
+    setAudioStatusMessage("Preparando el motor de audio…");
     try {
       // Configure the AudioContext's scheduling window BEFORE start.
       //
@@ -1003,7 +1034,13 @@ export default function App() {
       }).connect(makeup);
 
       const reverb = new Tone.Reverb({ decay: 1.5, wet: 1 }).connect(compressor);
-      await reverb.generate();
+      // La generación del impulso del reverb NO se espera acá: era parte del
+      // arranque en frío (medido: el transporte no arrancaba hasta los 7,8 s del
+      // click). El reverb es un ENVÍO, así que mientras su impulso no está
+      // listo la señal seca suena igual y la cola aparece un instante después.
+      void reverb.generate().catch(() => {
+        /* sin impulso generado el envío queda seco; la señal directa no cambia */
+      });
       // Corte de graves antes del reverb: por debajo de ~200 Hz el reverb sólo
       // agrega barro, no profundidad.
       const reverbHighpass = new Tone.Filter({
@@ -1399,27 +1436,58 @@ export default function App() {
     if (notesByInstrument.size === 0) {
       songSamplesReadyRef.current = Promise.resolve();
       samplesPendingRef.current = false;
+      samplesProgressRef.current = { done: 0, total: 0 };
       return;
     }
+
+    samplesProgressRef.current = { done: 0, total: notesByInstrument.size };
 
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAudioStatusMessage(
       `Cargando ${notesByInstrument.size} instrumento(s) real(es)...`,
     );
 
+    // Qué instrumentos suenan en los primeros segundos: la reproducción espera
+    // SÓLO por esos. Antes esperaba por el repertorio completo de la canción
+    // (medido: 9,2 s los 6 instrumentos del osito), y como el arranque se
+    // sentía tardísimo se le puso un tope de 7 s que igual arrancaba en
+    // silencio. Lo que falta entra en segundo plano, que para eso cada nota
+    // resuelve su fuente al dispararse.
+    const earlyInstruments = new Set<string>();
+    for (const note of song.notes) {
+      if (note.time > EARLY_AUDIO_WINDOW_SEC) continue;
+      const inst =
+        trackInstruments[note.trackIndex] ??
+        song.tracks[note.trackIndex]?.instrument;
+      if (inst) earlyInstruments.add(inst);
+    }
+
+    const earlyPending: Promise<unknown>[] = [];
+    const latePending: Promise<unknown>[] = [];
+    for (const [inst, notes] of notesByInstrument.entries()) {
+      const task = loadInstrument(inst, dest, [...notes]).then((result) => {
+        samplesProgressRef.current.done += 1;
+        return result;
+      });
+      (earlyInstruments.has(inst) ? earlyPending : latePending).push(task);
+    }
+
     // La reproducción espera a este promise: sin sintetizador de respaldo, una
-    // nota que llega antes que su sample no suena, así que arrancar la canción
-    // con los instrumentos a medio bajar se oiría con huecos.
-    const pending = Promise.all(
-      [...notesByInstrument.entries()].map(([inst, notes]) =>
-        loadInstrument(inst, dest, [...notes]),
-      ),
-    );
-    samplesPendingRef.current = true;
-    songSamplesReadyRef.current = pending.then(() => undefined);
+    // nota que llega antes que su sample no suena.
+    const pending = Promise.all([...earlyPending, ...latePending]);
+    samplesPendingRef.current = earlyPending.length > 0;
+    songSamplesReadyRef.current =
+      earlyPending.length > 0
+        ? Promise.all(earlyPending).then(() => undefined)
+        : Promise.resolve();
     void songSamplesReadyRef.current.finally(() => {
       samplesPendingRef.current = false;
     });
+    // El resto sigue bajando sin bloquear el arranque, pero RECIÉN cuando
+    // terminó lo de los primeros segundos: si compiten por el ancho de banda, el
+    // primer golpe de la canción llega tarde y se saltea (medido: 7,8 s por la
+    // pieza de percusión del compás 1 cuando las 13 bajaban en paralelo).
+    void Promise.all(earlyPending).then(() => Promise.all(latePending));
 
     pending.then((results) => {
       const total = notesByInstrument.size;
@@ -1447,12 +1515,29 @@ export default function App() {
     }
 
     const pieces = [...new Set(song.percussion.map((n) => n.midi))];
+    // Las piezas de los primeros segundos son las que bloquean el arranque; el
+    // resto del kit baja en segundo plano (una canción usa 4-12 piezas y el
+    // kit completo tardaba ~9,5 s en frío).
+    const earlyPieces = [
+      ...new Set(
+        song.percussion
+          .filter((n) => n.time <= EARLY_AUDIO_WINDOW_SEC)
+          .map((n) => n.midi),
+      ),
+    ];
+    const latePieces = pieces.filter((p) => !earlyPieces.includes(p));
+
     setAudioStatusMessage(
       `Cargando percusión (${pieces.length} pieza${pieces.length === 1 ? "" : "s"})...`,
     );
-    const pending = drum.prefetch(pieces);
-    drumReadyRef.current = pending;
-    void pending.then(() => {
+    drumReadyRef.current =
+      earlyPieces.length > 0 ? drum.prefetch(earlyPieces) : Promise.resolve();
+    // Mismo criterio que con los instrumentos: el resto del kit espera a que
+    // estén las piezas del arranque, para no robarles ancho de banda.
+    if (latePieces.length > 0) {
+      void drumReadyRef.current.then(() => drum.prefetch(latePieces));
+    }
+    void drumReadyRef.current.then(() => {
       setAudioStatusMessage(
         `✓ Percusión lista: ${drum.loadedCount()}/${pieces.length} piezas reales`,
       );
@@ -2083,18 +2168,32 @@ export default function App() {
       }
 
       // Sin sintetizador de respaldo, una nota que llega antes que su sample no
-      // suena: mejor esperar a que la canción tenga sus instrumentos. El tope
-      // es corto (7 s) porque las fuentes pesadas (VSCO ~2 MB por muestra)
-      // pueden tardar: lo que falte se suma solo cuando termina de bajar.
+      // suena: la canción espera a tener sus instrumentos. Pero esperar de más
+      // se paga en la primera impresión del usuario (medido: 7,8 s hasta que
+      // arrancaba el transporte en frío, porque el tope era de 7 s), así que el
+      // tope es corto y lo que falte se suma solo cuando termina de bajar
+      // (cada nota consulta su fuente al dispararse: el llenado es progresivo).
       if (samplesPendingRef.current) {
         setIsAudioLoading(true);
-        setAudioStatusMessage("Esperando los instrumentos reales de la canción...");
+        const mostrarProgreso = () => {
+          const { done, total } = samplesProgressRef.current;
+          setAudioStatusMessage(
+            total > 0
+              ? `Cargando instrumentos ${done}/${total}…`
+              : "Cargando instrumentos…",
+          );
+        };
+        mostrarProgreso();
+        // El contador se refresca mientras se espera: la píldora dice qué está
+        // pasando en vez de un "Esperando activación" que no explica nada.
+        const progressTimer = window.setInterval(mostrarProgreso, 250);
         try {
           await Promise.race([
             Promise.all([songSamplesReadyRef.current, drumReadyRef.current]),
-            new Promise((resolve) => setTimeout(resolve, 7_000)),
+            new Promise((resolve) => setTimeout(resolve, SAMPLES_WAIT_MS)),
           ]);
         } finally {
+          window.clearInterval(progressTimer);
           setIsAudioLoading(false);
           setAudioStatusMessage("");
         }
