@@ -74,6 +74,35 @@ export type SongTrack = {
 };
 
 /**
+ * Un trozo de texto con su propio instante.
+ *
+ * En un `.kar` cada evento meta de letra (0x05/0x01) trae su delta-time, así que
+ * esto NO es una estimación: es el tiempo que el autor del karaoke le puso a esa
+ * sílaba. Medido sobre los 140 `.kar` de `app/public/demo`: 43.498 eventos con
+ * tiempo propio, separación mediana 0,275 s — granularidad de sílaba, no de
+ * línea (las pausas entre frases dan 2,076 s de mediana).
+ */
+export type LyricSyllable = {
+  /** Segundos, mismo dominio que `SongNote.time`. */
+  time: number;
+  text: string;
+};
+
+/**
+ * Una palabra cantable, armada con las sílabas que el archivo reparte entre
+ * varios eventos ("NU"+"BA"+"RRÓN" → "NUBARRÓN").
+ *
+ * `time` es el instante de su PRIMERA sílaba: eso es lo que hace exacto el
+ * "tocá la palabra y andá a ese punto". `syllables` conserva el detalle para que
+ * el resaltado avance sílaba por sílaba, que es el dato real del archivo.
+ */
+export type LyricWord = {
+  time: number;
+  text: string;
+  syllables: LyricSyllable[];
+};
+
+/**
  * A synchronised lyric line. `time` is in seconds in the song's own time
  * domain — the same domain as `SongNote.time` — so the transport converts
  * both identically and they cannot drift apart.
@@ -81,6 +110,14 @@ export type SongTrack = {
 export type LyricLine = {
   time: number;
   text: string;
+  /**
+   * Palabras con su tiempo propio, cuando el archivo los trae.
+   *
+   * Opcional a propósito: una canción guardada por una versión anterior de la
+   * app (o un `.mid` cuyo texto no viene por sílabas) no lo tiene, y el panel
+   * cae al resaltado por línea sin inventar tiempos.
+   */
+  words?: LyricWord[];
 };
 
 export type SongData = {

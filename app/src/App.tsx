@@ -5647,6 +5647,10 @@ export default function App() {
                     lines={lyricLines}
                     currentTime={currentTime}
                     duration={song.duration}
+                    /* Tocar una palabra salta a su instante por la MISMA vía que
+                       el scrubber y la partitura (ver `onMeasureClick` más
+                       abajo): un solo camino de seek, imposible de desincronizar. */
+                    onSeek={seekTo}
                     songTitle={
                       song.title !== EMPTY_SONG.title ? song.title : undefined
                     }

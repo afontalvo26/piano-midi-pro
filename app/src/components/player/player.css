@@ -76,6 +76,21 @@
     border-radius: 50%;
 }
 
+/*
+ * The real Spotify artwork sits above the genre gradient, which keeps showing
+ * through while the JPEG decodes. `object-fit` matters: the source is a square
+ * master and the container is square, but `circle` covers clip it to an ellipse
+ * of the same box, so nothing is ever stretched.
+ */
+.pm-cover__img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
 .pm-cover__initials {
     font-weight: 700;
     color: var(--cover-ink, #fff);
@@ -117,6 +132,10 @@
     font-size: 84px;
 }
 
+/*
+ * Over a photo the bare glyph disappears into busy artwork (and over the light
+ * covers of this pack in particular), so the lyrics badge gets its own chip.
+ */
 .pm-cover__lyrics {
     position: absolute;
     right: 4px;
@@ -124,6 +143,20 @@
     font-size: 10px;
     color: rgba(255, 255, 255, 0.85);
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.pm-cover--art .pm-cover__lyrics {
+    right: 3px;
+    bottom: 3px;
+    padding: 1px 3px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    text-shadow: none;
+}
+
+.pm-cover--xs.pm-cover--art .pm-cover__lyrics {
+    display: none;
 }
 
 .pm-cover__play {
@@ -702,6 +735,73 @@
 .pm-bar__queue-btn.is-open {
     color: var(--text-primary);
     border-color: var(--border-hover);
+}
+
+/* ── Letra y Compartir: los dos íconos que acompañan a "Cola" ─────────────
+   Misma forma de píldora que la cola (son la misma clase de acción), para que
+   los tres se lean como un grupo. */
+
+.pm-bar__lyrics-btn,
+.pm-bar__share-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.pm-bar__lyrics-btn svg,
+.pm-bar__share-btn svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.pm-bar__lyrics-btn:hover:not(:disabled),
+.pm-bar__share-btn:hover:not(:disabled) {
+    color: var(--text-primary);
+    border-color: var(--border-hover);
+}
+
+/* Estado activo: el mismo acento violeta que usa la cola abierta y el resto de
+   los toggles de la app (`.pm-bar__chip.is-on`). */
+.pm-bar__lyrics-btn.is-open {
+    color: var(--accent-primary);
+    border-color: rgba(139, 92, 246, 0.5);
+    background: rgba(139, 92, 246, 0.14);
+}
+
+/* Sin letra en el archivo: se ve apagado y el tooltip explica por qué. */
+.pm-bar__lyrics-btn:disabled,
+.pm-bar__share-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* ── Cajón de letra (zona derecha) ──────────────────────────────────────── */
+
+/*
+   Reusa `.pm-drawer` (posición, ancho, fondo, sombra y la animación de entrada)
+   y sólo cambia lo que la letra necesita: un poco más de alto útil porque no
+   lleva el encabezado de la cola, y el fondo opaco del panel de letras para que
+   la palabra activa tenga el máximo contraste.
+*/
+.pm-drawer--lyrics {
+    bottom: 128px;
+    padding: 16px 16px 12px;
+    background: linear-gradient(180deg, #0b0b12 0%, #08080d 100%);
+}
+
+.pm-drawer--lyrics .lyrics-panel {
+    height: 100%;
 }
 
 .pm-bar__queue-count {
@@ -1998,6 +2098,10 @@
 
     .pm-bar__extras .pm-bar__chip,
     .pm-bar__queue-label,
+    /* En pantalla chica los tres íconos se quedan con su glifo y su tooltip: la
+       barra no tiene ancho para las etiquetas de texto. */
+    .pm-bar__lyrics-label,
+    .pm-bar__share-label,
     .pm-bar__time:last-child {
         display: none;
     }

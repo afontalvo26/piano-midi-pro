@@ -19,17 +19,22 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import type { ReactNode, MouseEvent } from "react";
 import type { TrackMeta } from "../../music/types";
+import type { LyricLine } from "../../types/song";
 import { usePlayer, type PlaybackHost } from "../../music/PlayerContext";
 import { useLibrary } from "../../music/useLibrary";
 import { useMediaSession } from "../../music/useMediaSession";
 import { ENDED_TOLERANCE } from "../../music/constants";
 import { isDemoMeta } from "../../music/ids";
+import { getSessionSong } from "../../music/resolve";
 import { toast } from "../../music/toast";
+import { useLocalStorageState } from "../../utils/settings";
+import { LyricsPanel } from "../studio/LyricsPanel";
 import { PlayerBar } from "./PlayerBar";
 import { NowPlaying } from "./NowPlaying";
 import { QueuePanel } from "./QueuePanel";
@@ -116,6 +121,18 @@ export function PlayerSection({
 
   const [queueOpen, setQueueOpen] = useState(false);
   const [nowPlayingOpen, setNowPlayingOpen] = useState(false);
+  /**
+   * Panel de letra de la zona derecha. Se persiste igual que el resto de los
+   * ajustes del reproductor (`useLocalStorageState`), así que sobrevive a un
+   * recargue y el reproductor del 1235 lo hereda sin tocar su carpeta: el estado
+   * vive acá porque acá vive la barra que lo dispara.
+   */
+  const [lyricsOpen, setLyricsOpen] = useLocalStorageState(
+    "pm_lyrics_open",
+    false,
+  );
+  /** Reloj del panel de letra, muestreado a ~10 Hz (no 60: la letra no lo pide). */
+  const [lyricsTime, setLyricsTime] = useState(0);
   const [menu, setMenu] = useState<{ meta: TrackMeta; x: number; y: number } | null>(null);
   const [share, setShare] = useState<SharePayload | null>(null);
   const [playlistDialog, setPlaylistDialog] = useState<
@@ -189,21 +206,65 @@ export function PlayerSection({
     onOpenNowPlaying: () => setNowPlayingOpen(true),
   });
 
+  // ── letra ─────────────────────────────────────────────────────
+  //
+  // La letra vive en el `SongData` ya parseado, que sólo está en la caché de
+  // `music/resolve` (es pesado y nunca se persiste). `resolvedIds` hace de
+  // portera: sin eso se consultaría una canción que todavía no se cargó.
+  const lyrics: LyricLine[] = useMemo(() => {
+    if (!currentTrackId || !player.resolvedIds.has(currentTrackId)) return [];
+    return getSessionSong(currentTrackId)?.lyrics ?? [];
+  }, [currentTrackId, player.resolvedIds]);
+
+  /**
+   * El botón se habilita con la pista marcada como "trae letra" (dato barato y
+   * persistido, disponible al instante) o con la letra ya resuelta. Se acepta
+   * cualquiera de las dos para que un catálogo viejo —sin el flag— no deje el
+   * botón deshabilitado teniendo la letra delante.
+   */
+  const hasLyrics = Boolean(player.current?.hasLyrics) || lyrics.length > 0;
+
+  useEffect(() => {
+    if (!lyricsOpen) return;
+    // Un único bucle para el panel. `getPosition()` es la fuente de verdad del
+    // transporte y se lee de forma imperativa; pasarla por estado a 60 fps
+    // volvería a renderizar el armazón entero, y la letra no necesita más de
+    // ~10 Hz para que la palabra activa cambie cuando corresponde.
+    let frame = 0;
+    let last = -1;
+    const tick = (now: number) => {
+      if (now - last > 90) {
+        last = now;
+        setLyricsTime(player.getPosition());
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [lyricsOpen, player, currentTrackId]);
+
+  const closeOverlays = useCallback(() => {
+    setQueueOpen(false);
+    setLyricsOpen(false);
+    if (nowPlayingOpen) setNowPlayingOpen(false);
+    else setMenu(null);
+  }, [nowPlayingOpen, setLyricsOpen]);
+
   // ── overlays driven by custom events (see useMediaSession) ────
   useEffect(() => {
     const toggleQueue = () => setQueueOpen((open) => !open);
-    const closeOverlays = () => {
-      setQueueOpen(false);
-      if (nowPlayingOpen) setNowPlayingOpen(false);
-      else setMenu(null);
-    };
+    // Mismo mecanismo que la cola: así una pantalla (o un atajo del futuro) puede
+    // abrir la letra sin tener la barra como padre.
+    const toggleLyrics = () => setLyricsOpen((open) => !open);
     window.addEventListener("pm:toggle-queue", toggleQueue);
+    window.addEventListener("pm:toggle-lyrics", toggleLyrics);
     window.addEventListener("pm:close-overlays", closeOverlays);
     return () => {
       window.removeEventListener("pm:toggle-queue", toggleQueue);
+      window.removeEventListener("pm:toggle-lyrics", toggleLyrics);
       window.removeEventListener("pm:close-overlays", closeOverlays);
     };
-  }, [nowPlayingOpen]);
+  }, [closeOverlays, setLyricsOpen]);
 
   // ── handlers ──────────────────────────────────────────────────
 
@@ -294,6 +355,10 @@ export function PlayerSection({
         }
         hasScore={hasScore}
         onPositionTick={handlePosition}
+        lyricsOpen={lyricsOpen}
+        onToggleLyrics={() => setLyricsOpen((open) => !open)}
+        hasLyrics={hasLyrics}
+        onShare={handleShareTrack}
       />
 
       {/* Screens rendered inside the shell can drive the player's overlays. */}
@@ -305,6 +370,28 @@ export function PlayerSection({
       {queueOpen && !nowPlayingOpen && (
         <aside className="pm-drawer" aria-label="Cola de reproducción">
           <QueuePanel onClose={() => setQueueOpen(false)} />
+        </aside>
+      )}
+
+      {/* Panel de letra: la "zona derecha". Es hermano de los overlays, no parte
+          de una pantalla, así que sigue a la canción esté el usuario donde esté
+          —Studio, Juego, Partitura o la biblioteca— igual que la propia barra.
+          Se cierra solo al abrir la vista de reproducción completa, que ya trae
+          su propia pestaña de letra, para no mostrar dos letras a la vez. */}
+      {lyricsOpen && !nowPlayingOpen && (
+        <aside
+          className="pm-drawer pm-drawer--lyrics"
+          aria-label="Letra de la canción"
+        >
+          <LyricsPanel
+            lines={lyrics}
+            currentTime={lyricsTime}
+            duration={player.duration}
+            songTitle={player.current?.title}
+            /* Mismo camino de seek que el resto del reproductor. */
+            onSeek={player.seek}
+            onClose={() => setLyricsOpen(false)}
+          />
         </aside>
       )}
 

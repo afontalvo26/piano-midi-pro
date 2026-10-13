@@ -18,14 +18,23 @@
  * domain as `SongNote.time`. That is what makes the lyrics stay locked to the
  * music: the transport converts both with the identical formula, so changing
  * BPM or playback rate scales lyrics and notes together and they cannot drift.
+ *
+ * The timings are **per syllable as authored**, not an estimate. Every lyric
+ * meta event carries its own delta-time, and this module keeps that resolution
+ * all the way to the UI: each line carries its words, and each word the
+ * syllables that build it (`LyricWord.syllables`). Measured over the 140 `.kar`
+ * of `app/public/demo`: 43.498 timed lyric events, median gap 0,275 s — the
+ * spacing of sung syllables, not of lines (inter-phrase pauses measure 2,076 s).
  */
 
-export type LyricLine = {
-  /** Seconds, same domain as SongNote.time. */
-  time: number;
-  /** Display text for the whole line. */
-  text: string;
-};
+import type { LyricLine, LyricWord } from "../types/song";
+import { normaliseWordCases } from "./lyricText";
+
+// `LyricLine` vivía declarado acá; ahora la forma canónica está en
+// `types/song.ts` para que el panel, el worker y `SongData` no tengan tres
+// copias que se puedan desincronizar. Se reexporta para no romper a quien ya lo
+// importaba desde este módulo (por ejemplo el worker).
+export type { LyricLine, LyricSyllable, LyricWord } from "../types/song";
 
 /** Meta event types we treat as lyric carriers. */
 const META_TEXT = 0x01; // Text
@@ -182,6 +191,65 @@ function normaliseBreaks(text: string): string {
 /** A single timed syllable/text chunk, before it is grouped into a line. */
 type Piece = { time: number; text: string; breakBefore: boolean };
 
+/**
+ * Una palabra en construcción: guarda cada sílaba con su instante, porque es
+ * justo lo que el resaltado necesita y lo que se perdería si sólo se acumulara
+ * el texto.
+ */
+type WordDraft = { time: number; parts: string[]; times: number[] };
+
+/**
+ * Reparte los trozos de UNA línea en palabras, conservando el tiempo de cada
+ * sílaba.
+ *
+ * La frontera de palabra es el espacio en blanco, que es exactamente lo que hace
+ * el propio archivo: los editores de karaoke parten las sílabas de forma
+ * arbitraria ("cor" + "da" + "te ") y sólo el espacio separa palabras. Un evento
+ * puede traer varias palabras juntas (" AMIGO ESTOY DOLIDO,") y también una
+ * palabra repartida en varios ("NU" + "BA" + "RRÓN ").
+ *
+ * OJO, y esto es honestidad con el dato: cuando un solo evento trae varias
+ * palabras, todas comparten el instante del evento. No se interpola nada entre
+ * medio — el archivo no dice cuándo cae cada una y repartirlas por cantidad de
+ * letras sería inventar. Esas palabras se resaltan juntas, que es lo que el
+ * archivo realmente afirma.
+ */
+function splitIntoWords(pieces: readonly Piece[]): WordDraft[] {
+  const words: WordDraft[] = [];
+  let current: WordDraft | null = null;
+
+  const close = () => {
+    if (current && current.parts.length) words.push(current);
+    current = null;
+  };
+
+  for (const piece of pieces) {
+    let text = piece.text;
+    // Espacio al principio: cierra la palabra anterior, no pertenece a ninguna.
+    const leading = /^\s+/.exec(text);
+    if (leading) {
+      close();
+      text = text.slice(leading[0].length);
+    }
+    if (!text) continue;
+
+    // Se conservan los separadores internos para poder cerrar palabra sin
+    // perder la posición de cada sílaba.
+    for (const token of text.split(/(\s+)/)) {
+      if (!token) continue;
+      if (/^\s+$/.test(token)) {
+        close();
+        continue;
+      }
+      if (!current) current = { time: piece.time, parts: [], times: [] };
+      current.parts.push(token);
+      current.times.push(piece.time);
+    }
+  }
+  close();
+  return words;
+}
+
 /** Max characters per line when we have to synthesise the breaks ourselves. */
 const WRAP_CHARS = 42;
 
@@ -210,19 +278,19 @@ function toPieces(events: RawEvent[], ticksToSeconds: (t: number) => number): Pi
 }
 
 /** Group pieces where the authoring tool marked a break. */
-function groupByBreaks(pieces: Piece[]): LyricLine[] {
-  const lines: LyricLine[] = [];
-  let current: { time: number; parts: string[] } | null = null;
+function groupByBreaks(pieces: Piece[]): { time: number; pieces: Piece[] }[] {
+  const lines: { time: number; pieces: Piece[] }[] = [];
+  let current: { time: number; pieces: Piece[] } | null = null;
 
   for (const p of pieces) {
     if (p.breakBefore && current) {
-      pushLine(lines, current);
+      lines.push(current);
       current = null;
     }
-    if (!current) current = { time: p.time, parts: [] };
-    current.parts.push(p.text);
+    if (!current) current = { time: p.time, pieces: [] };
+    current.pieces.push(p);
   }
-  if (current) pushLine(lines, current);
+  if (current) lines.push(current);
   return lines;
 }
 
@@ -233,9 +301,9 @@ function groupByBreaks(pieces: Piece[]): LyricLine[] {
  * sync perfectly accurate — every line is stamped with the time of the
  * syllable that starts it — while still being readable.
  */
-function wrapByWidth(pieces: Piece[]): LyricLine[] {
-  const lines: LyricLine[] = [];
-  let current: { time: number; parts: string[] } | null = null;
+function wrapByWidth(pieces: Piece[]): { time: number; pieces: Piece[] }[] {
+  const lines: { time: number; pieces: Piece[] }[] = [];
+  let current: { time: number; pieces: Piece[] } | null = null;
   let length = 0;
 
   for (const p of pieces) {
@@ -245,24 +313,51 @@ function wrapByWidth(pieces: Piece[]): LyricLine[] {
 
     const wouldBe = length + text.length;
     if (current && wouldBe > WRAP_CHARS) {
-      pushLine(lines, current);
+      lines.push(current);
       current = null;
       length = 0;
     }
-    if (!current) current = { time: p.time, parts: [] };
-    current.parts.push(text);
+    if (!current) current = { time: p.time, pieces: [] };
+    current.pieces.push({ ...p, text });
     length += text.length;
   }
-  if (current) pushLine(lines, current);
+  if (current) lines.push(current);
   return lines;
 }
 
+/**
+ * Arma la línea final: texto, tiempo de arranque y las palabras con su detalle
+ * por sílaba.
+ *
+ * La caja se decide UNA sola vez, con la frase completa, y de ahí se reparte a
+ * las palabras. Hacerlo por palabra daría "Un" + "Grande" mal resueltos en los
+ * bordes, y hacerlo dos veces (aquí y en el panel) sería dos fuentes de verdad
+ * para el mismo texto.
+ */
 function pushLine(
   out: LyricLine[],
-  line: { time: number; parts: string[] },
+  line: { time: number; pieces: Piece[] },
 ): void {
-  const text = line.parts.join("").replace(/\s+/g, " ").trim();
-  if (text) out.push({ time: line.time, text });
+  const drafts = splitIntoWords(line.pieces);
+  if (drafts.length === 0) return;
+
+  const cased = normaliseWordCases(drafts.map((draft) => draft.parts.join("")));
+  const words: LyricWord[] = drafts.map((draft, index) => ({
+    time: draft.time,
+    text: cased[index],
+    syllables: draft.parts.map((part, i) => ({
+      time: draft.times[i],
+      text: part,
+    })),
+  }));
+
+  // `join(" ")` es exactamente la frase que se normalizó arriba, así que el
+  // reparto de la caja no puede quedar desalineado del texto que se muestra.
+  const text = words.map((word) => word.text).join(" ");
+  if (!text) return;
+  // El tiempo de la línea es el de su primera palabra, que es el de su primera
+  // sílaba: no se recalcula ni se promedia nada.
+  out.push({ time: words[0].time, text, words });
 }
 
 /**
@@ -273,17 +368,22 @@ function pushLine(
  */
 function buildLines(events: RawEvent[], ticksToSeconds: (t: number) => number): LyricLine[] {
   const pieces = toPieces(events, ticksToSeconds);
-  let lines = groupByBreaks(pieces);
+  let grouped = groupByBreaks(pieces);
 
   // A file that collapsed into a couple of enormous lines has no real break
   // markers — synthesise them so the lyrics are still usable and still synced.
-  if (lines.length < MIN_AUTHORED_LINES && pieces.length >= MIN_LYRIC_EVENTS) {
+  // The syllable times survive the re-wrap untouched: only the line boundaries
+  // are our decision, never the instants.
+  if (grouped.length < MIN_AUTHORED_LINES && pieces.length >= MIN_LYRIC_EVENTS) {
     const wrapped = wrapByWidth(pieces);
-    if (wrapped.length > lines.length) lines = wrapped;
+    if (wrapped.length > grouped.length) grouped = wrapped;
   }
 
-  // Drop lines that are pure metadata (usually a header block at the start)
-  const cleaned = lines.filter((l) => !isNoise(l.text));
+  // Build first, then drop the metadata noise: the filter looks at the finished
+  // text (the watermark check needs the assembled line, not a syllable).
+  const built: LyricLine[] = [];
+  for (const line of grouped) pushLine(built, line);
+  const cleaned = built.filter((l) => !isNoise(l.text));
 
   // De-duplicate identical lines landing on the same timestamp
   const out: LyricLine[] = [];

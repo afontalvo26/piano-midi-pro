@@ -16,6 +16,9 @@ import type { ChangeEvent, KeyboardEvent, PointerEvent } from "react";
 import { usePlayer } from "../../music/PlayerContext";
 import { formatTime } from "../../music/meta";
 import { toast } from "../../music/toast";
+import { isShareable, shareTrack } from "../../music/share";
+import type { TrackMeta } from "../../music/types";
+import { Icons } from "../common/Icons";
 import {
   Cover,
   LikeButton,
@@ -34,6 +37,23 @@ export type PlayerBarProps = {
   /** Opens the queue drawer. */
   onToggleQueue: () => void;
   queueOpen: boolean;
+  /**
+   * Abre/cierra el panel de letra de la zona derecha. El ícono vive al lado de
+   * "Cola" en esta barra, así que la barra es la que lo dibuja; quién guarda el
+   * estado es quien la monta (ver `PlayerSection`).
+   */
+  onToggleLyrics?: () => void;
+  lyricsOpen?: boolean;
+  /**
+   * False cuando la canción cargada no trae letra: el ícono queda deshabilitado
+   * con un tooltip que lo dice, en vez de abrir un panel vacío.
+   */
+  hasLyrics?: boolean;
+  /**
+   * Alternativa al compartir en línea. Sin esta prop la barra copia el link y
+   * avisa con un toast, que es el comportamiento pedido para PC.
+   */
+  onShare?: (meta: TrackMeta) => void;
   /** Jump to the Studio screen with the current song loaded. */
   onOpenStudio?: () => void;
   /** Jump to the sheet-music screen. */
@@ -50,6 +70,10 @@ export function PlayerBar({
   onExpand,
   onToggleQueue,
   queueOpen,
+  onToggleLyrics,
+  lyricsOpen = false,
+  hasLyrics = false,
+  onShare,
   onOpenStudio,
   onOpenScore,
   onOpenGame,
@@ -198,6 +222,42 @@ export function PlayerBar({
     // the store returns synchronously.
     return mode;
   }, [cycleRepeat]);
+
+  /**
+   * Compartir desde la barra: un solo click, sin diálogo.
+   *
+   * En PC se copia el link al portapapeles y se avisa con el toast del proyecto
+   * ("Link copiado", el mismo texto que usa `ShareDialog`). En un dispositivo con
+   * puntero grueso —teléfono o tablet— se prefiere la hoja nativa del sistema,
+   * que es lo que el usuario espera ahí; si el navegador no la tiene, `shareTrack`
+   * cae solo al portapapeles.
+   *
+   * Se decide por el puntero y no por `navigator.share`: Chrome de escritorio en
+   * Windows también expone `navigator.share`, y abrir la hoja del sistema en una
+   * máquina de escritorio es justo lo que el dueño NO quiere ("que en PC se copie
+   * el link").
+   */
+  const handleShare = useCallback(async () => {
+    if (!current) return;
+    // Un archivo subido vive sólo en este navegador: su link no tendría la música
+    // detrás. Se delega a quien sepa explicarlo (el diálogo de compartir).
+    if (!isShareable(current)) {
+      if (onShare) onShare(current);
+      else toast.info("Esta canción es un archivo local: no hay un link público para copiar.");
+      return;
+    }
+
+    const coarsePointer =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(pointer: coarse)").matches === true;
+
+    const outcome = await shareTrack(current, { preferClipboard: !coarsePointer });
+    if (outcome === "copied") toast.success("Link copiado");
+    else if (outcome === "shared") toast.success("Compartido");
+    else if (outcome === "failed")
+      toast.error("No se pudo copiar el link. Probá desde el menú Compartir.");
+    // "cancelled" es que el usuario cerró la hoja del sistema: no se avisa nada.
+  }, [current, onShare]);
 
   return (
     <footer className="pm-bar" aria-label="Reproductor">
@@ -366,6 +426,61 @@ export function PlayerBar({
               title="Jugar esta canción en modo ritmo"
             >
               Juego
+            </button>
+          )}
+
+          {/* ── Compartir · Letra · Cola ─────────────────────
+              El ícono de letra va pegado a "Cola" (hermanos consecutivos), que
+              es donde el dueño lo pidió, y el de compartir justo antes. Los tres
+              son la misma clase de acción ("abrir u obtener algo de esta
+              canción"), así que viven juntos y separados de los saltos a otras
+              pantallas. */}
+
+          <button
+            type="button"
+            className="pm-bar__share-btn"
+            onClick={() => void handleShare()}
+            disabled={!current}
+            title={
+              current && isShareable(current)
+                ? "Copiar el link de esta canción"
+                : "Compartir esta canción"
+            }
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              {/* Eslabones de cadena: es "el link", no "la hoja de compartir". */}
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"
+              />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"
+              />
+            </svg>
+            <span className="pm-bar__share-label">Compartir</span>
+          </button>
+
+          {onToggleLyrics && (
+            <button
+              type="button"
+              className={`pm-bar__lyrics-btn ${lyricsOpen ? "is-open" : ""}`}
+              onClick={onToggleLyrics}
+              disabled={!hasLyrics}
+              aria-pressed={lyricsOpen}
+              aria-expanded={lyricsOpen}
+              title={
+                hasLyrics
+                  ? lyricsOpen
+                    ? "Ocultar la letra"
+                    : "Ver la letra de esta canción"
+                  : "Esta canción no trae letra"
+              }
+            >
+              <Icons.Lyrics />
+              <span className="pm-bar__lyrics-label">Letra</span>
             </button>
           )}
 

@@ -1,0 +1,212 @@
+/* ============================================================
+   lyrics.css — tipografía y estilos del panel de letra.
+
+   POR QUÉ ESTE ARCHIVO EXISTE: la fuente y el resaltado por palabra son
+   específicos de la letra, y `App.css` (el armazón del piano) ya tiene 4.300
+   líneas. Las reglas de estructura que ya vivían ahí (.lyrics-panel, .lyrics-line,
+   .lyrics-footer…) se dejan donde estaban y acá sólo se agrega lo nuevo o se
+   ajusta lo que el resaltado por palabra necesita. Como este archivo se importa
+   desde `LyricsPanel.tsx`, entra DESPUÉS de `App.css` en la cascada.
+
+   LA FUENTE — Figtree, no Circular.
+   Spotify usa **Circular** (Lineto), que es propietaria: no se puede empaquetar
+   ni servir. La alternativa libre más parecida es **Figtree** (Erik D. Kennedy,
+   2022): geométrica-humanista, `a` y `g` de doble piso, altura de x grande y
+   trazo uniforme, que es lo que hace que Circular se lea "redonda y moderna" en
+   pantalla. Está bajo **SIL Open Font License 1.1** (ver
+   `app/src/assets/fonts/LICENSE-Figtree-OFL.txt`), que permite empaquetarla y
+   redistribuirla dentro de la app.
+
+   Se AUTOALOJA en vez de pedirla a Google Fonts a propósito: el reproductor del
+   1235 tiene su propio `index.html` y una familia nueva agregada sólo al del
+   piano no llegaría nunca al reproductor (y no se puede tocar `player/`). Con
+   los .woff2 dentro del proyecto, los dos usan exactamente el mismo archivo, sin
+   depender de la red ni del orden de los `@import`. Son dos subsets (latin y
+   latin-ext), un archivo variable por subset que cubre 400–700: 30 KB en total.
+   ============================================================ */
+
+@font-face {
+    font-family: "Figtree";
+    font-style: normal;
+    font-weight: 400 800;
+    font-display: swap;
+    src: url("../../assets/fonts/figtree-latin.woff2") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+        U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191,
+        U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: "Figtree";
+    font-style: normal;
+    font-weight: 400 800;
+    font-display: swap;
+    src: url("../../assets/fonts/figtree-latin-ext.woff2") format("woff2");
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+        U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+        U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ── Panel ────────────────────────────────────────────────── */
+
+.lyrics-panel {
+    /* Una sola variable para la familia de la letra: cambiarla es cambiar esto. */
+    --lyrics-font: "Figtree", "Outfit", -apple-system, BlinkMacSystemFont,
+        "Segoe UI", Roboto, sans-serif;
+}
+
+.lyrics-head__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.lyrics-head__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.lyrics-head__close:hover {
+    color: var(--text-primary);
+    border-color: var(--border-hover);
+}
+
+.lyrics-head__close svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* ── Lista de líneas ──────────────────────────────────────── */
+
+/*
+   Se dibujan todas las líneas y el contenedor se desplaza de verdad. Antes era
+   una ventana de 13 líneas con `overflow: hidden`: el centrado tenía que
+   reemplazar nodos justo cuando el usuario los estaba leyendo, y eso se veía
+   como saltos. Con scroll real el desplazamiento es continuo y el usuario puede
+   recorrer la letra a mano.
+*/
+.lyrics-panel .lyrics-lines {
+    overflow-y: auto;
+    overflow-x: hidden;
+    justify-content: flex-start;
+    /* Aire arriba y abajo para que la primera y la última línea también puedan
+       quedar centradas. */
+    padding: 40% 2px;
+    gap: 12px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+    /* El `scroll-behavior` no se pone acá: el salto suave lo decide el componente
+       (respeta `prefers-reduced-motion`), y una regla CSS lo pisaría. */
+    overscroll-behavior: contain;
+}
+
+.lyrics-panel .lyrics-lines::-webkit-scrollbar {
+    width: 8px;
+}
+
+.lyrics-panel .lyrics-lines::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+}
+
+.lyrics-panel .lyrics-lines:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: -2px;
+}
+
+.lyrics-line {
+    font-family: var(--lyrics-font);
+    /*
+       `content-visibility: auto` salta layout y pintado de las líneas fuera de
+       pantalla. Sin esto, una canción de 300 líneas costaría lo mismo que una de
+       30 en cada tick del reloj. `contain-intrinsic-size` le da a Chrome una
+       altura estimada para que la barra de scroll no salte.
+    */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 34px;
+    /* Las palabras tienen que poder partirse entre líneas del panel. */
+    overflow-wrap: break-word;
+}
+
+/* La línea activa ya no agranda la letra: con resaltado por palabra, cambiar el
+   tamaño de toda la línea movería el texto justo cuando el ojo lo está leyendo
+   (y con la lista completa, empujaría el scroll). El contraste lo hace el color. */
+.lyrics-panel .lyrics-line--active {
+    font-size: 1.06rem;
+    padding-left: 12px;
+}
+
+/* ── Palabras y sílabas ───────────────────────────────────── */
+
+.lyrics-word {
+    /* `inline-block` + `nowrap`: una palabra nunca se parte al medio, así que el
+       subrayado y el área de click quedan enteros. */
+    display: inline-block;
+    white-space: nowrap;
+    border-radius: 4px;
+    padding: 0 1px;
+    transition: color 200ms ease, text-shadow 200ms ease, background-color 200ms ease;
+}
+
+/* Color de las palabras ya cantadas dentro de la línea activa: quedan legibles
+   pero ceden el protagonismo a la que suena. */
+.lyrics-line--active .lyrics-word--past {
+    color: rgba(255, 255, 255, 0.52);
+}
+
+/* La palabra que se canta AHORA. Es el dato del archivo, no una estimación. */
+.lyrics-line--active .lyrics-word--active {
+    color: #ffffff;
+    text-shadow: 0 0 20px var(--accent-glow, rgba(139, 92, 246, 0.55));
+}
+
+/* Dentro de la palabra activa, las sílabas ya alcanzadas se encienden. Da el
+   barrido de karaoke con los tiempos REALES de cada sílaba. */
+.lyrics-syl {
+    transition: color 160ms ease;
+}
+
+.lyrics-line--active .lyrics-word--active .lyrics-syl--sung {
+    color: var(--accent-primary);
+}
+
+/* Interactivas: la palabra es un botón que lleva a su instante. */
+.lyrics-word[role="button"] {
+    cursor: pointer;
+}
+
+.lyrics-word[role="button"]:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.lyrics-word[role="button"]:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 1px;
+}
+
+/* ── Aviso de "tocá una palabra" ──────────────────────────── */
+
+.lyrics-hint {
+    margin: 0 0 8px;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lyrics-word,
+    .lyrics-syl {
+        transition: none;
+    }
+}
