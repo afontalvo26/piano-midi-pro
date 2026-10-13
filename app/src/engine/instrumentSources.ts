@@ -32,6 +32,7 @@ import {
 import { loadWebAudioFontSampler } from "./WebAudioFont";
 import { prepareSampleBuffer, releaseForInstrument } from "./sampleProcessing";
 import { loadVscoInstrument, vscoCovers } from "./vscoSampler";
+import { velocityToGain } from "./playbackGain";
 import type { InstrumentVoice } from "./vscoSampler";
 import { panForInstrument } from "./instrumentPanning";
 import { createInstrumentChain, eqForInstrument } from "./instrumentChain";
@@ -229,11 +230,33 @@ function hash01(seed: string): number {
 }
 
 /**
- * Variación humana de una velocidad (±0.5 dB, determinista).
+ * Variación humana de la GANANCIA de una nota (±0.5 dB, determinista).
  *
  * La usan tanto las voces de esta capa como el piano Salamander (que se dispara
  * aparte, en App.tsx): dos notas iguales nunca suenan EXACTAMENTE igual, y esa
  * repetición idéntica es lo que delata a un sampler.
+ *
+ * Antes esta variación se aplicaba a la VELOCITY, y eso tenía un efecto
+ * colateral: ±6 % sobre la velocity puede cruzar el umbral de capa de
+ * `LayeredSampler` y cambiar la toma grabada. Aplicada a la ganancia, el timbre
+ * queda estable y la variación sigue siendo inaudible en nivel (que es el
+ * punto).
+ */
+export function humanizeGain(
+  instrument: string,
+  note: number | string,
+  time: number | undefined,
+  gain: number,
+): number {
+  const t = typeof time === "number" ? time : 0;
+  const jitter =
+    1 + (hash01(`${instrument}:${note}:${Math.floor(t * 20)}`) - 0.5) * 0.12;
+  return Math.max(0.02, Math.min(1, gain * jitter));
+}
+
+/**
+ * Compatibilidad: la misma variación aplicada a una velocity (se sigue usando
+ * donde la velocity ES la amplitud — piano Salamander, audición).
  */
 export function humanizeVelocity(
   instrument: string,
@@ -241,20 +264,20 @@ export function humanizeVelocity(
   time: number | undefined,
   velocity: number,
 ): number {
-  const t = typeof time === "number" ? time : 0;
-  const jitter =
-    1 + (hash01(`${instrument}:${note}:${Math.floor(t * 20)}`) - 0.5) * 0.12;
-  return Math.max(0.02, Math.min(1, velocity * jitter));
+  return humanizeGain(instrument, note, time, velocity);
 }
 
 /**
  * Voz con variación humana.
  *
- * Dos notas iguales, tocadas igual, no suenan EXACTAMENTE igual en la vida real
- * — y esa repetición idéntica es lo que delata a un sampler. Se aplica una
- * variación de ganancia de ±0.5 dB determinista (misma nota + mismo instante ⇒
- * mismo valor, así el playback es reproducible y los tests no se vuelven
- * aleatorios).
+ * Envuelve a toda fuente real. Traduce el contrato de ganancia de
+ * `InstrumentVoice` a la implementación de abajo:
+ *
+ *   • voz CON capas (`layered`): la velocity viaja intacta (la capa se decide
+ *     con ella) y la variación humana se aplica a la amplitud.
+ *   • voz SIN capas (soundfont GM, WAF, acordeón): la velocity *es* la
+ *     amplitud, así que se aplica la curva γ y la ganancia externa juntas, como
+ *     siempre.
  */
 class HumanizedVoice implements InstrumentVoice {
   private inner: InstrumentVoice;
@@ -265,12 +288,32 @@ class HumanizedVoice implements InstrumentVoice {
     this.instrument = instrument;
   }
 
-  triggerAttack(note: Tone.Unit.Frequency, time?: Tone.Unit.Time, velocity = 1): void {
+  triggerAttack(
+    note: Tone.Unit.Frequency,
+    time?: Tone.Unit.Time,
+    velocity = 1,
+    amplitude?: number,
+  ): void {
     const t = typeof time === "number" ? time : 0;
+    if (this.inner.layered) {
+      this.inner.triggerAttack(
+        note,
+        time,
+        velocity,
+        amplitude === undefined
+          ? undefined
+          : humanizeGain(this.instrument, note, t, amplitude),
+      );
+      return;
+    }
+    const level =
+      amplitude === undefined
+        ? velocity
+        : velocityToGain(velocity) * amplitude;
     this.inner.triggerAttack(
       note,
       time,
-      humanizeVelocity(this.instrument, note, t, velocity),
+      humanizeGain(this.instrument, note, t, level),
     );
   }
 

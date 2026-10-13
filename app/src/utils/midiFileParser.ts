@@ -2,6 +2,7 @@ import { Midi } from "@tonejs/midi";
 import type { SongData, SongNote, SongTrack } from "../types/song";
 import { TRACK_COLORS } from "../constants/ui";
 import { gmProgramToInstrument } from "./instrumentMapping";
+import { controlValueAt, timeSignatureOf } from "./midiControlChanges";
 
 /**
  * Parse an external MIDI file into a `SongData` payload.
@@ -67,6 +68,9 @@ export async function parseMidiFile(
         duration: Math.max(0.04, note.duration),
         velocity: note.velocity || 0.75,
         trackIndex: newIdx,
+        // CC7 (nivel de mezcla del autor) y CC11 (expresión), por nota.
+        volume: controlValueAt(track.controlChanges, 7, note.time),
+        expression: controlValueAt(track.controlChanges, 11, note.time),
       });
     });
   });
@@ -83,6 +87,7 @@ export async function parseMidiFile(
     source: sourceLabel,
     duration,
     bpm,
+    timeSignature: timeSignatureOf(midi.header),
     notes: parsedNotes,
     percussion: parsedPercussion,
     tracks: parsedTracks,

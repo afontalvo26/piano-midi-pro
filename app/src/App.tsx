@@ -34,6 +34,18 @@ import {
   loadInstrument,
   humanizeVelocity,
 } from "./engine/instrumentSources";
+import { noteOutGain, velocityToGain } from "./engine/playbackGain";
+import {
+  grooveRoleFor,
+  hashString,
+  isSustainedInstrument,
+  NO_GROOVE,
+  planGroove,
+  type GrooveResult,
+  type GrooveRole,
+  type GrooveTrackInput,
+} from "./engine/groove";
+import { controlValueAt, timeSignatureOf } from "./utils/midiControlChanges";
 import {
   createInstrumentChain,
   type InstrumentChain,
@@ -251,6 +263,70 @@ const EARLY_AUDIO_WINDOW_SEC = 6;
 function activeNotesSignature(notes: Map<number, number>): string {
   if (notes.size === 0) return "";
   return [...notes.keys()].sort((a, b) => a - b).join(",");
+}
+
+/**
+ * Arma el plan de la perilla "Groove" para la canción que se va a agendar.
+ *
+ * El plan es POR PISTA y no nota por nota porque cuatro de las reglas musicales
+ * son propiedades de la pista, no de la nota suelta:
+ *
+ *   • el tope relativo (8 % del intervalo local) y la conservación del orden
+ *     necesitan ver a las vecinas;
+ *   • los acordes tienen que compartir un único desvío;
+ *   • la jerarquía métrica necesita la posición dentro del compás.
+ *
+ * A 0 % devuelve un mapa vacío: el llamador cae a `NO_GROOVE` y no cambia nada.
+ */
+function buildGroovePlan(input: {
+  scheduledNotes: { note: SongNote; percussive: boolean }[];
+  song: SongData;
+  instruments: Record<number, string>;
+  amount: number;
+}): {
+  grooveByNoteId: Map<string, GrooveResult>;
+  roles: Record<number, GrooveRole>;
+} {
+  const { scheduledNotes, song, instruments, amount } = input;
+
+  // Agrupación por pista (la percusión ya viene marcada en `scheduledNotes`).
+  const notesByTrack = new Map<number, { key: string; time: number }[]>();
+  const percussiveTracks = new Set<number>();
+  for (const { note, percussive } of scheduledNotes) {
+    const list = notesByTrack.get(note.trackIndex);
+    if (list) list.push({ key: note.id, time: note.time });
+    else notesByTrack.set(note.trackIndex, [{ key: note.id, time: note.time }]);
+    if (percussive) percussiveTracks.add(note.trackIndex);
+  }
+
+  const roles: Record<number, GrooveRole> = {};
+  const tracks: GrooveTrackInput[] = [];
+  for (const [trackIndex, notes] of notesByTrack) {
+    const instrument =
+      instruments[trackIndex] ?? song.tracks[trackIndex]?.instrument ?? "";
+    const percussive = percussiveTracks.has(trackIndex);
+    const role = grooveRoleFor(instrument, percussive);
+    roles[trackIndex] = role;
+    tracks.push({
+      trackIndex,
+      role,
+      percussive,
+      sustained: isSustainedInstrument(instrument),
+      notes,
+    });
+  }
+
+  return {
+    grooveByNoteId: planGroove({
+      // El id de la canción es la semilla: la misma canción suena igual siempre.
+      songSeed: hashString(song.trackId || song.title),
+      bpm: song.bpm,
+      timeSignature: song.timeSignature,
+      amount,
+      tracks,
+    }),
+    roles,
+  };
 }
 
 export default function App() {
@@ -507,6 +583,18 @@ export default function App() {
   const [reverbDecay, setReverbDecay] = useLocalStorageState<number>(
     "piano_reverb_decay",
     1.5,
+  );
+  /**
+   * Perilla **Groove** (0..1), 0 = fiel al archivo MIDI.
+   *
+   * "Groove" es el término técnico-musical real (el estándar de la industria
+   * para el microtiming y la dinámica de una interpretación); no es "humanizar",
+   * que es nombre de plugin. Ver `engine/groove.ts` para las reglas musicales
+   * que respeta (orden, acordes, jerarquía métrica, topes y ausencia de deriva).
+   */
+  const [grooveAmount, setGrooveAmount] = useLocalStorageState<number>(
+    "piano_groove_amount",
+    0,
   );
   const [chorusDepth, setChorusDepth] = useLocalStorageState<number>(
     "piano_chorus_depth",
@@ -852,6 +940,12 @@ export default function App() {
     gameGhostAssist: true,
     pianoOnlyMode: false,
     trackInstruments: {} as Record<number, string>,
+    /**
+     * Perilla "Groove" (0..1). Ver engine/groove.ts. Se lee desde el ref en el
+     * momento de agendar la canción, así que mover la perilla no reagenda nada:
+     * el valor nuevo entra en el próximo play/seek/reanudar.
+     */
+    grooveAmount: 0,
   });
 
   // Synchronize state ref variables — must always assign, no early returns
@@ -910,6 +1004,7 @@ export default function App() {
   stateRef.current.gameGhostAssist = gameGhostAssist;
   stateRef.current.pianoOnlyMode = pianoOnlyMode;
   stateRef.current.trackInstruments = trackInstruments;
+  stateRef.current.grooveAmount = grooveAmount;
   gameStatsRef.current = gameStats;
   /* eslint-enable react-hooks/refs */
 
@@ -1241,6 +1336,14 @@ export default function App() {
       instrument: string = "Acoustic Grand Piano",
       eventTimestamp?: number, // DOMHighResTimeStamp from MIDI event
       scheduledAudioTime?: number, // pre-calculated audioTime from Tone.Transport.schedule
+      /**
+       * Ganancia EXTERNA de la nota (fader de pista × CC7 × CC11), ver
+       * `engine/playbackGain.ts`. Sólo la manda la reproducción de una canción:
+       * la entrada en vivo no tiene fader de pista ni CC y ya llega con su
+       * propia curva de velocity aplicada. Nunca se suma a la velocity — la
+       * velocity elige la capa grabada y tiene que quedar intacta.
+       */
+      noteGain?: number,
     ) => {
       if (!stateRef.current.isAudioReady) return;
 
@@ -1329,13 +1432,21 @@ export default function App() {
 
       // ── 1. Piano real (Salamander sampler) ──
       if (source === "piano-sampler") {
+        // El piano Salamander tiene UNA sola toma por nota: acá la velocity es
+        // la amplitud y no hay capa que elegir, así que la curva de
+        // reproducción (γ = 1.35) y la ganancia externa (fader × CC7 × CC11)
+        // entran juntas, sin ningún riesgo de cambiar el timbre.
+        const level =
+          noteGain === undefined
+            ? velocity
+            : velocityToGain(velocity) * noteGain;
         // El piano es el instrumento más usado y no pasa por la capa de fuentes:
-      // se humaniza acá para que dos notas iguales no suenen idénticas.
-      samplerRef.current?.triggerAttack(
-        bentFreq,
-        audioTime,
-        humanizeVelocity("Acoustic Grand Piano", midi, audioTime, velocity),
-      );
+        // se humaniza acá para que dos notas iguales no suenen idénticas.
+        samplerRef.current?.triggerAttack(
+          bentFreq,
+          audioTime,
+          humanizeVelocity("Acoustic Grand Piano", midi, audioTime, level),
+        );
         return;
       }
 
@@ -1343,7 +1454,10 @@ export default function App() {
       if (source === "soundfont") {
         const gmSampler = getInstrumentSync(instrument);
         if (gmSampler) {
-          gmSampler.triggerAttack(bentFreq, audioTime, velocity);
+          // 4º argumento = ganancia externa. Las voces con capas (VSCO) eligen
+          // la toma con `velocity` y aplican la ganancia después; las de una
+          // sola capa la usan como nivel. Ver `InstrumentVoice`.
+          gmSampler.triggerAttack(bentFreq, audioTime, velocity, noteGain);
           return;
         }
       }
@@ -1875,14 +1989,95 @@ export default function App() {
       return plan;
     };
 
+    // ── Perilla "Groove" (ver engine/groove.ts) ──────────────────────────────
+    //
+    // El plan es POR PISTA, no nota por nota: el orden de las notas, los acordes
+    // y la jerarquía métrica sólo se pueden respetar viendo la pista entera. Se
+    // lee del ref y no del estado para que el valor sea el de la perilla en el
+    // momento de agendar (play/seek/reanudar) sin meterla en las dependencias y
+    // reagendar por cada pixel de arrastre.
+    //
+    // A 0 % `planGroove` devuelve un mapa VACÍO: todas las notas caen a
+    // `NO_GROOVE` (offset 0, factores 1), así que los ticks y las velocities
+    // programados quedan bit a bit como si la perilla no existiera.
+    const grooveAmount = stateRef.current.grooveAmount;
+    /** Segundos por tick: convierte los milisegundos del groove a ticks exactos. */
+    const secondsPerTick = 60 / (song.bpm * Tone.Transport.PPQ);
+    const { grooveByNoteId, roles: grooveRoles } = buildGroovePlan({
+      scheduledNotes,
+      song,
+      instruments: stateRef.current.trackInstruments,
+      amount: grooveAmount,
+    });
+
+    /**
+     * Instrumentación de QA (sólo desarrollo): deja el plan agendado a la vista
+     * de `scripts/qa-groove.mjs` para poder MEDIR —no estimar— que a 0 % los
+     * ticks y las velocities son los mismos que sin la perilla, y que el fader
+     * de pista ya no toca la velocity que elige la capa de sample.
+     */
+    const qaRows: Record<string, unknown>[] | null = import.meta.env.DEV
+      ? []
+      : null;
+
     scheduledNotes.forEach(({ note, percussive }) => {
-      const duration = Math.max(0.04, note.duration);
-      const tickStart = Math.round(
+      const groove: GrooveResult = grooveByNoteId.get(note.id) ?? NO_GROOVE;
+
+      // Duración: la escrita ±8 % como máximo, más el solapamiento legato de los
+      // instrumentos sostenidos. A 0 % es exactamente `Math.max(0.04, ...)`.
+      const duration =
+        Math.max(0.04, note.duration) * groove.durationFactor +
+        groove.legatoMs / 1000;
+      const baseTick = Math.round(
         (note.time / 60) * song.bpm * Tone.Transport.PPQ,
       );
+      // Math.round(0) === 0: a 0 % el tick de inicio es el mismo entero.
+      //
+      // El desvío se redondea a ticks porque el Transport agenda en ticks: la
+      // resolución del microtiming es 1 tick (2.6 ms a 120 BPM, 1.3 ms a 240),
+      // la misma con la que el motor ya agenda todas las notas. Los topes de
+      // `groove.ts` se verifican sobre el valor en ms y el redondeo agrega como
+      // mucho medio tick, muy por debajo de la mitad del intervalo local (que es
+      // lo que garantiza que dos notas nunca se crucen).
+      const tickStart =
+        baseTick + Math.round(groove.offsetMs / 1000 / secondsPerTick);
       const tickEnd = Math.round(
         ((note.time + duration) / 60) * song.bpm * Tone.Transport.PPQ,
       );
+
+      if (qaRows) {
+        // Mismos números que usa el callback del Transport (misma fórmula).
+        const fader = stateRef.current.trackVolumes[note.trackIndex] ?? 0.8;
+        qaRows.push({
+          id: note.id,
+          track: note.trackIndex,
+          midi: note.midi,
+          percussive,
+          role: grooveRoles[note.trackIndex] ?? "harmony",
+          time: note.time,
+          ticks: tickStart,
+          ticksEnd: tickEnd,
+          offsetMs: groove.offsetMs,
+          velocityIn: note.velocity,
+          velocityOut:
+            groove.velocityFactor === 1
+              ? note.velocity
+              : Math.max(
+                  0.02,
+                  Math.min(1, note.velocity * groove.velocityFactor),
+                ),
+          durationFactor: groove.durationFactor,
+          legatoMs: groove.legatoMs,
+          volume: note.volume ?? null,
+          expression: note.expression ?? null,
+          fader,
+          gain: noteOutGain({
+            volume: note.volume,
+            expression: note.expression,
+            fader,
+          }),
+        });
+      }
 
       // Track which scheduled notes actually triggered (for note-off
       // pairing). We use a closed-over flag per note so that mute/solo
@@ -1919,6 +2114,25 @@ export default function App() {
             ? liveVolumes[note.trackIndex]
             : 0.8;
 
+        // ── Fidelidad al archivo: fader de pista × CC7 × CC11 ──
+        //
+        // La velocity del archivo NO se toca (es la que elige la capa de sample
+        // y el timbre): esta ganancia entra después, en amplitud. Con esto el
+        // fader baja el volumen de la pista en vez de cambiarle el sonido, y el
+        // CC7/CC11 que el autor escribió por fin se escuchan.
+        const noteGainValue = noteOutGain({
+          volume: note.volume,
+          expression: note.expression,
+          fader: trackVol,
+        });
+        // La perilla Groove sólo varía la dinámica, y a 0 % el factor es 1: en
+        // ese caso la velocity del archivo viaja intacta (sin recortes), que es
+        // lo que hace verificable la identidad bit a bit.
+        const velocity =
+          groove.velocityFactor === 1
+            ? note.velocity
+            : Math.max(0.02, Math.min(1, note.velocity * groove.velocityFactor));
+
         const registry = engineRegistryRef.current;
         // One hash lookup instead of a flatMap + linear scan per note.
         const scoreNote = scoreNotesById.get(note.id);
@@ -1929,8 +2143,7 @@ export default function App() {
         // PercussionEngine sintetizado (los osciladores ya no se usan nunca).
         if (percussive) {
           const drum = drumKitRef.current;
-          const hitVelocity = Math.max(0.05, Math.min(1, note.velocity * trackVol));
-          if (drum && !drum.trigger(note.midi, hitVelocity, audioTime)) {
+          if (drum && !drum.trigger(note.midi, velocity, audioTime, noteGainValue)) {
             drum.noteSkipped(note.midi);
           }
           return;
@@ -1964,13 +2177,17 @@ export default function App() {
           // real. Acá vivía el `TrumpetEngine`, un motor de osciladores con
           // articulaciones: sonaba a trompeta sintética y el dueño del proyecto
           // lo rechazó explícitamente ("solo sonidos reales").
+          //
+          // `velocity` va intacta (elige capa) y la ganancia viaja aparte: es el
+          // arreglo del fader que antes cambiaba el timbre en vez del volumen.
           triggerAttack(
             note.midi,
-            note.velocity * trackVol,
+            velocity,
             note.trackIndex,
             trackInst,
             undefined,
             audioTime,
+            noteGainValue,
           );
         }
         // Increment count for this MIDI note
@@ -1992,6 +2209,17 @@ export default function App() {
         }
       }, tickEnd + "i");
     });
+
+    if (qaRows) {
+      (window as unknown as { __PMP_GROOVE__?: unknown }).__PMP_GROOVE__ = {
+        amount: grooveAmount,
+        bpm: song.bpm,
+        timeSignature: song.timeSignature ?? null,
+        trackId: song.trackId ?? null,
+        rows: qaRows,
+      };
+    }
+
     // Reads runtime mute/solo/pianoOnly/volumes from stateRef inside the
     // schedule callback, so toggling them mid-playback affects subsequent
     // notes immediately without rescheduling. Only re-schedules when the
@@ -3055,6 +3283,10 @@ export default function App() {
             duration: Math.max(0.04, note.duration),
             velocity: note.velocity || 0.75,
             trackIndex: newIdx,
+            // CC7 (nivel de mezcla) y CC11 (expresión) que el archivo trae
+            // escritos, muestreados en el instante de la nota.
+            volume: controlValueAt(track.controlChanges, 7, note.time),
+            expression: controlValueAt(track.controlChanges, 11, note.time),
           });
         });
       });
@@ -3072,6 +3304,7 @@ export default function App() {
         source: "Archivo subido",
         duration,
         bpm,
+        timeSignature: timeSignatureOf(midi.header),
         notes: parsedNotes,
         percussion: parsedPercussion,
         tracks: parsedTracks,
@@ -6343,6 +6576,54 @@ export default function App() {
                       }}
                     />
                     <span>{Math.round(chorusDepth * 100)}%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Perilla Groove ──────────────────────────────────────────
+                  Es la traducción a la UI de `engine/groove.ts`: 0 % = fiel al
+                  archivo MIDI, 100 % = la banda "respira". Se usa el mismo
+                  patrón que el resto de Ajustes (label + subtítulo + slider
+                  `.slider-custom` + valor), y persiste en localStorage. */}
+              <div className="settings-group">
+                <h3>Interpretación (Groove)</h3>
+
+                <div className="settings-row">
+                  <div className="settings-col">
+                    <label>Groove</label>
+                    <span>
+                      Microtiming y dinámica de la interpretación: cada rol
+                      (percusión, bajo, armonía, melodía) cae en un punto
+                      ligeramente distinto del pulso y con una leve variación de
+                      intensidad, como una banda real. A 0 % suena exactamente
+                      como el archivo MIDI. El pulso no se mueve: los tiempos
+                      fuertes quedan fijos y la expresión vive en las
+                      subdivisiones. Se aplica al reproducir una canción (nunca a
+                      lo que tocás vos).
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      width: "250px",
+                    }}
+                  >
+                    <input
+                      type="range"
+                      className="slider-custom"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={grooveAmount}
+                      aria-label="Groove — microtiming y dinámica de la interpretación"
+                      title="Groove — 0 % fiel al MIDI, 100 % máxima expresión"
+                      onChange={(e) => setGrooveAmount(Number(e.target.value))}
+                    />
+                    <span style={{ minWidth: "45px", textAlign: "right" }}>
+                      {Math.round(grooveAmount * 100)}%
+                    </span>
                   </div>
                 </div>
               </div>

@@ -206,8 +206,13 @@ export class DrumKitEngine {
   /**
    * Dispara una pieza. Devuelve `false` cuando todavía no hay sample (el
    * llamador usa el motor sintetizado para no perder el golpe).
+   *
+   * `velocity` es la del archivo y elige la dinámica del golpe (curva γ = 1.35,
+   * ver `velocityToGain` local); `outGain` es la ganancia externa de la nota
+   * (fader de pista × CC7 × CC11, ver `playbackGain.ts`) y se aplica aparte
+   * para que mover un fader no cambie el golpe elegido.
    */
-  trigger(note: number, velocity: number, time?: number): boolean {
+  trigger(note: number, velocity: number, time?: number, outGain = 1): boolean {
     const list = this.variants.get(note);
     if (!list || list.length === 0) return false;
 
@@ -216,7 +221,10 @@ export class DrumKitEngine {
 
     // La ganancia de la pieza ya incluye nivel medido + ajuste + bus.
     const pieceDb = this.pieceGain.get(note) ?? -6;
-    const gain = velocityToGain(velocity) * Math.pow(10, pieceDb / 20);
+    const gain =
+      velocityToGain(velocity) *
+      Math.max(0, outGain) *
+      Math.pow(10, pieceDb / 20);
 
     if (this.voices.length >= MAX_VOICES) {
       const oldest = this.voices.shift();

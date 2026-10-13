@@ -44,6 +44,20 @@ export type SongNote = {
   duration: number;
   velocity: number;
   trackIndex: number;
+  /**
+   * CC7 (Channel Volume) del canal en el instante de la nota, normalizado 0..1.
+   *
+   * Es el nivel de mezcla que el AUTOR le dio a esa pista. Ausente cuando el
+   * archivo no trae CC7: en ese caso el motor no atenúa nada (ganancia 1) y el
+   * nivel queda como estaba. La conversión a ganancia (ley del GM2) vive en
+   * `engine/playbackGain.ts` para que el dato guardado siga siendo el del MIDI.
+   */
+  volume?: number;
+  /**
+   * CC11 (Expression) del canal en el instante de la nota, normalizado 0..1.
+   * Es la expresión continua (crescendos, fraseo). Ausente = sin CC11.
+   */
+  expression?: number;
 };
 
 export type SongTrack = {
@@ -86,6 +100,15 @@ export type SongData = {
    */
   percussion?: SongNote[];
   tracks: SongTrack[];
+  /**
+   * Compás del archivo ([numerador, denominador], p. ej. [4,4] o [6,8]).
+   *
+   * Lo usa la perilla "Groove" para la jerarquía métrica: el desvío de una nota
+   * depende de si cae en el tiempo 1, en un tiempo fuerte, en uno débil o en un
+   * contratiempo (ver engine/groove.ts). Sin este dato habría que asumir 4/4 y
+   * un vals o un bambuco quedarían mal medidos.
+   */
+  timeSignature?: [number, number];
   /** Optional artist when known (e.g. demo songs). Empty for user uploads. */
   artist?: string;
   /** Optional genre tag for categorisation. */

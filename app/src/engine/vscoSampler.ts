@@ -20,6 +20,7 @@
 import * as Tone from "tone";
 import { VSCO_INSTRUMENTS } from "./vscoManifest";
 import { prepareSampleBuffer, releaseForInstrument } from "./sampleProcessing";
+import { velocityToGain } from "./playbackGain";
 import type { VscoSample } from "./vscoManifest";
 import {
   TARGET_MELODIC_RMS_DB,
@@ -29,12 +30,40 @@ import {
   trimDb,
 } from "./sampleLevels";
 
-/** Lo mínimo que el reproductor necesita de una fuente de sonido. */
+/**
+ * Lo mínimo que el reproductor necesita de una fuente de sonido.
+ *
+ * CONTRATO DE GANANCIA (importante)
+ * ─────────────────────────────────
+ * `velocity` y `amplitude` son cosas distintas a propósito:
+ *
+ *   • `velocity` es la del ARCHIVO: elige la CAPA grabada (timbre) y la
+ *     dinámica dentro de la capa. No se toca nunca.
+ *   • `amplitude` es la ganancia externa de la nota (fader de pista × CC7 ×
+ *     CC11, ver `playbackGain.ts`). Se aplica DESPUÉS de elegir la capa, así
+ *     que bajar una pista la baja en volumen sin cambiarle el sonido — que era
+ *     exactamente el bug de diseño: antes el fader se multiplicaba por la
+ *     velocity y lo que entraba era otra toma, más suave.
+ *
+ * Si `amplitude` se omite, la voz se comporta como siempre (velocity = nivel);
+ * es el camino de la entrada en vivo, que ya trae su propia curva aplicada.
+ */
 export interface InstrumentVoice {
-  triggerAttack(note: Tone.Unit.Frequency, time?: Tone.Unit.Time, velocity?: number): void;
+  triggerAttack(
+    note: Tone.Unit.Frequency,
+    time?: Tone.Unit.Time,
+    velocity?: number,
+    amplitude?: number,
+  ): void;
   triggerRelease(note: Tone.Unit.Frequency, time?: Tone.Unit.Time): void;
   releaseAll(): void;
   dispose(): void;
+  /**
+   * `true` cuando la voz elige capa por velocity. Quien la envuelva tiene que
+   * respetarlo: con capas, la amplitud va en el 4º argumento (no en la
+   * velocity) o se cambiaría el timbre al mover un fader.
+   */
+  layered?: boolean;
 }
 
 /** Notas MIDI que la fuente tiene grabadas, ordenadas. */
@@ -95,6 +124,8 @@ class LayeredSampler implements InstrumentVoice {
   /** Capa de velocidad → variantes round-robin. */
   private groups: Tone.Sampler[][] = [];
   private nextVariant: number[] = [];
+  /** Esta voz SÍ elige capa por velocity (ver `InstrumentVoice`). */
+  readonly layered = true;
 
   constructor(groups: Tone.Sampler[][]) {
     this.groups = groups.filter((g) => g.length > 0);
@@ -137,14 +168,26 @@ class LayeredSampler implements InstrumentVoice {
     return this.groups.reduce((n, g) => n + g.length, 0);
   }
 
-  triggerAttack(note: Tone.Unit.Frequency, time?: Tone.Unit.Time, velocity = 1): void {
+  triggerAttack(
+    note: Tone.Unit.Frequency,
+    time?: Tone.Unit.Time,
+    velocity = 1,
+    amplitude?: number,
+  ): void {
     const layer = this.layerFor(velocity);
     const group = this.groups[layer];
     if (!group || group.length === 0) return;
     const index = (this.nextVariant[layer] ?? 0) % group.length;
     this.nextVariant[layer] = index + 1;
-    // La dinámica dentro de la capa la da el propio sampler (volumen por nota).
-    group[index]?.triggerAttack(note, time, velocity);
+    // La CAPA se eligió con la velocity del archivo (arriba). La dinámica
+    // dentro de la capa la da el propio sampler (volumen por nota), y la
+    // ganancia externa (fader/CC7/CC11) se suma ACÁ, después de la decisión de
+    // capa: mover el fader no puede cambiar la toma elegida.
+    const level =
+      amplitude === undefined
+        ? velocity
+        : velocityToGain(velocity) * Math.max(0, amplitude);
+    group[index]?.triggerAttack(note, time, level);
   }
 
   triggerRelease(note: Tone.Unit.Frequency, time?: Tone.Unit.Time): void {

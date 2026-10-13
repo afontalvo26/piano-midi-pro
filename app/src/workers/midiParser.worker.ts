@@ -8,6 +8,7 @@ import { Midi } from "@tonejs/midi";
 import { extractLyrics } from "../utils/midiLyrics";
 import type { LyricLine } from "../utils/midiLyrics";
 import { gmProgramToInstrument } from "../utils/instrumentMapping";
+import { controlValueAt, timeSignatureOf } from "../utils/midiControlChanges";
 
 const TRACK_COLORS = [
   "#a78bfa",
@@ -52,6 +53,10 @@ interface ParsedNoteOut {
   duration: number;
   velocity: number;
   trackIndex: number;
+  /** CC7 del canal en el instante de la nota (0..1). Ausente = el archivo no trae. */
+  volume?: number;
+  /** CC11 del canal en el instante de la nota (0..1). Ausente = el archivo no trae. */
+  expression?: number;
 }
 
 interface ParsedSongOut {
@@ -59,6 +64,8 @@ interface ParsedSongOut {
   source: string;
   duration: number;
   bpm: number;
+  /** Compás del archivo, para la jerarquía métrica del Groove. */
+  timeSignature?: [number, number];
   notes: ParsedNoteOut[];
   /** Canal 10: golpes de percusión, aparte de las notas tocables. */
   percussion: ParsedNoteOut[];
@@ -121,6 +128,11 @@ self.addEventListener("message", (event: MessageEvent<ParseRequest>) => {
           duration: Math.max(0.04, note.duration),
           velocity: note.velocity || 0.75,
           trackIndex: newIdx,
+          // CC7 (nivel de mezcla del autor) y CC11 (expresión) muestreados en el
+          // instante de la nota: es lo que el archivo dice y hasta ahora se
+          // descartaba. Ver engine/playbackGain.ts.
+          volume: controlValueAt(track.controlChanges, 7, note.time),
+          expression: controlValueAt(track.controlChanges, 11, note.time),
         });
       });
     });
@@ -148,6 +160,7 @@ self.addEventListener("message", (event: MessageEvent<ParseRequest>) => {
         source: msg.source ?? "Demo incluida",
         duration,
         bpm,
+        timeSignature: timeSignatureOf(midi.header),
         notes,
         percussion,
         tracks,

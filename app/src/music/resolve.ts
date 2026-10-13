@@ -17,6 +17,7 @@ import type { SongData, SongNote, SongTrack, Genre } from "../types/song";
 import { TRACK_COLORS } from "../constants/ui";
 import { gmProgramToInstrument } from "../utils/instrumentMapping";
 import { extractLyrics } from "../utils/midiLyrics";
+import { controlValueAt, timeSignatureOf } from "../utils/midiControlChanges";
 import { parseDemoInWorker } from "../utils/midiWorkerClient";
 import { DEMO_SONGS } from "../constants/demoSongs";
 import { isDemoTrackId, parseTrackId } from "./ids";
@@ -138,6 +139,9 @@ export async function parseMidiBytes(
         duration: Math.max(0.04, note.duration),
         velocity: note.velocity || 0.75,
         trackIndex: newIdx,
+        // CC7 (nivel de mezcla) y CC11 (expresión) del archivo, por nota.
+        volume: controlValueAt(track.controlChanges, 7, note.time),
+        expression: controlValueAt(track.controlChanges, 11, note.time),
       });
     });
   });
@@ -153,6 +157,7 @@ export async function parseMidiBytes(
     source: "Demo incluida",
     duration,
     bpm: Math.round(midi.header.tempos[0]?.bpm || options.defaultBpm || 120),
+    timeSignature: timeSignatureOf(midi.header),
     notes,
     percussion,
     tracks,
