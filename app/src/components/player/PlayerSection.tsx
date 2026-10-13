@@ -228,12 +228,18 @@ export function PlayerSection({
     if (!lyricsOpen) return;
     // Un único bucle para el panel. `getPosition()` es la fuente de verdad del
     // transporte y se lee de forma imperativa; pasarla por estado a 60 fps
-    // volvería a renderizar el armazón entero, y la letra no necesita más de
-    // ~10 Hz para que la palabra activa cambie cuando corresponde.
+    // volvería a renderizar el armazón entero.
+    //
+    // 45 ms (~22 Hz) y no 100 ms: el período del reloj es el error máximo con el
+    // que puede encenderse una palabra, así que a 10 Hz el resaltado llegaba hasta
+    // 100 ms tarde (medido: 8 a 99 ms en 5 puntos). A ~22 Hz el peor caso baja a
+    // ~50 ms, que ya está por debajo de la sílaba más corta del corpus (0,152 s) y
+    // el ojo no lo distingue del audio. El costo es un re-render del panel por
+    // tick, y sólo de la línea activa: las demás filas están memorizadas.
     let frame = 0;
     let last = -1;
     const tick = (now: number) => {
-      if (now - last > 90) {
+      if (now - last > 45) {
         last = now;
         setLyricsTime(player.getPosition());
       }

@@ -514,53 +514,85 @@ const minDelta = validos.length ? Math.min(...validos) : null;
 qa.add({
   control: "Letra: la palabra activa se enciende en el instante que dice el archivo",
   selector: ".lyrics-word--active",
-  result: validos.length >= 5 && minDelta >= -40 && maxDelta <= 200 ? "OK" : "FAIL",
+  result: validos.length >= 5 && minDelta >= -40 && maxDelta <= 110 ? "OK" : "FAIL",
   evidence:
     `en ${muestras.length} cambios de palabra observados a 10 ms, se comparó el tiempo que el archivo le da a la sílaba ` +
     `(data-word-time) contra la posición del transporte leída en ese mismo instante, en 5 puntos distintos: ` +
     cinco.map((m, i) => `${m.tArchivo.toFixed(2)}s→${m.tTransporte?.toFixed(2)}s (${deltas[i]?.toFixed(0)} ms)`).join(" · ") +
     `. Δ mínima ${minDelta?.toFixed(0)} ms, máxima ${maxDelta?.toFixed(0)} ms. El retardo esperado es el del reloj del panel ` +
-    `(10 Hz = hasta 100 ms) más un frame: el resaltado nunca se adelanta al audio y nunca llega más de ~1/5 s tarde`,
+    `(~22 Hz = hasta 45 ms) más un frame: el resaltado nunca se adelanta al audio y nunca llega más de ~1/10 s tarde`,
   shot: `${DIR}/06-resaltado-en-movimiento.png · ${DIR}/07-resaltado-en-movimiento-2.png`,
   extra: { cinco, deltas, observados: muestras.length, minDelta, maxDelta },
 });
 
 // ── 8. Click real con la canción sonando ────────────────────────────────────
 //
-// Se elige una palabra que ya esté A LA VISTA (unos renglones por debajo de la
-// línea activa) y se congela el autodesplazamiento antes de tocar. Sin eso, la
-// prueba es inestable por una razón que no tiene nada que ver con la app: entre
-// que Playwright resuelve el elemento y suelta el botón, el panel puede estar
-// desplazándose suavemente hacia la línea activa, y el click aterriza en otra
-// palabra. Congelando el autodesplazamiento (el mismo mecanismo que usa el panel
-// cuando el usuario toca el scroll) el click cae donde se apunta.
-const antesSonando = await page.evaluate(() => {
+// Es una prueba de RATÓN de verdad, pero no se le pide a Playwright que resuelva
+// el elemento por su cuenta: entre que lo resuelve y suelta el botón, el panel
+// puede estar desplazándose suavemente hacia la línea activa y el click aterriza
+// en otra palabra (pasó, y hacía fallar la fila sin que la app tuviera nada roto).
+// Así que se congela el autodesplazamiento —el mismo mecanismo que usa el panel
+// cuando el usuario toca el scroll—, se centra el objetivo, se COMPRUEBA con
+// `elementFromPoint` que en ese píxel está la palabra elegida y recién ahí se
+// suelta el botón ahí. Sigue siendo el camino real: pointerdown/up del navegador
+// sobre el elemento, con su handler `onClick`.
+const objetivo = await page.evaluate(() => {
   const contenedor = document.querySelector(".lyrics-lines");
   contenedor.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
   const activa = document.querySelector(".lyrics-line--active");
   const iActiva = Number(activa?.getAttribute("data-line") ?? 0);
-  // Cuatro renglones más abajo: visible sin desplazar nada.
-  const linea = document.querySelector(`.lyrics-line[data-line="${iActiva + 4}"]`) ?? activa;
-  const palabras = [...linea.querySelectorAll(".lyrics-word[data-word-time]")];
-  const nodo = palabras[Math.min(1, palabras.length - 1)] ?? palabras[0];
+  const panel = document.querySelector(".pm-drawer--lyrics");
+  const cajaPanel = panel.getBoundingClientRect();
+  // Tres renglones más abajo y con la caja entera dentro del panel: así el
+  // desplazamiento no tiene que mover nada para que el click llegue.
+  let nodo = null;
+  let linea = null;
+  for (let d = 3; d <= 8 && !nodo; d++) {
+    const candidata = document.querySelector(`.lyrics-line[data-line="${iActiva + d}"]`);
+    if (!candidata) continue;
+    candidata.scrollIntoView({ block: "center" });
+    const palabras = [...candidata.querySelectorAll(".lyrics-word[data-word-time]")];
+    for (const p of palabras) {
+      const r = p.getBoundingClientRect();
+      if (r.top > cajaPanel.top + 4 && r.bottom < cajaPanel.bottom - 4 && r.width > 0) {
+        nodo = p;
+        linea = candidata;
+        break;
+      }
+    }
+  }
+  if (!nodo) return null;
+  const r = nodo.getBoundingClientRect();
   return {
     lineaIndice: Number(linea.getAttribute("data-line")),
     lineaActivaAntes: iActiva,
     palabra: nodo.getAttribute("data-word"),
     tPalabra: Number(nodo.getAttribute("data-word-time")),
     posicion: Number(document.querySelector(".lyrics-panel").getAttribute("data-current-time")),
-    visible: nodo.getBoundingClientRect().top > 0 &&
-      nodo.getBoundingClientRect().bottom < window.innerHeight,
+    x: r.left + r.width / 2,
+    y: r.top + r.height / 2,
   };
 });
-await page.waitForTimeout(400);
+await page.waitForTimeout(500);
+// El punto tiene que seguir siendo el mismo después de la espera (si el panel se
+// movió, la prueba no valdría y hay que decirlo).
+const punto = await page.evaluate(
+  ({ x, y, palabra, lineaIndice }) => {
+    const el = document.elementFromPoint(x, y);
+    const objetivo = el?.closest?.(".lyrics-word");
+    return {
+      esElObjetivo: objetivo?.getAttribute("data-word") === palabra,
+      linea: objetivo?.closest(".lyrics-line")?.getAttribute("data-line"),
+      coincideLinea: Number(objetivo?.closest(".lyrics-line")?.getAttribute("data-line")) === lineaIndice,
+    };
+  },
+  { x: objetivo.x, y: objetivo.y, palabra: objetivo.palabra, lineaIndice: objetivo.lineaIndice },
+);
 await shot("08-antes-del-click-sonando");
-await page
-  .locator(`.lyrics-line[data-line="${antesSonando.lineaIndice}"] .lyrics-word`, {
-    hasText: antesSonando.palabra,
-  })
-  .first()
-  .click();
+if (!punto.esElObjetivo) {
+  console.log(`\n### N/V: el punto a clickear ya no era la palabra elegida (${JSON.stringify(punto)}); no se mide`);
+}
+await page.mouse.click(objetivo.x, objetivo.y);
 await page.waitForTimeout(900);
 const trasClickSonando = await page.evaluate(`(() => {
   const activa = document.querySelector(".lyrics-line--active");
@@ -573,27 +605,28 @@ const trasClickSonando = await page.evaluate(`(() => {
 await shot("09-despues-del-click-sonando");
 // La línea activa es la prueba que NO depende del reloj: el salto cayó en la línea
 // de la palabra tocada, no en la que estaba sonando.
-const aciertaLinea = trasClickSonando.lineaActiva === antesSonando.lineaIndice;
+const aciertaLinea = trasClickSonando.lineaActiva === objetivo.lineaIndice;
 console.log(
-  `\n### CLICK REAL con la canción sonando\n   línea activa antes: ${antesSonando.lineaActivaAntes} ` +
-    `(posición ${antesSonando.posicion.toFixed(3)}s)\n   click en ${JSON.stringify(antesSonando.palabra)} de la línea ` +
-    `${antesSonando.lineaIndice}, tiempo ${antesSonando.tPalabra.toFixed(3)}s (visible sin desplazar: ${antesSonando.visible})\n` +
+  `\n### CLICK REAL con la canción sonando\n   línea activa antes: ${objetivo.lineaActivaAntes} ` +
+    `(posición ${objetivo.posicion.toFixed(3)}s)\n   click de ratón en (${objetivo.x.toFixed(0)}, ${objetivo.y.toFixed(0)}) sobre ` +
+    `${JSON.stringify(objetivo.palabra)} de la línea ${objetivo.lineaIndice}, tiempo ${objetivo.tPalabra.toFixed(3)}s\n` +
+    `   el punto verificado con elementFromPoint era esa palabra: ${punto.esElObjetivo}\n` +
     `   a los ~0,9 s: posición ${trasClickSonando.posicion.toFixed(3)}s y línea activa ${trasClickSonando.lineaActiva}\n` +
     `   la línea activa es la tocada: ${aciertaLinea}`,
 );
 qa.add({
   control: "Letra (1235): con la canción sonando, un click real lleva a la línea tocada",
   selector: ".lyrics-word",
-  result: aciertaLinea ? "OK" : "FAIL",
+  result: aciertaLinea && punto.esElObjetivo ? "OK" : "FAIL",
   evidence:
-    `sonando la línea ${antesSonando.lineaActivaAntes} (posición ${antesSonando.posicion.toFixed(3)}s) se hizo un click REAL de ratón ` +
-    `sobre ${JSON.stringify(antesSonando.palabra)}, de la línea ${antesSonando.lineaIndice} — cuatro renglones más abajo y visible sin ` +
-    `desplazar (${antesSonando.visible}) — cuyo tiempo en el archivo es ${antesSonando.tPalabra.toFixed(3)}s. 0,9 s después la posición ` +
-    `es ${trasClickSonando.posicion.toFixed(3)}s y la línea resaltada es la ${trasClickSonando.lineaActiva}, ` +
+    `sonando la línea ${objetivo.lineaActivaAntes} (posición ${objetivo.posicion.toFixed(3)}s) se hizo un click REAL de ratón en ` +
+    `(${objetivo.x.toFixed(0)}, ${objetivo.y.toFixed(0)}), punto que \`document.elementFromPoint\` confirmó que era la palabra ` +
+    `${JSON.stringify(objetivo.palabra)} de la línea ${objetivo.lineaIndice} (tiempo en el archivo ${objetivo.tPalabra.toFixed(3)}s). ` +
+    `0,9 s después la posición es ${trasClickSonando.posicion.toFixed(3)}s y la línea resaltada es la ${trasClickSonando.lineaActiva}, ` +
     `${JSON.stringify(trasClickSonando.textoLineaActiva)}: la de la palabra tocada. La línea activa no depende del reloj, así que es la ` +
     `prueba de que el salto cayó en el lugar tocado`,
   shot: `${DIR}/08-antes-del-click-sonando.png · ${DIR}/09-despues-del-click-sonando.png`,
-  extra: { antesSonando, trasClickSonando, aciertaLinea },
+  extra: { objetivo, punto, trasClickSonando, aciertaLinea },
 });
 
 // ── 8. Cerrar con el mismo ícono ────────────────────────────────────────────
