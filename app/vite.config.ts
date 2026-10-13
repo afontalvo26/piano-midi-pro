@@ -33,6 +33,10 @@ export default defineConfig({
   server: {
     port: 1234,
     strictPort: true,
+    // `host: true` escucha en IPv4 **y** IPv6. Sin esto Vite quedaba sólo en
+    // `::1`: un navegador que resuelve `localhost` a 127.0.0.1 veía la app
+    // caída aunque el servidor estuviera vivo (nos pasó y costó encontrarlo).
+    host: true,
     fs: {
       // El dev server tiene que poder servir `packages/`, que está fuera de
       // `app/`. La raíz del repo contiene a `app/`, así que no se pierde nada.
@@ -42,6 +46,7 @@ export default defineConfig({
   preview: {
     port: 1234,
     strictPort: true,
+    host: true,
   },
   optimizeDeps: {
     // Pre-bundle react-canvas-lite as ESM (it uses WASM embedded inline — no separate fetch needed)

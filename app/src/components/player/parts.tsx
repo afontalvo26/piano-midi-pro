@@ -11,6 +11,7 @@ import { memo, useCallback } from "react";
 import type { ChangeEvent, MouseEvent, ReactNode } from "react";
 import type { TrackMeta } from "../../music/types";
 import { coverStyle, initialsFor, paletteForTrack } from "../../music/covers";
+import { useCoverUrl } from "../../music/coverStore";
 import { usePlayer } from "../../music/PlayerContext";
 import { toast } from "../../music/toast";
 
@@ -43,8 +44,10 @@ export type CoverProps = {
 };
 
 /**
- * Deterministic generated artwork: genre gradient + initials. No image files
- * ship with the app, so this *is* the art.
+ * Track artwork. The shipped catalogue has real cover art (see
+ * `music/coverStore`), so a demo track renders its JPEG; everything else —
+ * uploads, playlists, artists — keeps the deterministic genre gradient with
+ * initials that used to be the only option.
  */
 export const Cover = memo(function Cover({
   meta,
@@ -58,6 +61,11 @@ export const Cover = memo(function Cover({
   className = "",
   label,
 }: CoverProps) {
+  // Hooks first (unconditionally), then the decision: a caller-supplied
+  // gradient is an explicit choice (playlists, artists) and must win over
+  // whatever art the track happens to have.
+  const trackArt = useCoverUrl(meta?.id);
+  const coverUrl = gradient ? null : trackArt;
   const palette = gradient
     ? { color: gradient.color, colorAlt: gradient.colorAlt, ink: "#ffffff" }
     : paletteForTrack(meta);
@@ -66,18 +74,27 @@ export const Cover = memo(function Cover({
 
   return (
     <div
-      className={`pm-cover pm-cover--${size} pm-cover--${shape} ${className}`}
+      className={`pm-cover pm-cover--${size} pm-cover--${shape} ${
+        coverUrl ? "pm-cover--art" : ""
+      } ${className}`}
       style={{ ...coverStyle(palette), width: pixels, height: pixels }}
       data-playing={isPlaying || undefined}
     >
+      {/* The gradient stays underneath the photo: it is the backdrop while the
+          JPEG decodes, and the whole cover if the file is missing. */}
+      {coverUrl && (
+        <img className="pm-cover__img" src={coverUrl} alt="" loading="lazy" decoding="async" />
+      )}
       {emoji ? (
         <span className="pm-cover__emoji" aria-hidden="true">
           {emoji}
         </span>
       ) : (
-        <span className="pm-cover__initials" aria-hidden="true">
-          {initialsFor(text)}
-        </span>
+        !coverUrl && (
+          <span className="pm-cover__initials" aria-hidden="true">
+            {initialsFor(text)}
+          </span>
+        )
       )}
       {meta?.hasLyrics && (
         <span className="pm-cover__lyrics" title="Trae letra" aria-hidden="true">

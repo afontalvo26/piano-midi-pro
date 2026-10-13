@@ -39,6 +39,11 @@ export type TrackMeta = {
    * curated packs actually are.
    */
   album: string;
+  /**
+   * Cover art is deliberately absent: the real artwork lives in
+   * `public/covers/manifest.json` and is looked up by `id` through
+   * `music/coverStore`, which keeps this persisted table free of 157 URLs.
+   */
   genre?: Genre;
   duration: number;
   bpm: number;

@@ -49,9 +49,13 @@ nul
 /.playwright-mcp/
 
 # Playwright artifacts (see playwright.config.ts)
-/test-results/
-/playwright-report/
-/blob-report/
+#
+# Sin la barra inicial: `app/test-results/` y `player/test-results/` son
+# exactamente los mismos artefactos que los de la raíz, y con `/test-results/`
+# quedaban sin ignorar (aparecían como decenas de archivos sin trackear).
+test-results/
+playwright-report/
+blob-report/
 /playwright/.cache/
 
 # Demo MIDI / RIVE files at root (use app/public/demo/ instead)
@@ -72,6 +76,20 @@ coverage/
 
 # Salidas del runner acotado (scripts/run-bounded.ps1)
 /.logs/
+
+# Sondas y volcados de un solo uso de `scripts/` (prefijo `tmp-` por convención
+# del repo). Son instrumentos de una investigación puntual, no herramientas:
+# lo que se quiere conservar se renombra sin el prefijo (como los `qa-*.mjs`).
+/scripts/tmp-*
+# Volcado del descubrimiento de carátulas: lleva `generatedAt` adentro, o sea que
+# es salida de una corrida, no fuente. Los scripts que lo producen sí se versionan.
+/scripts/covers-found.json
+# Caché de Python de las herramientas de `scripts/tools/`
+__pycache__/
+*.pyc
+# MIDI bajados por los scripts de descubrimiento: contenido de terceros y
+# regenerable, no fuente del proyecto.
+/downloads_midi/
 
 # Volcados crudos de la investigación de librerías de samples.
 # Son listados de API regenerables (miles de entradas, MBs); el informe con las

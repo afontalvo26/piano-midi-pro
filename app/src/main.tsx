@@ -10,10 +10,15 @@ import {
 } from "./contexts";
 import { PlayerProvider } from "./music/PlayerContext";
 import { initLibraryStore } from "./music/libraryStore";
+import { loadCoverManifest } from "./music/coverStore";
 
 // Hydrate the player's catalogue/playlists/likes before the first paint so the
 // library does not flash an empty state. localStorage-only and synchronous.
 initLibraryStore();
+
+// Real cover art for the shipped catalogue. Static file, one request, and the
+// generated gradients cover every render until it lands.
+void loadCoverManifest();
 
 // Register service worker for offline support — non-blocking, only in production
 if ("serviceWorker" in navigator && import.meta.env.PROD) {

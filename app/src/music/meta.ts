@@ -1,11 +1,14 @@
 // ============================================================
 // music/meta — derives browsing metadata from raw `SongData`.
 //
-// The catalogue has no album tag, no cover art and no year. Rather than
-// asking the user to fill 117 forms, everything Spotify needs is derived:
-// the artist comes from the tag the demo pack already carries, and the
-// "album" is the artist itself — which is exactly what these curated packs
-// are (one performer, many songs).
+// The catalogue ships no album tag and no year. Rather than asking the user to
+// fill 157 forms, everything Spotify needs is derived: the artist comes from the
+// tag the demo pack already carries, and the "album" is the artist itself —
+// which is exactly what these curated packs are (one performer, many songs).
+//
+// Cover art is the one exception, and it is not derived here: it is a real
+// Spotify image resolved per track id and held by `music/coverStore`, so this
+// table stays small enough to survive `localStorage`.
 // ============================================================
 
 import type { Playlist, PlaylistView, TrackMeta, TrackSourceInfo } from "./types";

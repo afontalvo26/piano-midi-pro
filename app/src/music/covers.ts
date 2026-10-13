@@ -1,10 +1,12 @@
 // ============================================================
 // music/covers — deterministic generated artwork.
 //
-// The catalogue ships no images and 117 MIDI files have no embedded art.
-// Instead of shipping placeholder JPGs, every track gets artwork derived
-// from its own genre palette + initials, so the grid looks intentional and
-// the same song always renders the same cover.
+// This is the FALLBACK, not the only option any more: the shipped catalogue now
+// resolves real Spotify artwork per track through `music/coverStore`, and
+// `Cover` prefers it. What still lands here is everything with no cover of its
+// own — user uploads, playlists, artist and genre tiles — where a genre
+// gradient + initials beats a placeholder JPG: the same song always renders the
+// same cover, and the grid looks intentional.
 // ============================================================
 
 import { GENRE_META } from "../types/song";

@@ -1,9 +1,10 @@
 // Piano MIDI Pro service worker — minimal offline shell
 // Versioned cache name; bumping forces clients to upgrade
-const VERSION = "v2";
+const VERSION = "v3";
 const APP_CACHE = `pmp-app-${VERSION}`;
 const SAMPLE_CACHE = `pmp-samples-${VERSION}`;
 const DEMO_CACHE = `pmp-demos-${VERSION}`;
+const COVER_CACHE = `pmp-covers-${VERSION}`;
 
 // Always cache these on install
 const PRECACHE_URLS = ["/", "/index.html", "/favicon.svg", "/manifest.webmanifest"];
@@ -19,7 +20,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
       const keys = await caches.keys();
-      const valid = new Set([APP_CACHE, SAMPLE_CACHE, DEMO_CACHE]);
+      const valid = new Set([APP_CACHE, SAMPLE_CACHE, DEMO_CACHE, COVER_CACHE]);
       await Promise.all(keys.filter((k) => !valid.has(k)).map((k) => caches.delete(k)));
       await self.clients.claim();
     })(),
@@ -43,12 +44,30 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Cover art — the file name is content-addressed (one Spotify master per
+  // track), so a cache hit is always current: skip the network entirely.
+  if (url.origin === self.location.origin && url.pathname.startsWith("/covers/")) {
+    event.respondWith(cacheFirst(COVER_CACHE, req));
+    return;
+  }
+
   // App shell + JS/CSS chunks — network-first with cache fallback
   if (url.origin === self.location.origin) {
     event.respondWith(networkFirst(APP_CACHE, req));
     return;
   }
 });
+
+async function cacheFirst(cacheName, request) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response && response.status === 200) {
+    cache.put(request, response.clone()).catch(() => {});
+  }
+  return response;
+}
 
 async function staleWhileRevalidate(cacheName, request) {
   const cache = await caches.open(cacheName);
