@@ -5,6 +5,30 @@
 
 import type { ScorePart } from '../../types/score';
 
+/**
+ * Corta las flechas del teclado para que no lleguen al atajo global.
+ *
+ * POR QUÉ: `music/useMediaSession` atiende ←/→ en `window` para buscar ±5 s y su
+ * `isTypingTarget` ignora los inputs de TEXTO pero **no** los `range`. Con el foco
+ * en un slider del panel, la flecha no movía el slider (el hook hacía
+ * `preventDefault`) y en cambio saltaba en la canción: medido en el mezclador de
+ * pistas, 5 pulsaciones movieron el seeker 7,1 s (`scripts/qa-arrows-piano.mjs`).
+ *
+ * Va POR COMPONENTE y no en el hook a propósito: el seeker de la barra SÍ tiene que
+ * seguir buscando ±5 s con las flechas (comportamiento medido en
+ * `docs/qa-reproductor.md` §1.1).
+ */
+function stopArrowKeys(event: { key: string; stopPropagation: () => void }): void {
+  if (
+    event.key === 'ArrowLeft' ||
+    event.key === 'ArrowRight' ||
+    event.key === 'ArrowUp' ||
+    event.key === 'ArrowDown'
+  ) {
+    event.stopPropagation();
+  }
+}
+
 interface PartMixerProps {
   parts: ScorePart[];
   onVolumeChange: (partId: string, volume: number) => void;
@@ -125,6 +149,11 @@ export function PartMixer({
                   value={part.volume}
                   onChange={e => onVolumeChange(part.id, parseFloat(e.target.value))}
                   className="part-slider part-slider--volume"
+                  // Las flechas mueven ESTE slider y no buscan en la canción: el
+                  // atajo global (`music/useMediaSession`) ignora los inputs de
+                  // texto pero no los `range`. Mismo caso medido en el mezclador
+                  // de pistas (`App.tsx`): ver `scripts/qa-arrows-piano.mjs`.
+                  onKeyDown={stopArrowKeys}
                   style={{ '--track-color': isEffectivelyMuted ? '#555' : part.color } as React.CSSProperties}
                 />
                 <span className="part-slider-value">{Math.round(part.volume * 100)}%</span>
@@ -141,6 +170,8 @@ export function PartMixer({
                   value={part.pan}
                   onChange={e => onPanChange(part.id, parseFloat(e.target.value))}
                   className="part-slider part-slider--pan"
+                  // Idem volumen: el panorama también es un control del panel.
+                  onKeyDown={stopArrowKeys}
                 />
                 <span className="part-slider-value">
                   {part.pan === 0 ? 'C' : part.pan > 0 ? `R${Math.round(part.pan * 100)}` : `L${Math.round(Math.abs(part.pan) * 100)}`}

@@ -5884,6 +5884,30 @@ export default function App() {
                             max={1}
                             step={0.05}
                             value={trackVol}
+                            /*
+                             * Las flechas mueven ESTE slider y nada más.
+                             *
+                             * Medido (scripts/qa-arrows-piano.mjs): el atajo global de
+                             * `music/useMediaSession` atiende ←/→ en `window` para buscar
+                             * ±5 s y sólo ignora los inputs de TEXTO, no los `range`. Con
+                             * el foco acá, la flecha NO cambiaba el volumen (el hook hacía
+                             * `preventDefault`) y en cambio mandaba la canción hacia atrás:
+                             * 5 pulsaciones movieron el seeker de 8,2 s a 1,1 s.
+                             *
+                             * Se corta acá, en el componente, y NO en el hook: el seeker de
+                             * la barra SÍ tiene que seguir buscando ±5 s con las flechas
+                             * (es su comportamiento medido en `docs/qa-reproductor.md` §1.1).
+                             */
+                            onKeyDown={(event) => {
+                              if (
+                                event.key === "ArrowLeft" ||
+                                event.key === "ArrowRight" ||
+                                event.key === "ArrowUp" ||
+                                event.key === "ArrowDown"
+                              ) {
+                                event.stopPropagation();
+                              }
+                            }}
                             onChange={(e) =>
                               setTrackVolumes((prev) => ({
                                 ...prev,
