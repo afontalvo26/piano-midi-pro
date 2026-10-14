@@ -10,11 +10,12 @@
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent } from "react";
+import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { usePlayer } from "../../music/PlayerContext";
 import { useLibrary } from "../../music/useLibrary";
 import { formatTotalDuration } from "../../music/meta";
 import { GENRE_META, GENRE_ORDER } from "../../types/song";
+import { GENRE_FAMILIES } from "../../constants/genreFamilies";
 import type { TrackMeta } from "../../music/types";
 import { NAV_ITEMS, viewMatchesTab, type MusicTab, type MusicView } from "../../music/views";
 import { paletteForTrack } from "../../music/covers";
@@ -41,6 +42,75 @@ export type MusicScreenProps = {
 };
 
 const SHELF_LIMIT = 12;
+
+/**
+ * Cuánto se espera desde la última tecla antes de filtrar.
+ *
+ * ── POR QUÉ CON RETARDO ────────────────────────────────────────────────────
+ *
+ * Filtrar y montar una página de resultados cuesta ~200 ms de hilo principal
+ * (medido: 99 ms de JS por tecla y tareas largas de hasta 261 ms en el build de
+ * producción). Sin retardo eso se paga en CADA tecla, así que escribir "corazon"
+ * congela la pantalla siete veces. El valor del input sigue siendo instantáneo
+ * (vive en `localQuery`): lo que espera es el filtrado, no el teclado.
+ */
+const SEARCH_DEBOUNCE_MS = 250;
+
+/**
+ * Normaliza texto para buscar: sin tildes, sin mayúsculas, sin puntuación.
+ *
+ * ── POR QUÉ HACE FALTA NORMALIZAR ──────────────────────────────────────────
+ *
+ * Es la misma regla que la biblioteca de Canciones (ver `SongLibrary.tsx`), y
+ * por la misma razón: el usuario escribe "corazon" y espera encontrar "Corazón".
+ * Acá había un `includes` crudo, así que el caso se veía al revés de lo
+ * esperado: **"corazon" encontraba 58 canciones y "corazón" ninguna**.
+ *
+ * `NFD` descompone cada letra acentuada en letra + marca, y el rango
+ * `\u0300-\u036f` son las marcas: sacarlas deja "corazon" de "Corazón".
+ */
+function normaliseSearchText(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Cada palabra de la consulta, ya normalizada. */
+function searchTokens(query: string): string[] {
+  return normaliseSearchText(query).split(" ").filter(Boolean);
+}
+
+/**
+ * Índice de búsqueda por canción: título + artista + álbum + género,
+ * normalizados UNA sola vez.
+ *
+ * ── POR QUÉ SE PRECALCULA ──────────────────────────────────────────────────
+ *
+ * Sin índice, cada tecla recorría las 3.977 canciones llamando `toLowerCase()`
+ * hasta cuatro veces por canción —y cada llamada asigna una cadena nueva—, más
+ * `includes`. El `WeakMap` paga esa normalización una vez por canción y después
+ * sólo recorre texto ya listo.
+ *
+ * Va en un `WeakMap` y no en un campo de `TrackMeta` para no contaminar el tipo
+ * compartido: el índice se libera solo cuando la canción se libera.
+ */
+const searchIndex = new WeakMap<TrackMeta, string>();
+
+function indexedText(meta: TrackMeta): string {
+  let text = searchIndex.get(meta);
+  if (text === undefined) {
+    const genero = meta.genre ? (GENRE_META[meta.genre]?.label ?? "") : "";
+    text = normaliseSearchText(
+      `${meta.title} ${meta.artist ?? ""} ${meta.album ?? ""} ${genero}`,
+    );
+    searchIndex.set(meta, text);
+  }
+  return text;
+}
 
 export function MusicScreen({
   view,
@@ -80,25 +150,106 @@ export function MusicScreen({
     [onViewChange, localQuery],
   );
 
-  // ── search index ──────────────────────────────────────────────
-  const query = view.tab === "search" ? view.q.trim().toLowerCase() : "";
+  // ── input del buscador: retardo ───────────────────────────────
+  //
+  // El valor del input se refleja al instante (`localQuery`), pero la vista —y
+  // con ella el filtrado y el montaje de filas— se actualiza recién cuando el
+  // usuario deja de teclear. Sin esto, cada tecla paga el costo completo.
+  const debounceRef = useRef<number | null>(null);
+  const tabRef = useRef(view.tab);
+  useEffect(() => {
+    tabRef.current = view.tab;
+  }, [view.tab]);
+  useEffect(
+    () => () => {
+      if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
+    },
+    [],
+  );
+
+  /** Aplica la consulta ya mismo, sin esperar el retardo (Enter, limpiar). */
+  const flushQuery = useCallback(
+    (value: string) => {
+      if (debounceRef.current !== null) {
+        window.clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      onViewChange({ tab: "search", q: value });
+    },
+    [onViewChange],
+  );
+
+  const handleQueryChange = useCallback(
+    (value: string) => {
+      setLocalQuery(value);
+      if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
+      debounceRef.current = window.setTimeout(() => {
+        debounceRef.current = null;
+        // Si mientras tanto el usuario se fue de la vista, el retardo no puede
+        // traerlo de vuelta a Buscar por su cuenta.
+        if (tabRef.current !== "search") return;
+        onViewChange({ tab: "search", q: value });
+      }, SEARCH_DEBOUNCE_MS);
+    },
+    [onViewChange],
+  );
+
+  const handleClearQuery = useCallback(() => {
+    setLocalQuery("");
+    flushQuery("");
+    searchRef.current?.focus();
+  }, [flushQuery]);
+
+  /**
+   * Enter busca ya: el retardo es para no filtrar en cada tecla, no para hacer
+   * esperar a quien ya terminó de escribir.
+   */
+  const handleSearchKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") flushQuery(localQuery);
+    },
+    [flushQuery, localQuery],
+  );
+
+  // ── búsqueda ──────────────────────────────────────────────────
+  //
+  // `query` es el texto crudo (para mostrarlo); el filtrado usa `tokens`, que ya
+  // viene sin tildes, sin mayúsculas y sin puntuación, y el índice precalculado.
+  const query = view.tab === "search" ? view.q.trim() : "";
+  const tokens = useMemo(() => searchTokens(query), [query]);
+
+  /** Nombres que no viven en una canción, normalizados una vez por catálogo. */
+  const playlistsIndex = useMemo(
+    () =>
+      [...library.playlists, ...library.autoPlaylists].map((playlist) => ({
+        playlist,
+        text: normaliseSearchText(playlist.name),
+      })),
+    [library.playlists, library.autoPlaylists],
+  );
+
+  const artistsIndex = useMemo(
+    () => library.artists.map((name) => ({ name, text: normaliseSearchText(name) })),
+    [library.artists],
+  );
+
   const searchResults = useMemo(() => {
-    if (!query) return { tracks: [] as TrackMeta[], playlists: [], artists: [] as string[] };
-    const match = (value: string) => value.toLowerCase().includes(query);
+    if (tokens.length === 0) {
+      return { tracks: [] as TrackMeta[], playlists: [], artists: [] as string[] };
+    }
+    // Todas las palabras, en cualquier orden y en cualquier campo: "mucho
+    // besame" tiene que encontrar "Bésame Mucho" igual que al revés.
+    const coincide = (text: string) => tokens.every((token) => text.includes(token));
     return {
-      tracks: tracks.filter(
-        (meta) =>
-          match(meta.title) ||
-          match(meta.artist) ||
-          match(meta.album) ||
-          (meta.genre ? match(GENRE_META[meta.genre].label) : false),
-      ),
-      playlists: [...library.playlists, ...library.autoPlaylists].filter((playlist) =>
-        match(playlist.name),
-      ),
-      artists: library.artists.filter(match),
+      tracks: tracks.filter((meta) => coincide(indexedText(meta))),
+      playlists: playlistsIndex
+        .filter((entry) => coincide(entry.text))
+        .map((entry) => entry.playlist),
+      artists: artistsIndex
+        .filter((entry) => coincide(entry.text))
+        .map((entry) => entry.name),
     };
-  }, [query, tracks, library.playlists, library.autoPlaylists, library.artists]);
+  }, [tokens, tracks, playlistsIndex, artistsIndex]);
 
   // ── helpers ───────────────────────────────────────────────────
 
@@ -122,46 +273,106 @@ export function MusicScreen({
     [player],
   );
 
+  /** Cuántas filas se montan por página en las listas de canciones. */
+  const ROW_PAGE_SIZE = 100;
+
+  /**
+   * Las filas de una lista, PAGINADAS.
+   *
+   * ── POR QUÉ PAGINA ────────────────────────────────────────────────────────
+   *
+   * Antes montaba todas: una familia como Romántica tiene 1.794 canciones, y a
+   * ~24 nodos por fila son **~43.000 nodos del DOM** de una sola vez. El
+   * navegador lo pinta, pero tarda, y cualquier interacción después va lenta.
+   *
+   * Con 100 por página el DOM tiene techo fijo y la lista abre igual de rápido
+   * con 50 canciones que con 1.800. Los botones ◀ ▶ quedan pegados al final para
+   * no tener que scrollear 100 filas para pasar de página.
+   */
+  /**
+   * Página actual de las listas de canciones, junto con la vista a la que
+   * pertenece.
+   *
+   * ── POR QUÉ GUARDA LA VISTA AL LADO ───────────────────────────────────────
+   *
+   * Hay que volver a la página 1 al cambiar de vista: si no, entrar a un género
+   * desde la página 5 de otro deja al usuario en una página que quizá no existe.
+   *
+   * La forma obvia sería un `useEffect` que resetee al cambiar `view`, pero el
+   * lint del proyecto lo prohíbe (`react-hooks/set-state-in-effect`) y con razón:
+   * un render extra por cada cambio de vista. Guardar la vista junto con la página
+   * permite **detectar el cambio durante el render** y resetear ahí mismo, que es
+   * el patrón que React recomienda para estado que depende de otro estado.
+   */
+  const viewKey = view.tab + ("id" in view ? `:${view.id}` : "name" in view ? `:${view.name}` : "");
+  const [rowPager, setRowPager] = useState({ key: viewKey, page: 0 });
+  if (rowPager.key !== viewKey) {
+    setRowPager({ key: viewKey, page: 0 });
+  }
+  const rowPage = rowPager.key === viewKey ? rowPager.page : 0;
+  const setRowPage = (page: number) => setRowPager({ key: viewKey, page });
+
   const renderRows = (
     ids: string[],
     originLabel: string,
     options: { showAlbum?: boolean; playlistId?: string } = {},
   ) => {
-    const metas = library.resolveMany(ids);
+    if (ids.length === 0) return <EmptyBlock label="Acá no hay nada todavía." />;
+
+    const pageCount = Math.max(1, Math.ceil(ids.length / ROW_PAGE_SIZE));
+    // Si la lista cambió (otro género, un filtro), la página actual puede quedar
+    // fuera de rango: se recorta en vez de mostrar una lista vacía.
+    const safePage = Math.min(rowPage, pageCount - 1);
+    const start = safePage * ROW_PAGE_SIZE;
+    const pageIds = ids.slice(start, start + ROW_PAGE_SIZE);
+
+    const metas = library.resolveMany(pageIds);
     if (metas.length === 0) return <EmptyBlock label="Acá no hay nada todavía." />;
+
     return (
-      <ol className="pm-rows">
-        {metas.map((meta, index) => (
-          <TrackRow
-            key={`${meta.id}-${index}`}
-            meta={meta}
-            index={index}
-            contextIds={ids}
-            originLabel={originLabel}
-            isActive={player.currentTrackId === meta.id}
-            onOpenMenu={onOpenMenu}
-            onAddToPlaylist={onAddToPlaylist}
-            showAlbum={options.showAlbum ?? true}
-            playlistId={options.playlistId}
-            trailing={
-              onPracticeTrack && playerUi.canPractice ? (
-                <button
-                  type="button"
-                  className="pm-row__icon-btn"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onPracticeTrack(meta);
-                  }}
-                  aria-label={`Practicar ${meta.title} en el Studio`}
-                  title="Practicar en el Studio"
-                >
-                  🎹
-                </button>
-              ) : undefined
-            }
-          />
-        ))}
-      </ol>
+      <>
+        <TrackRows
+          metas={metas}
+          start={start}
+          contextIds={ids}
+          originLabel={originLabel}
+          showAlbum={options.showAlbum ?? true}
+          playlistId={options.playlistId}
+          currentTrackId={player.currentTrackId}
+          canPractice={playerUi.canPractice}
+          onOpenMenu={onOpenMenu}
+          onAddToPlaylist={onAddToPlaylist}
+          onPracticeTrack={onPracticeTrack}
+          /* Cambia cuando cambia el contenido de la página. Es lo que reinicia
+             el montaje por tandas: si no, la lista nueva se montaría de un saque
+             porque el contador ya llegó al tope. */
+          listKey={`${viewKey}|${originLabel}|${safePage}`}
+        />
+
+        {pageCount > 1 && (
+          <nav className="pm-rows-pager" aria-label={`Páginas de ${originLabel}`}>
+            <button
+              type="button"
+              className="pm-btn"
+              onClick={() => setRowPage(Math.max(0, safePage - 1))}
+              disabled={safePage === 0}
+            >
+              ◀ Anterior
+            </button>
+            <span className="pm-rows-pager__count">
+              {start + 1}–{Math.min(start + ROW_PAGE_SIZE, ids.length)} de {ids.length}
+            </span>
+            <button
+              type="button"
+              className="pm-btn"
+              onClick={() => setRowPage(Math.min(pageCount - 1, safePage + 1))}
+              disabled={safePage >= pageCount - 1}
+            >
+              Siguiente ▶
+            </button>
+          </nav>
+        )}
+      </>
     );
   };
 
@@ -211,30 +422,35 @@ export function MusicScreen({
         onViewChange({ tab: "liked" }),
       ),
       renderShelf("Más escuchadas", library.mostPlayedIds, "Más escuchadas"),
-      renderShelf(
-        "Vallenato",
-        tracks.filter((meta) => meta.genre === "vallenato").map((meta) => meta.id),
-        "Vallenato",
-        () => onViewChange({ tab: "genre", id: "vallenato" }),
-      ),
-      renderShelf(
-        "Boleros",
-        tracks.filter((meta) => meta.genre === "bolero").map((meta) => meta.id),
-        "Boleros",
-        () => onViewChange({ tab: "genre", id: "bolero" }),
-      ),
-      renderShelf(
-        "Clásica para piano",
-        tracks.filter((meta) => meta.genre === "classical").map((meta) => meta.id),
-        "Clásica",
-        () => onViewChange({ tab: "genre", id: "classical" }),
-      ),
-      renderShelf(
-        "Pop & Rock",
-        tracks.filter((meta) => meta.genre === "pop").map((meta) => meta.id),
-        "Pop & Rock",
-        () => onViewChange({ tab: "genre", id: "pop" }),
-      ),
+      /**
+       * Una shelf por FAMILIA de géneros, no por género suelto.
+       *
+       * ── QUÉ ESTABA MAL ANTES ─────────────────────────────────────────────
+       *
+       * Había cuatro shelves escritas a mano —Vallenato, Boleros, Clásica y Pop &
+       * Rock— con los géneros del catálogo original. Cuando la biblioteca pasó a
+       * casi 4.000 canciones, esas cuatro quedaron desactualizadas: el Inicio
+       * mostraba vallenato y clásica, y **no mostraba baladas ni rancheras**, que
+       * son la mayoría de la música. Además el filtro se recalculaba en cada
+       * render recorriendo las 3.977 canciones cuatro veces.
+       *
+       * Ahora sale una shelf por familia con contenido, y el porqué de la
+       * agrupación está en `constants/genreFamilies.ts`: salsa con bolero,
+       * vallenato con cumbia, ranchera con corrido. Es la misma lógica que la
+       * vista de Colecciones, para que el Inicio y las Colecciones no se
+       * contradigan.
+       */
+      ...GENRE_FAMILIES.map((family) => {
+        const ids = tracks
+          .filter((meta) => meta.genre && family.genres.includes(meta.genre))
+          .map((meta) => meta.id);
+        return renderShelf(
+          `${family.emoji} ${family.label}`,
+          ids,
+          family.label,
+          () => onViewChange({ tab: "family", id: family.id }),
+        );
+      }),
     ].filter(Boolean);
 
     const quickPicks = [
@@ -332,21 +548,15 @@ export function MusicScreen({
             className="pm-search__input"
             placeholder="Canciones, artistas, álbumes, playlists…"
             value={localQuery}
-            onChange={(event) => {
-              setLocalQuery(event.target.value);
-              onViewChange({ tab: "search", q: event.target.value });
-            }}
+            onChange={(event) => handleQueryChange(event.target.value)}
+            onKeyDown={handleSearchKeyDown}
             aria-label="Buscar en la biblioteca"
           />
           {localQuery && (
             <button
               type="button"
               className="pm-search__clear"
-              onClick={() => {
-                setLocalQuery("");
-                onViewChange({ tab: "search", q: "" });
-                searchRef.current?.focus();
-              }}
+              onClick={handleClearQuery}
               aria-label="Limpiar búsqueda"
             >
               ×
@@ -635,35 +845,165 @@ export function MusicScreen({
     </>
   );
 
-  const renderAlbums = () => (
-    <>
-      <header className="pm-page-head">
-        <h1 className="pm-page-title">Álbumes</h1>
-        <p className="pm-page-sub">
-          Cada artista del catálogo agrupa sus canciones como un álbum
-        </p>
-      </header>
-      <div className="pm-tile-grid">
-        {library.albums.map((album) => {
-          const albumTracks = tracks.filter((meta) => meta.album === album);
-          return (
+  /**
+   * Una canción de muestra del género, para su portada.
+   *
+   * `Cover` cae al degradado del género con las iniciales cuando la canción no
+   * tiene arte, así que no hace falta comprobar nada: si hay portada real se ve,
+   * y si no, se ve el degradado. Buscar "la que tenga portada" exigiría saber
+   * cuáles la tienen, y eso vive en `coverStore`, no acá.
+   */
+  const coverForGenre = (genre: string) =>
+    tracks.find((meta) => meta.genre === genre);
+
+  /**
+   * Colecciones: la biblioteca agrupada por AFINIDAD musical.
+   *
+   * ── POR QUÉ ASÍ Y NO UNA LISTA DE 3.977 ÁLBUMES ─────────────────────────
+   *
+   * La versión anterior listaba un álbum por artista: **3.977 tarjetas** sin
+   * jerarquía, y el usuario tenía que recorrerlas para encontrar algo. Una
+   * biblioteca así no se navega, se sufre.
+   *
+   * Ahora hay tres niveles y cada uno tiene pocas opciones:
+   *
+   *   1. **Familias** (6 tarjetas): qué clima querés. "Tropical", "Romántica",
+   *      "México y el norte"…
+   *   2. **Géneros de esa familia** (1 a 5): el ritmo concreto, con su portada y
+   *      su cantidad de canciones.
+   *   3. **Canciones de ese género**, paginadas.
+   *
+   * La agrupación por afinidad es lo que hace que esto sea útil y no un índice:
+   * salsa con bolero, vallenato con cumbia, ranchera con corrido. Son los géneros
+   * que de verdad se mezclan en una misma lista.
+   */
+  const renderCollections = () => {
+    // Sólo las familias que tienen algo: una tarjeta vacía es una promesa falsa.
+    const families = GENRE_FAMILIES.map((family) => {
+      const genres = family.genres
+        .map((genre) => ({
+          genre,
+          meta: GENRE_META[genre],
+          count: library.genreCounts.get(genre) ?? 0,
+        }))
+        .filter((entry) => entry.meta && entry.count > 0);
+      return {
+        family,
+        genres,
+        total: genres.reduce((sum, entry) => sum + entry.count, 0),
+      };
+    }).filter((entry) => entry.genres.length > 0);
+
+    return (
+      <>
+        <header className="pm-page-head">
+          <h1 className="pm-page-title">Colecciones</h1>
+          <p className="pm-page-sub">
+            Tu música agrupada por afinidad: los géneros que se mezclan bien entre sí
+          </p>
+        </header>
+
+        <div className="pm-family-grid">
+          {families.map(({ family, genres, total }) => (
             <button
-              key={album}
+              key={family.id}
               type="button"
-              className="pm-card"
-              onClick={() => onViewChange({ tab: "album", name: album })}
+              className="pm-family"
+              style={{
+                background: `linear-gradient(135deg, ${family.color}, ${family.colorAlt})`,
+              }}
+              onClick={() => onViewChange({ tab: "family", id: family.id })}
             >
-              <Cover meta={albumTracks[0]} size="xl" label={album} />
-              <span className="pm-card__title">{album}</span>
-              <span className="pm-card__sub">
-                {albumTracks.length} cancion{albumTracks.length === 1 ? "" : "es"}
+              <span className="pm-family__top">
+                <span className="pm-family__emoji" aria-hidden="true">
+                  {family.emoji}
+                </span>
+                <span className="pm-family__names">
+                  <span className="pm-family__label">{family.label}</span>
+                  <span className="pm-family__count">
+                    {total} cancion{total === 1 ? "" : "es"} · {genres.length} género
+                    {genres.length === 1 ? "" : "s"}
+                  </span>
+                </span>
+              </span>
+
+              <span className="pm-family__desc">{family.description}</span>
+
+              {/* Mosaico de las portadas de sus géneros: es lo que hace que la
+                  tarjeta se reconozca de un vistazo, como en Spotify. */}
+              <span className="pm-family__mosaic" aria-hidden="true">
+                {genres.slice(0, 4).map(({ genre, meta }) => (
+                  <span key={genre} className="pm-family__mosaic-cell">
+                    <Cover
+                      meta={coverForGenre(genre)}
+                      size="sm"
+                      label={meta.label}
+                    />
+                  </span>
+                ))}
               </span>
             </button>
-          );
-        })}
-      </div>
-    </>
-  );
+          ))}
+        </div>
+      </>
+    );
+  };
+
+  /** Una familia abierta: sus géneros, cada uno con su portada. */
+  const renderFamily = (familyId: string) => {
+    const family = GENRE_FAMILIES.find((entry) => entry.id === familyId);
+    const genres = (family?.genres ?? [])
+      .map((genre) => ({
+        genre,
+        meta: GENRE_META[genre],
+        count: library.genreCounts.get(genre) ?? 0,
+      }))
+      .filter((entry) => entry.meta && entry.count > 0);
+
+    if (!family) return <EmptyBlock label="Esta colección ya no existe" />;
+
+    return (
+      <>
+        <header
+          className="pm-page-head pm-page-head--family"
+          style={{
+            background: `linear-gradient(135deg, ${family.color}22, ${family.colorAlt}11)`,
+          }}
+        >
+          <p className="pm-page-eyebrow">Colección</p>
+          <h1 className="pm-page-title">
+            <span aria-hidden="true">{family.emoji}</span> {family.label}
+          </h1>
+          <p className="pm-page-sub">{family.description}</p>
+        </header>
+
+        {genres.length === 0 ? (
+          <EmptyBlock label="Esta colección todavía no tiene canciones" />
+        ) : (
+          <div className="pm-tile-grid">
+            {genres.map(({ genre, meta, count }) => (
+              <button
+                key={genre}
+                type="button"
+                className="pm-card"
+                onClick={() => onViewChange({ tab: "genre", id: genre })}
+              >
+                <Cover
+                  meta={coverForGenre(genre)}
+                  size="xl"
+                  label={meta.label}
+                />
+                <span className="pm-card__title">{meta.label}</span>
+                <span className="pm-card__sub">
+                  {count} cancion{count === 1 ? "" : "es"}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </>
+    );
+  };
 
   const renderGenres = () => (
     <>
@@ -781,7 +1121,9 @@ export function MusicScreen({
         });
       }
       case "albums":
-        return renderAlbums();
+        return renderCollections();
+      case "family":
+        return renderFamily(view.id);
       case "album": {
         const ids = tracks
           .filter((meta) => meta.album === view.name)
@@ -908,6 +1250,161 @@ export function MusicScreen({
 }
 
 // ── small local components ─────────────────────────────────────
+
+/** Cuántas filas se montan en el primer frame de una lista. */
+const FIRST_PAINT_ROWS = 12;
+
+/** Cuántas filas más entran en cada frame siguiente. */
+const ROW_BATCH = 12;
+
+/**
+ * Cuántas filas de la página están montadas.
+ *
+ * ── POR QUÉ POR TANDAS Y NO TODAS JUNTAS ───────────────────────────────────
+ *
+ * Una página son hasta 100 filas (~2.500 elementos del DOM). Montarlas de una
+ * sola vez bloquea el hilo ~200 ms, y en el buscador eso ocurría en cada tecla:
+ * medido sobre el build de producción, escribir "corazon" dejaba 4 tareas largas
+ * de hasta 261 ms, y en el piano hasta 492 ms. Se siente como "se trabó / se
+ * cayó", aunque no haya ningún error de JavaScript.
+ *
+ * Montar 12 y seguir en los frames siguientes reparte EL MISMO trabajo: el total
+ * montado no cambia —siguen siendo las 100 de la página—, así que el techo del
+ * DOM sigue fijo (AGENTS.md) y la lista se ve igual, un par de frames después.
+ *
+ * `listKey` reinicia el conteo cuando cambia el contenido de la página: sin eso
+ * la búsqueda siguiente se montaría de un saque, porque el contador ya llegó al
+ * tope. Se ajusta durante el render —el patrón que React recomienda para estado
+ * que depende de otro estado— y no en un `useEffect`, que agregaría un render
+ * extra mostrando la lista vieja.
+ */
+function useBatchedRows(target: number, listKey: string): number {
+  const [count, setCount] = useState(() => Math.min(FIRST_PAINT_ROWS, target));
+  const [key, setKey] = useState(listKey);
+
+  if (key !== listKey) {
+    setKey(listKey);
+    setCount(Math.min(FIRST_PAINT_ROWS, target));
+  }
+
+  useEffect(() => {
+    if (count >= target) return;
+
+    let frame = 0;
+    let cancelled = false;
+    const advance = () => {
+      if (cancelled) return;
+      setCount((current) => Math.min(current + ROW_BATCH, target));
+      frame = requestAnimationFrame(advance);
+    };
+    frame = requestAnimationFrame(advance);
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [target, count]);
+
+  return Math.min(count, target);
+}
+
+/**
+ * Las filas de UNA página, montadas por tandas.
+ *
+ * Es un componente y no un `.map()` dentro de `renderRows` porque necesita
+ * estado propio (cuántas filas van montadas) y `renderRows` es una función que
+ * corre durante el render, no un componente.
+ */
+function TrackRows({
+  metas,
+  start,
+  contextIds,
+  originLabel,
+  showAlbum,
+  playlistId,
+  currentTrackId,
+  canPractice,
+  onOpenMenu,
+  onAddToPlaylist,
+  onPracticeTrack,
+  listKey,
+}: {
+  metas: TrackMeta[];
+  start: number;
+  contextIds: string[];
+  originLabel: string;
+  showAlbum: boolean;
+  playlistId?: string;
+  currentTrackId: string | null;
+  canPractice: boolean;
+  onOpenMenu: (meta: TrackMeta, event: MouseEvent<HTMLElement>) => void;
+  onAddToPlaylist: (meta: TrackMeta) => void;
+  onPracticeTrack?: (meta: TrackMeta) => void;
+  listKey: string;
+}) {
+  const mounted = useBatchedRows(metas.length, listKey);
+
+  /**
+   * El botón "Practicar" de cada fila, armado UNA vez por lista.
+   *
+   * ── POR QUÉ NO SE ARMA AL VUELO ────────────────────────────────────────────
+   *
+   * `TrackRow` está memoizada: sólo se vuelve a renderizar si cambia alguna
+   * prop. Armando el botón dentro del `.map()`, su identidad cambiaba en cada
+   * render y **volvía a renderizar todas las filas ya montadas en cada tanda**:
+   * con el montaje en tandas son cinco renders de hasta 100 filas por tecla en
+   * vez de uno. Medido, eso duplicaba el JavaScript por tecla (99 → 213 ms) sin
+   * que se viera nada distinto en pantalla.
+   *
+   * Durante el montaje por tandas `metas` no cambia de identidad (el padre no se
+   * vuelve a renderizar), así que este `useMemo` no se recalcula y los botones
+   * siguen siendo los mismos objetos: las filas ya montadas no se tocan.
+   */
+  const botonesPracticar = useMemo(() => {
+    if (!onPracticeTrack || !canPractice) return null;
+    const botones = new Map<string, ReactNode>();
+    for (const meta of metas) {
+      botones.set(
+        meta.id,
+        <button
+          type="button"
+          className="pm-row__icon-btn"
+          onClick={(event) => {
+            event.stopPropagation();
+            onPracticeTrack(meta);
+          }}
+          aria-label={`Practicar ${meta.title} en el Studio`}
+          title="Practicar en el Studio"
+        >
+          🎹
+        </button>,
+      );
+    }
+    return botones;
+  }, [metas, onPracticeTrack, canPractice]);
+
+  return (
+    <ol className="pm-rows">
+      {metas.slice(0, mounted).map((meta, index) => (
+        <TrackRow
+          key={`${meta.id}-${start + index}`}
+          meta={meta}
+          /* El número que ve el usuario es global a la lista, no a la página:
+             en la página 3 la primera fila es la 201, no la 1. */
+          index={start + index}
+          contextIds={contextIds}
+          originLabel={originLabel}
+          isActive={currentTrackId === meta.id}
+          onOpenMenu={onOpenMenu}
+          onAddToPlaylist={onAddToPlaylist}
+          showAlbum={showAlbum}
+          playlistId={playlistId}
+          trailing={botonesPracticar?.get(meta.id)}
+        />
+      ))}
+    </ol>
+  );
+}
 
 function EmptyBlock({
   label,
