@@ -393,21 +393,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (!entry) return;
 
       /*
-       * El token se toma ANTES de cualquier `await`, y eso es lo que hace que
-       * "la última pulsación gane".
-       *
-       * Antes se tomaba después de `ensureAudioForPlayback()`. En una ráfaga de
-       * siguiente/anterior, el orden en que TERMINAN esas esperas no es el orden
-       * en que el usuario pulsó: una pulsación vieja podía despertar última,
-       * quedarse con el token nuevo y pisar a la canción que el usuario sí quería
-       * — el índice de la cola decía una canción y el motor cargaba otra, y la
-       * app quedaba trabada. Tomándolo primero, cualquier llamada anterior
-       * abandona en cuanto reanuda (los chequeos `token !== loadTokenRef.current`
-       * de abajo ya estaban) y sólo la última sigue viva.
-       */
-      const token = ++loadTokenRef.current;
-
-      /*
        * Antes de cargar nada: si se va a REPRODUCIR, hay que tener el audio.
        *
        * Va primero y no después de resolver la canción a propósito: resolver baja
@@ -416,15 +401,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
        */
       if (playNow && !(await ensureAudioForPlayback())) return;
 
-      if (token !== loadTokenRef.current) {
-        // Nos canceló una carga más nueva. Si el spinner era nuestro, se apaga:
-        // si no, la canción se quedaba "cargando y no cargaba" para siempre.
-        if (loadingOwnerRef.current === token) {
-          loadingOwnerRef.current = 0;
-          setIsLoading(false);
-        }
-        return;
-      }
+      /*
+       * El token se toma ACÁ, después del claim de audio.
+       *
+       * Se probó tomarlo antes de ese `await` para que "la última pulsación gane"
+       * en una ráfaga de siguiente/anterior, y salió peor: al tocar una canción,
+       * el efecto del cambio de ranura dispara una segunda carga que, con el token
+       * tomado primero, **siempre** le ganaba a la del click y hacía otra cosa —
+       * la canción no cambiaba y quedaba "Cargando…". Se revierte a este orden: el
+       * problema de la ráfaga se resuelve agrupando las pulsaciones en `next()`,
+       * no acá.
+       */
+      const token = ++loadTokenRef.current;
       loadingOwnerRef.current = token;
       setIsLoading(true);
       setError(null);
