@@ -129,16 +129,29 @@ async function fetchWaf(code: string): Promise<string> {
 }
 
 /**
+ * Una voz de WebAudioFont con las notas que REALMENTE quedaron cargadas.
+ *
+ * `recorded` es la altura original de cada zona que se decodificó (no el rango
+ * de teclas que la zona dice cubrir): es contra eso que `Tone.Sampler` repitchea,
+ * así que es lo que la capa de fuentes necesita para saber si una nota pedida
+ * está a tiro o a 19 semitonos (ver `instrumentSources.ts`).
+ */
+export interface WafVoice {
+  sampler: Tone.Sampler;
+  recorded: number[];
+}
+
+/**
  * Carga un instrumento WebAudioFont como `Tone.Sampler`.
  *
  * `code` es el identificador del archivo sin extensión, p. ej.
  * `0210_GeneralUserGS` (acordeón, fuente GeneralUser GS).
  */
-export async function loadWebAudioFontSampler(
+export async function loadWebAudioFontVoice(
   code: string,
   dest: Tone.ToneAudioNode,
   neededNotes?: number[],
-): Promise<Tone.Sampler> {
+): Promise<WafVoice> {
   console.log(`[WebAudioFont] Fetching ${code}...`);
   const text = await fetchWaf(code);
   const zones = parseWafZones(text);
@@ -148,6 +161,8 @@ export async function loadWebAudioFontSampler(
   const raw = Tone.getContext().rawContext as BaseAudioContext;
   const urls: Record<string, AudioBuffer> = {};
   const levels: number[] = [];
+  /** Altura original de cada zona decodificada: el registro real del banco. */
+  const recorded: number[] = [];
   let decoded = 0;
 
   for (const zone of zones) {
@@ -172,6 +187,7 @@ export async function loadWebAudioFontSampler(
       const rawBuffer = await raw.decodeAudioData(base64ToArrayBuffer(zone.file));
       const buffer = prepareSampleBuffer(rawBuffer, code);
       urls[note] = buffer;
+      recorded.push(midi);
       levels.push(bufferRmsDb(buffer));
       decoded++;
     } catch (err) {
@@ -207,7 +223,41 @@ export async function loadWebAudioFontSampler(
         reject(err);
       },
     }).connect(dest);
-  });
+  }).then((sampler) => ({ sampler, recorded: recorded.sort((a, b) => a - b) }));
+}
+
+/** Compatibilidad: la voz pelada, sin las notas grabadas. */
+export async function loadWebAudioFontSampler(
+  code: string,
+  dest: Tone.ToneAudioNode,
+  neededNotes?: number[],
+): Promise<Tone.Sampler> {
+  return (await loadWebAudioFontVoice(code, dest, neededNotes)).sampler;
+}
+
+/**
+ * Notas grabadas que declara un archivo de WebAudioFont, sin decodificar nada.
+ *
+ * Es SÓLO para el diagnóstico (`explainSourcesFor`): en producción la decisión
+ * se toma con las zonas que ya se decodificaron, porque bajar el archivo dos
+ * veces (una para saber el registro y otra para tocar) sería tirar ancho de
+ * banda. Se cachean las alturas, no el archivo: son un puñado de enteros.
+ */
+const recordedNoteCache = new Map<string, number[]>();
+
+export async function wafRecordedNotes(code: string): Promise<number[]> {
+  const hit = recordedNoteCache.get(code);
+  if (hit) return hit;
+  const zones = parseWafZones(await fetchWaf(code));
+  const notes = [
+    ...new Set(
+      zones
+        .map((zone) => Math.round(zone.originalPitch / 100))
+        .filter((midi) => midi >= 0 && midi <= 127),
+    ),
+  ].sort((a, b) => a - b);
+  recordedNoteCache.set(code, notes);
+  return notes;
 }
 
 /**

@@ -56,6 +56,19 @@ export const BUTTON_ACCORDION_NOTES = [
   "G6",
 ] as const;
 
+/**
+ * Las MISMAS 17 notas en número MIDI (B3 = 59 … G6 = 91), que es como las pide
+ * el ruteo: con esto la capa de fuentes sabe qué registro está grabado de verdad
+ * y puede negarse a repitchear fuera de él (ver `instrumentSources.ts`).
+ *
+ * Ojo con los huecos: entre B3 (59) y D4 (62) hay 3 semitonos, así que el peor
+ * repitcheo DENTRO del registro es de 2 semitonos (por eso el banco suena bien
+ * ahí y deja de sonar bien 19 semitonos más abajo).
+ */
+export const BUTTON_ACCORDION_MIDI_NOTES: number[] = BUTTON_ACCORDION_NOTES.map(
+  (note) => Tone.Frequency(note).toMidi(),
+);
+
 const fileFor = (note: string) =>
   `${BASE}/${encodeURIComponent(`Button Accordion HN ${note}.flac`)}`;
 const releaseFileFor = (note: string) =>

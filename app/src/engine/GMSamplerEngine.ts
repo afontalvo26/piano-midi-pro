@@ -236,6 +236,28 @@ function decodeDataUri(dataUri: string): ArrayBuffer {
 }
 
 /**
+ * Salto con el que se adelgazan los soundfont de gleitz, y extremos del banco.
+ *
+ * Los archivos traen los 88 semitonos (A0 = 21 … C8 = 108) POR INSTRUMENTO, así
+ * que la rejilla que sobrevive al adelgazado tiene una muestra cada
+ * `GLEITZ_SAMPLE_GAP` semitonos: el peor repitcheo posible es de 1,5 semitonos
+ * (con notas enteras, 1). Es lo que hace que esta fuente nunca exceda ningún
+ * tope de repitcheo y pueda ser la red de seguridad.
+ */
+export const GLEITZ_SAMPLE_GAP = 3;
+export const GLEITZ_LOW_NOTE = 21;
+export const GLEITZ_HIGH_NOTE = 108;
+
+/** Rejilla de notas grabadas que queda después de `thinSampleMap`. */
+export function gleitzRecordedNotes(): number[] {
+  const out: number[] = [];
+  for (let midi = GLEITZ_LOW_NOTE; midi <= GLEITZ_HIGH_NOTE; midi += GLEITZ_SAMPLE_GAP) {
+    out.push(midi);
+  }
+  return out;
+}
+
+/**
  * Reduce el mapa de samples a uno cada `maxGap` semitonos (conservando las
  * puntas).
  *
@@ -248,7 +270,7 @@ function decodeDataUri(dataUri: string): ArrayBuffer {
  */
 function thinSampleMap(
   samples: Record<string, string>,
-  maxGap = 3,
+  maxGap = GLEITZ_SAMPLE_GAP,
 ): Record<string, string> {
   const entries = Object.entries(samples)
     .map(([note, uri]) => {
