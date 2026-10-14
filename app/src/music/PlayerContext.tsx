@@ -37,6 +37,7 @@ import type { SongData } from "../types/song";
 import type { PlaylistView, QueueOriginKind, RepeatMode, TrackMeta } from "./types";
 import { RESTART_THRESHOLD } from "./constants";
 import {
+  audioLockState,
   claimAudio,
   releaseAudio,
   setAudioYieldHandler,
@@ -190,6 +191,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
    * nueva que sí va a cargar.
    */
   const loadingOwnerRef = useRef(0);
+  /**
+   * La negociación de audio en vuelo, para que dos cargas no se la peleen.
+   *
+   * `ensureAudioForPlayback` era "una negociación por llamada", y en una ráfaga
+   * de clics hay varias llamadas a la vez. Medido en dos pestañas hermanas
+   * (`scripts/qa-dos-pestanas-cambio.mjs`): la carga A perdía el lock contra la
+   * carga B **de su propia pestaña**, y al perder ejecutaba
+   * `setTransportPlaying(false)` — pausaba la reproducción que B acababa de
+   * arrancar. El usuario veía la canción con el botón en "Reproducir" y sin
+   * audio. Con una sola negociación compartida, todas las cargas en vuelo
+   * reciben la misma respuesta y ninguna puede contradecir a otra.
+   *
+   * Además, al ser las mismas promesas, los `await` se resuelven en orden de
+   * llamada: la ÚLTIMA pulsación es la que se queda con el token de carga más
+   * alto, que es exactamente lo que el usuario espera de una ráfaga.
+   */
+  const audioClaimRef = useRef<Promise<boolean> | null>(null);
   /** Guards against the engine's completion callback firing twice. */
   const advancingRef = useRef(false);
   /** Fallback playhead for when no engine is attached yet. */
@@ -377,35 +395,78 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
    */
   const ensureAudioForPlayback = useCallback(async (): Promise<boolean> => {
     /*
-     * `claimAudio()` le pide el audio a la otra pestaña y ESPERA su respuesta. Si
-     * esa pestaña quedó colgada (cerrada a medias, oculta sin latido, o con el
-     * motor trabado), la espera **no termina nunca**: la canción se quedaba en
-     * "Cargando…" y la app dejaba de responder — el reporte exacto del dueño.
+     * ── SI YA ES NUESTRO, NO HAY NADA QUE NEGOCIAR ──────────────────────────
      *
-     * Con el tope, si no hay respuesta en 1,5 s se pasa a tomarlo a la fuerza
-     * (`takeAudioOver`), que es para lo que existe. Nunca más una espera infinita.
+     * Antes esto pedía el audio SIEMPRE, y pedirlo cuando ya lo teníamos no era
+     * gratis: `takeAudioOver()` manda un `claim` a la otra pestaña, que la hace
+     * callar y soltar el lock, y recién después ésta lo vuelve a tomar. Medido en
+     * dos pestañas hermanas: **11 de 19 cambios de canción** hacían ese traspaso
+     * completo sin ninguna razón, y en el medio la pestaña que sonaba se pausaba
+     * a sí misma y volvía. Es la ventana en la que un segundo clic —o la carga
+     * que el propio cambio de ranura dispara— se cruzaba y terminaba todo
+     * pausado. Con el atajo, el caso normal (el audio ya es de esta pestaña) no
+     * toca el canal ni el lock.
      */
-    const respuesta = await Promise.race([
-      claimAudio(),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500)),
-    ]);
+    if (audioLockState().owns) return true;
+
     /*
-     * El camino forzado también se acota, y con timeout se sigue adelante.
+     * ── UNA SOLA NEGOCIACIÓN POR VEZ ────────────────────────────────────────
      *
-     * Acotar sólo la primera espera dejaba el agujero abierto del otro lado: si
-     * `takeAudioOver()` tampoco contesta (la otra pestaña está cerrada a medias y
-     * su BroadcastChannel quedó mudo), la app volvía a colgarse en "Cargando…".
-     * Como el objetivo del dueño es que la canción SUENE, ante la duda se
-     * reproduce: la coordinación entre pestañas es una optimización, no un
-     * requisito para escuchar música.
+     * Dos cargas simultáneas de la MISMA pestaña peleaban por el mismo lock: una
+     * lo ganaba y la otra, al perder, aparte de abandonar su carga ejecutaba
+     * `setTransportPlaying(false)` — pausando la reproducción que la primera
+     * acababa de arrancar. Con la negociación compartida, todas las cargas en
+     * vuelo reciben la misma respuesta y el orden de sus `await` es el orden de
+     * las pulsaciones, así que la última gana el token de carga.
      */
-    const forzado = await Promise.race([
-      claimAudioForcefully(),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 1500)),
-    ]);
-    const granted = respuesta || forzado;
+    if (!audioClaimRef.current) {
+      audioClaimRef.current = (async (): Promise<boolean> => {
+        /*
+         * `claimAudio()` le pide el audio a la otra pestaña y ESPERA su respuesta.
+         * Si esa pestaña quedó colgada (cerrada a medias, oculta sin latido, o con
+         * el motor trabado), la espera **no termina nunca**: la canción se quedaba
+         * en "Cargando…" y la app dejaba de responder — el reporte exacto del
+         * dueño. Con el tope, si no hay respuesta en 1,5 s se pasa a tomarlo a la
+         * fuerza, que es para lo que existe.
+         */
+        const respuesta = await Promise.race([
+          claimAudio(),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500)),
+        ]);
+        /*
+         * El camino forzado también se acota, y con timeout se sigue adelante.
+         *
+         * Acotar sólo la primera espera dejaba el agujero abierto del otro lado: si
+         * `takeAudioOver()` tampoco contesta (la otra pestaña está cerrada a medias
+         * y su BroadcastChannel quedó mudo), la app volvía a colgarse en
+         * "Cargando…". Como el objetivo del dueño es que la canción SUENE, ante la
+         * duda se reproduce: la coordinación entre pestañas es una optimización, no
+         * un requisito para escuchar música.
+         */
+        const forzado = await Promise.race([
+          claimAudioForcefully(),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 1500)),
+        ]);
+        return respuesta || forzado;
+      })().finally(() => {
+        audioClaimRef.current = null;
+      });
+    }
+    const granted = await audioClaimRef.current;
+
     if (!granted) {
-      setHeldElsewhere(true);
+      /*
+       * `heldElsewhere` se LEE del lock, no se inventa.
+       *
+       * Antes esto hacía `setHeldElsewhere(true)` a ciegas: si el audio no se
+       * pudo tomar por una carrera entre dos cargas de esta misma pestaña, la
+       * barra quedaba mostrando *"La música está sonando en otra pestaña"* —con
+       * su botón "Reproducir acá"— **sin que ninguna pestaña estuviera sonando**,
+       * y sin que llegara ningún mensaje capaz de apagarlo (la otra pestaña ya
+       * estaba callada). Un aviso que miente y no se va nunca se lee como "la app
+       * dejó de responder".
+       */
+      setHeldElsewhere(audioLockState().heldElsewhere);
       setTransportPlaying(false);
       setIsLoading(false);
     }
@@ -469,7 +530,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         const hop = computeNextRef.current();
         if (hop && depth < 3) {
           store.setIndex(hop.index);
-          void loadEntryRef.current?.(hop.index, true, 0, depth + 1);
+          /*
+           * El salto conserva la INTENCIÓN de la carga (`playNow`), no la fuerza.
+           *
+           * Estaba fijo en `true`, y eso hacía que una sesión restaurada —que se
+           * carga para MOSTRARSE, sin arrancar— empezara a sonar sola en cuanto
+           * una canción de la lista ya no estaba. Ante la duda, el reproductor no
+           * decide por el usuario.
+           */
+          void loadEntryRef.current?.(hop.index, playNow, 0, depth + 1);
         } else {
           setIsPlaying(false);
           if (depth >= 3) {
@@ -491,36 +560,58 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      putSessionSong(song);
-      setResolvedIds((prev) => {
-        if (prev.has(entry.trackId)) return prev;
-        const next = new Set(prev);
-        next.add(entry.trackId);
-        return next;
-      });
-
-      positionRef.current = offset;
-      const host = bridgeRef.current;
-      if (!playNow) {
-        // "Show it, don't start it" (a Studio import, "Tocar" in the library):
-        // whatever was sounding has to go quiet now. `load` alone cannot
-        // promise that — it is skipped when the song is already the engine's.
-        host?.stop();
-        // Deja de sonar, así que suelta el audio: otra pestaña puede tomarlo.
-        releaseAudio();
-      }
-      host?.load(song);
-      loadingOwnerRef.current = 0;
-      setIsLoading(false);
-      setTransportPlaying(playNow);
-
-      if (playNow) {
-        store.recordPlay(entry.trackId);
-        // The engine may still be building its audio graph on a cold start;
-        // `play` resolves once the transport is genuinely running.
-        void Promise.resolve(host?.play(offset)).catch(() => {
-          setTransportPlaying(false);
+      /*
+       * ── DE ACÁ EN ADELANTE, EL SPINNER NO PUEDE QUEDAR ENCENDIDO ───────────
+       *
+       * Toda esta parte es síncrona y antes estaba suelta: si `putSessionSong` o
+       * `host.load` lanzaban, la excepción salía de un `async` que se llama con
+       * `void` —nadie la veía— y `setIsLoading(false)` no se ejecutaba nunca. La
+       * barra quedaba en "Cargando…" para siempre, sin error y sin forma de
+       * salir: exactamente el reporte del dueño. Con el `catch`, cualquier fallo
+       * inesperado se ve en pantalla y la app sigue viva.
+       */
+      try {
+        putSessionSong(song);
+        setResolvedIds((prev) => {
+          if (prev.has(entry.trackId)) return prev;
+          const next = new Set(prev);
+          next.add(entry.trackId);
+          return next;
         });
+
+        positionRef.current = offset;
+        const host = bridgeRef.current;
+        if (!playNow) {
+          // "Show it, don't start it" (a Studio import, "Tocar" in the library):
+          // whatever was sounding has to go quiet now. `load` alone cannot
+          // promise that — it is skipped when the song is already the engine's.
+          host?.stop();
+          // Deja de sonar, así que suelta el audio: otra pestaña puede tomarlo.
+          releaseAudio();
+        }
+        host?.load(song);
+        loadingOwnerRef.current = 0;
+        setIsLoading(false);
+        setTransportPlaying(playNow);
+
+        if (playNow) {
+          store.recordPlay(entry.trackId);
+          // The engine may still be building its audio graph on a cold start;
+          // `play` resolves once the transport is genuinely running.
+          void Promise.resolve(host?.play(offset)).catch(() => {
+            setTransportPlaying(false);
+          });
+        }
+      } catch (err) {
+        loadingOwnerRef.current = 0;
+        setIsLoading(false);
+        setIsPlaying(false);
+        store.setPaused(true);
+        setError(
+          err instanceof TrackUnavailableError
+            ? err.message
+            : "No se pudo cargar la canción en el motor de audio",
+        );
       }
     },
     [setTransportPlaying, ensureAudioForPlayback],
@@ -575,22 +666,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
      *
      * Si otra pestaña lo tiene, se le pide el TRASPASO: pulsar play es una orden
      * explícita del usuario, y dejar el botón sin efecto mientras la otra pestaña
-     * sigue sonando es el reporte del dueño (ver `ensureAudioForPlayback`). El
-     * `await` es necesario porque la consulta al lock es asíncrona, pero el lock se
-     * pide con `ifAvailable` —no espera— así que en el caso normal resuelve en el
-     * mismo tick.
+     * sigue sonando es el reporte del dueño (ver `ensureAudioForPlayback`).
+     *
+     * Va por `ensureAudioForPlayback` y no por `claimAudio()` a mano: ese camino
+     * ya tiene las DOS esperas acotadas y la negociación compartida. Con la
+     * versión suelta (`claimAudio() || takeAudioOver()`), este botón podía
+     * quedarse esperando al lock y, si dos pulsaciones se cruzaban, una pausaba a
+     * la otra — el mismo enredo que se arregló en la carga de canciones.
      *
      * Se pide SÓLO acá y no en `load()`: cargar una canción en la barra sin
      * reproducirla no usa el dispositivo de audio, así que no hay nada que
      * coordinar.
      */
     void (async () => {
-      const granted = (await claimAudio()) || (await claimAudioForcefully());
-      if (!granted) {
-        setHeldElsewhere(true);
-        setTransportPlaying(false);
-        return;
-      }
+      if (!(await ensureAudioForPlayback())) return;
 
       const entry = store.getSnapshot().queue[store.getSnapshot().index];
       if (!entry) return;
@@ -604,7 +693,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         releaseAudio();
       });
     })();
-  }, [setTransportPlaying]);
+  }, [setTransportPlaying, ensureAudioForPlayback]);
 
   const pause = useCallback(() => {
     bridgeRef.current?.pause();
@@ -623,8 +712,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
    */
   const takeOver = useCallback(() => {
     void (async () => {
-      const granted = await claimAudioForcefully();
-      if (!granted) return;
+      if (!(await ensureAudioForPlayback())) return;
       setHeldElsewhere(false);
       const state = store.getSnapshot();
       const entry = state.queue[state.index];
@@ -636,7 +724,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         releaseAudio();
       });
     })();
-  }, [setTransportPlaying]);
+  }, [setTransportPlaying, ensureAudioForPlayback]);
 
   const toggle = useCallback(() => {
     // The button draws `isPlaying` inverted, so it must decide from that same

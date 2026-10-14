@@ -491,10 +491,23 @@ export function PlayerShell() {
                 <div className="status-pill">
                   <span
                     className={`status-pill-dot ${
-                      snapshot.error ? "danger" : "success"
+                      snapshot.error || player.error ? "danger" : "success"
                     }`}
                   ></span>
-                  {snapshot.error ??
+                  {/*
+                    El error del REPRODUCTOR va primero.
+
+                    Es el de "esta canción ya no se pudo resolver" (el archivo se
+                    borró o el catálogo se reconstruyó desde que se guardó), y no se
+                    mostraba en ninguna parte del reproductor: sólo el error del
+                    MOTOR, que es otro. Tocar una canción que ya no existe no hacía
+                    nada y no decía nada — ni cambio de título, ni mensaje, ni forma
+                    de entender por qué. El dueño lo reporta como *"hago clic sobre
+                    otra y tampoco cambia"*. Un fallo silencioso se lee como una app
+                    rota.
+                  */}
+                  {player.error ??
+                    snapshot.error ??
                     (player.isLoading ? "Cargando…" : snapshot.status)}
                 </div>
                 <div className="status-pill">

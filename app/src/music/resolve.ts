@@ -20,7 +20,7 @@ import { extractLyrics } from "../utils/midiLyrics";
 import { controlValueAt, timeSignatureOf } from "../utils/midiControlChanges";
 import { parseDemoInWorker } from "../utils/midiWorkerClient";
 import { DEMO_SONGS } from "../constants/demoSongs";
-import { isDemoTrackId, parseTrackId } from "./ids";
+import { isDemoTrackId, humanizeRef, parseTrackId } from "./ids";
 
 /** Demo metadata indexed by the public path, for artist/genre/bpm at load. */
 const DEMO_BY_PATH = new Map(DEMO_SONGS.map((song) => [song.path, song]));
@@ -38,9 +38,22 @@ export class TrackUnavailableError extends Error {
   }
 }
 
-/** Registers a session-parsed song so playback never has to re-fetch it. */
-export function putSessionSong(song: SongData): void {
-  if (!song.trackId) return;
+/**
+ * Registers a session-parsed song so playback never has to re-fetch it.
+ *
+ * ── POR QUÉ SE ACEPTA `null` Y NO SE CONFÍA EN EL TIPO ─────────────────────
+ *
+ * `resolveTrack` prometía `SongData` y podía devolver `null` (ver ahí abajo): el
+ * `null` llegaba hasta acá, `song.trackId` reventaba con un `TypeError` y, como
+ * el llamador es `void loadEntry(...)`, la promesa rechazada no la veía nadie:
+ * el spinner de "Cargando…" se quedaba encendido para siempre y sin ningún error
+ * en pantalla. Es el reporte del dueño, textual: *"se quedan cargando"*.
+ *
+ * La raíz está arreglada en `resolveTrack`; este guardia existe para que un
+ * `null` nunca más pueda tumbar una carga en silencio.
+ */
+export function putSessionSong(song: SongData | null | undefined): void {
+  if (!song?.trackId) return;
   sessionSongs.set(song.trackId, song);
 }
 
@@ -169,7 +182,13 @@ export async function parseMidiBytes(
   };
 }
 
-/** Fetches + parses one shipped demo track. Cached for the session. */
+/**
+ * Fetches + parses one shipped demo track. Cached for the session.
+ *
+ * `null` significa UNA cosa: la ruta no está en el índice del catálogo. No es
+ * "todavía no llegó" ni "falló la red" — esos casos tiran. El llamador tiene que
+ * decidir qué decir, pero nunca puede tratarlo como una canción.
+ */
 async function loadDemoTrack(trackId: string, path: string): Promise<SongData | null> {
   const meta = DEMO_BY_PATH.get(path);
   if (!meta) return null;
@@ -197,6 +216,33 @@ async function loadDemoTrack(trackId: string, path: string): Promise<SongData | 
  * Resolves a track id to playable song data, or throws
  * `TrackUnavailableError` when the source is gone (deleted upload, offline
  * demo fetch, unknown id).
+ *
+ * ── NUNCA DEVUELVE `null` (y esto era el bug del cambio de canción) ─────────
+ *
+ * La firma prometía `SongData`, pero había un camino que devolvía `null`:
+ * `loadDemoTrack` no encontraba la ruta en el índice del catálogo (el archivo se
+ * renombró, o el catálogo se reconstruyó desde que se guardó esa canción) y el
+ * `return song as SongData` de más abajo se comía el `null` con un cast.
+ *
+ * El `null` llegaba a `loadEntry`, que hace `putSessionSong(song)` →
+ * `song.trackId` → **`TypeError`**. Y como `loadEntry` se invoca con
+ * `void loadEntry(...)`, esa promesa rechazada **no la veía nadie**: no había
+ * error en pantalla, `setIsLoading(false)` no se ejecutaba nunca y la barra se
+ * quedaba en "Cargando…" para siempre. Es el reporte del dueño, textual:
+ *
+ *   *"cuando hago click sobre otra tampoco cambia, se quedan cargando"*
+ *   *"se queda cargando y deja de responder"*
+ *
+ * Medido antes del arreglo, con la cola de una sesión anterior apuntando a una
+ * canción que el catálogo nuevo ya no tiene (ver
+ * `tests/e2e/13-cambio-cancion-sesion-vieja.spec.ts`): spinner encendido 25 s
+ * después del clic, 1 promesa rechazada (`TypeError: Cannot read properties of
+ * null (reading 'trackId')`) y ni un mensaje en la pantalla.
+ *
+ * Que la canción no esté **es** una canción no disponible: el camino de error de
+ * `loadEntry` ya sabe qué hacer con eso (salta a la siguiente y, si no hay
+ * ninguna, lo dice). Convertirlo en excepción es lo que hace que ese camino
+ * corra.
  */
 export async function resolveTrack(trackId: string): Promise<SongData> {
   const cached = resolved.get(trackId) ?? sessionSongs.get(trackId);
@@ -205,7 +251,7 @@ export async function resolveTrack(trackId: string): Promise<SongData> {
   const pending = inflight.get(trackId);
   if (pending) {
     const song = await pending;
-    if (!song) throw new TrackUnavailableError("No se pudo cargar la canción");
+    if (!song) throw new TrackUnavailableError(noDisponible(trackId));
     return song;
   }
 
@@ -216,7 +262,9 @@ export async function resolveTrack(trackId: string): Promise<SongData> {
     }
 
     if (parsed.origin === "demo" && isDemoTrackId(trackId)) {
-      return loadDemoTrack(trackId, parsed.ref);
+      const song = await loadDemoTrack(trackId, parsed.ref);
+      if (!song) throw new TrackUnavailableError(noDisponible(trackId));
+      return song;
     }
 
     // Uploads and scores only exist in memory. App.tsx re-registers them on
@@ -231,10 +279,25 @@ export async function resolveTrack(trackId: string): Promise<SongData> {
   try {
     const song = await task;
     if (song) resolved.set(trackId, song);
-    return song as SongData;
+    // `task` sólo puede resolver `null` si algo se olvidó de tirar; se tira acá
+    // para que el contrato (`SongData`, nunca `null`) no dependa de esa rama.
+    if (!song) throw new TrackUnavailableError(noDisponible(trackId));
+    return song;
   } finally {
     inflight.delete(trackId);
   }
+}
+
+/**
+ * El mensaje de "esta canción ya no está", con el nombre del archivo.
+ *
+ * Se usa el nombre y no el id entero porque el id es un detalle interno
+ * (`d./demo/...`) y el usuario lee la barra, no el `localStorage`.
+ */
+function noDisponible(trackId: string): string {
+  const ref = parseTrackId(trackId)?.ref ?? trackId;
+  const file = ref.split("/").pop() ?? ref;
+  return `"${humanizeRef(file)}" ya no está disponible: el archivo se movió o se borró del catálogo.`;
 }
 
 /** Fire-and-forget warm-up used to prefetch the next queued track. */
