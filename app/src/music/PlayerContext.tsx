@@ -181,6 +181,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const bridgeRef = useRef<PlaybackHost | null>(null);
   const loadTokenRef = useRef(0);
+  /**
+   * Qué carga es dueña del spinner de "Cargando…".
+   *
+   * Sin esto, una carga que se cancela a mitad de camino dejaba el spinner
+   * encendido para siempre: la canción se quedaba "cargando y no cargaba". Sólo
+   * lo apaga quien lo encendió, así una carga vieja no le borra el spinner a la
+   * nueva que sí va a cargar.
+   */
+  const loadingOwnerRef = useRef(0);
   /** Guards against the engine's completion callback firing twice. */
   const advancingRef = useRef(false);
   /** Fallback playhead for when no engine is attached yet. */
@@ -407,7 +416,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
        */
       if (playNow && !(await ensureAudioForPlayback())) return;
 
-      if (token !== loadTokenRef.current) return;
+      if (token !== loadTokenRef.current) {
+        // Nos canceló una carga más nueva. Si el spinner era nuestro, se apaga:
+        // si no, la canción se quedaba "cargando y no cargaba" para siempre.
+        if (loadingOwnerRef.current === token) {
+          loadingOwnerRef.current = 0;
+          setIsLoading(false);
+        }
+        return;
+      }
+      loadingOwnerRef.current = token;
       setIsLoading(true);
       setError(null);
 
@@ -415,7 +433,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       try {
         song = await resolveTrack(entry.trackId);
       } catch (err) {
-        if (token !== loadTokenRef.current) return;
+        if (token !== loadTokenRef.current) {
+        // Nos canceló una carga más nueva. Si el spinner era nuestro, se apaga:
+        // si no, la canción se quedaba "cargando y no cargaba" para siempre.
+        if (loadingOwnerRef.current === token) {
+          loadingOwnerRef.current = 0;
+          setIsLoading(false);
+        }
+        return;
+      }
         setIsLoading(false);
         setError(
           err instanceof TrackUnavailableError
@@ -440,7 +466,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (token !== loadTokenRef.current) return;
+      if (token !== loadTokenRef.current) {
+        // Nos canceló una carga más nueva. Si el spinner era nuestro, se apaga:
+        // si no, la canción se quedaba "cargando y no cargaba" para siempre.
+        if (loadingOwnerRef.current === token) {
+          loadingOwnerRef.current = 0;
+          setIsLoading(false);
+        }
+        return;
+      }
 
       putSessionSong(song);
       setResolvedIds((prev) => {
@@ -461,6 +495,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         releaseAudio();
       }
       host?.load(song);
+      loadingOwnerRef.current = 0;
       setIsLoading(false);
       setTransportPlaying(playNow);
 
