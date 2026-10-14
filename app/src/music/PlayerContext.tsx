@@ -37,6 +37,16 @@ import type { SongData } from "../types/song";
 import type { PlaylistView, QueueOriginKind, RepeatMode, TrackMeta } from "./types";
 import { RESTART_THRESHOLD } from "./constants";
 import {
+  claimAudio,
+  releaseAudio,
+  setAudioYieldHandler,
+  subscribeAudioLock,
+  // Se importa con alias porque el contexto expone su PROPIA función `takeOver`,
+  // que además de tomar el lock tiene que arrancar el motor. Sin el alias, el
+  // import y la variable local chocan.
+  takeAudioOver as claimAudioForcefully,
+} from "./playerAudioLock";
+import {
   libraryStore as store,
   type LibrarySnapshot,
   type QueueEntry,
@@ -94,6 +104,17 @@ export type PlayerContextValue = {
   next: () => void;
   previous: () => void;
   seek: (sec: number, options?: { relative?: boolean }) => void;
+  /**
+   * `true` cuando OTRA pestaña está usando el audio.
+   *
+   * Con varias pestañas abiertas, cada una tiene su propio motor de audio y
+   * compiten por la CPU y el dispositivo de salida: la que está sonando se pone
+   * lenta y lagueada. Cuando esto pasa, esta pestaña no reproduce y la barra
+   * ofrece tomar el control.
+   */
+  heldElsewhere: boolean;
+  /** Toma el audio a la fuerza, pausando la otra pestaña. */
+  takeAudioOver: () => void;
   setVolume: (volume: number) => void;
   toggleMute: () => void;
   toggleShuffle: () => void;
@@ -148,6 +169,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resolvedIds, setResolvedIds] = useState<Set<string>>(() => new Set());
+  /**
+   * `true` cuando el audio lo tiene OTRA pestaña.
+   *
+   * Varias pestañas sonando a la vez compiten por la CPU y el dispositivo de
+   * salida, y la que suena se pone lenta y lagueada. La coordinación vive en
+   * `music/playerAudioLock`; acá sólo se refleja para que la barra lo muestre y
+   * ofrezca tomar el control.
+   */
+  const [heldElsewhere, setHeldElsewhere] = useState(false);
 
   const bridgeRef = useRef<PlaybackHost | null>(null);
   const loadTokenRef = useRef(0);
@@ -165,6 +195,49 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
+
+  /**
+   * Escucha quién tiene el audio y PAUSA si lo toma otra pestaña.
+   *
+   * La pausa se hace acá dentro y no en un efecto que observe `heldElsewhere`: el
+   * lint del proyecto prohíbe escribir estado en un efecto
+   * (`react-hooks/set-state-in-effect`), y con razón — un render extra por cada
+   * cambio. Acá el estado se escribe en respuesta a un evento externo, que es
+   * justo donde corresponde.
+   *
+   * Ojo con el orden: `setTransportPlaying` está definido más abajo y NO puede
+   * referenciarse desde este efecto sin entrar en su lista de dependencias, lo que
+   * volvería a suscribir el canal en cada render. Por eso la pausa se hace con
+   * `bridgeRef` e `isPlayingRef` —los dos son refs estables— y se llama a
+   * `store.setPaused` directamente, que es lo que `setTransportPlaying` hace.
+   *
+   * Además se registra el `yieldHandler`: es lo que `playerAudioLock` **espera**
+   * antes de avisar que esta pestaña soltó el audio. El orden es lo que evita que
+   * la otra arranque mientras ésta todavía suena — las dos audibles a la vez, el
+   * reporte del dueño ("a veces suenan ambas").
+   */
+  useEffect(() => {
+    const callar = (): void => {
+      // No se toca `positionRef`: al retomar, sigue donde estaba.
+      bridgeRef.current?.pause();
+      setIsPlaying(false);
+      store.setPaused(true);
+    };
+
+    setAudioYieldHandler(callar);
+
+    const unsubscribe = subscribeAudioLock(({ heldElsewhere: held }) => {
+      setHeldElsewhere(held);
+      if (!held) return;
+      if (!isPlayingRef.current) return;
+      callar();
+    });
+
+    return () => {
+      setAudioYieldHandler(null);
+      unsubscribe();
+    };
+  }, []);
 
   /**
    * Single writer for "is it playing?". `isPlaying` drives the bar and the
@@ -261,6 +334,48 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     ((targetIndex: number, playNow: boolean, offset?: number, depth?: number) => Promise<void>) | null
   >(null);
 
+  /**
+   * Consigue el audio para esta pestaña. `false` si aun así no se pudo.
+   *
+   * ── POR QUÉ ACÁ Y NO SÓLO EN `play()` ─────────────────────────────────────
+   *
+   * El primer intento puso la coordinación en `play()` y no funcionaba: en el
+   * reproductor, tocar una tarjeta llama a `playTrack()`, que arranca por
+   * `loadEntry(..., playNow = true)` y **nunca pasa por `play()`**. Las pestañas
+   * reclamaban el audio por un camino y el motor arrancaba por otro.
+   *
+   * `loadEntry` con `playNow` es el ÚNICO punto por el que se empieza a sonar, así
+   * que la coordinación tiene que estar acá.
+   *
+   * ── POR QUÉ PIDE EL TRASPASO Y NO SE QUEDA CALLADA ────────────────────────
+   *
+   * Esto corre sólo cuando alguien pidió sonar ACÁ: tocar una canción, el botón
+   * de play, o el avance de una cola que ya estaba sonando. Quedarse en silencio
+   * mientras la otra pestaña sigue sonando es el reporte del dueño, textual:
+   *
+   *   *"estoy escuchando una canción y toco otra para escucharla y no suena, y
+   *   tampoco deja de sonar la anterior"*
+   *
+   * El aviso *"La música está sonando en otra pestaña"* seguía apareciendo, pero
+   * pedirle al usuario que toque OTRA vez ("Reproducir acá") para oír la canción
+   * que acaba de elegir es hacerle pagar dos veces por lo mismo.
+   *
+   * **Reabrir una pestaña NO roba el audio**: la restauración de la sesión entra
+   * con `playNow` en false y ni siquiera pasa por acá, así que el audio no salta
+   * solo (el invariante que eligió el dueño). Y el traspaso pausa a la otra
+   * pestaña —no suenan dos nunca—, que es lo que el test
+   * `scripts/qa-audio-multipestana.mjs` protege.
+   */
+  const ensureAudioForPlayback = useCallback(async (): Promise<boolean> => {
+    const granted = (await claimAudio()) || (await claimAudioForcefully());
+    if (!granted) {
+      setHeldElsewhere(true);
+      setTransportPlaying(false);
+      setIsLoading(false);
+    }
+    return granted;
+  }, [setTransportPlaying]);
+
   /** Loads a queue entry into the engine and optionally starts playback. */
   const loadEntry = useCallback(
     async (targetIndex: number, playNow: boolean, offset = 0, depth = 0) => {
@@ -268,7 +383,31 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const entry = state.queue[targetIndex];
       if (!entry) return;
 
+      /*
+       * El token se toma ANTES de cualquier `await`, y eso es lo que hace que
+       * "la última pulsación gane".
+       *
+       * Antes se tomaba después de `ensureAudioForPlayback()`. En una ráfaga de
+       * siguiente/anterior, el orden en que TERMINAN esas esperas no es el orden
+       * en que el usuario pulsó: una pulsación vieja podía despertar última,
+       * quedarse con el token nuevo y pisar a la canción que el usuario sí quería
+       * — el índice de la cola decía una canción y el motor cargaba otra, y la
+       * app quedaba trabada. Tomándolo primero, cualquier llamada anterior
+       * abandona en cuanto reanuda (los chequeos `token !== loadTokenRef.current`
+       * de abajo ya estaban) y sólo la última sigue viva.
+       */
       const token = ++loadTokenRef.current;
+
+      /*
+       * Antes de cargar nada: si se va a REPRODUCIR, hay que tener el audio.
+       *
+       * Va primero y no después de resolver la canción a propósito: resolver baja
+       * y parsea el MIDI, que es trabajo pesado, y no tiene sentido hacerlo para
+       * una canción que no va a sonar.
+       */
+      if (playNow && !(await ensureAudioForPlayback())) return;
+
+      if (token !== loadTokenRef.current) return;
       setIsLoading(true);
       setError(null);
 
@@ -318,6 +457,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         // whatever was sounding has to go quiet now. `load` alone cannot
         // promise that — it is skipped when the song is already the engine's.
         host?.stop();
+        // Deja de sonar, así que suelta el audio: otra pestaña puede tomarlo.
+        releaseAudio();
       }
       host?.load(song);
       setIsLoading(false);
@@ -332,7 +473,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [setTransportPlaying],
+    [setTransportPlaying, ensureAudioForPlayback],
   );
 
   // Load whenever the *slot* changes (uid, not trackId — the same song can
@@ -378,18 +519,73 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       store.setQueue(ids, ids[0], { kind: "library", label: "Toda la biblioteca" });
       return;
     }
-    const entry = state.queue[state.index];
-    store.recordPlay(entry.trackId);
-    setTransportPlaying(true);
-    // `play` may need to build the audio engine first, so it can reject.
-    void Promise.resolve(bridgeRef.current?.play(positionRef.current)).catch(() => {
-      setTransportPlaying(false);
-    });
+
+    /**
+     * Antes de arrancar, se pide el audio.
+     *
+     * Si otra pestaña lo tiene, se le pide el TRASPASO: pulsar play es una orden
+     * explícita del usuario, y dejar el botón sin efecto mientras la otra pestaña
+     * sigue sonando es el reporte del dueño (ver `ensureAudioForPlayback`). El
+     * `await` es necesario porque la consulta al lock es asíncrona, pero el lock se
+     * pide con `ifAvailable` —no espera— así que en el caso normal resuelve en el
+     * mismo tick.
+     *
+     * Se pide SÓLO acá y no en `load()`: cargar una canción en la barra sin
+     * reproducirla no usa el dispositivo de audio, así que no hay nada que
+     * coordinar.
+     */
+    void (async () => {
+      const granted = (await claimAudio()) || (await claimAudioForcefully());
+      if (!granted) {
+        setHeldElsewhere(true);
+        setTransportPlaying(false);
+        return;
+      }
+
+      const entry = store.getSnapshot().queue[store.getSnapshot().index];
+      if (!entry) return;
+      store.recordPlay(entry.trackId);
+      setTransportPlaying(true);
+      // `play` may need to build the audio engine first, so it can reject.
+      void Promise.resolve(bridgeRef.current?.play(positionRef.current)).catch(() => {
+        setTransportPlaying(false);
+        // Si el motor no pudo arrancar, no tiene sentido seguir bloqueando el
+        // audio para las otras pestañas.
+        releaseAudio();
+      });
+    })();
   }, [setTransportPlaying]);
 
   const pause = useCallback(() => {
     bridgeRef.current?.pause();
     setTransportPlaying(false);
+    // Soltar el audio permite que otra pestaña reproduzca sin pelear por el lock.
+    // El navegador lo liberaría solo al cerrar la pestaña, pero mientras sigue
+    // abierta y en pausa no tiene por qué bloquear a nadie.
+    releaseAudio();
+  }, [setTransportPlaying]);
+
+  /**
+   * Tomar el audio a la fuerza, pausando la otra pestaña.
+   *
+   * Es lo que dispara el botón "Reproducir acá" del aviso: el usuario decide
+   * explícitamente que quiere el audio en ésta.
+   */
+  const takeOver = useCallback(() => {
+    void (async () => {
+      const granted = await claimAudioForcefully();
+      if (!granted) return;
+      setHeldElsewhere(false);
+      const state = store.getSnapshot();
+      const entry = state.queue[state.index];
+      if (!entry) return;
+      store.recordPlay(entry.trackId);
+      setTransportPlaying(true);
+      void Promise.resolve(bridgeRef.current?.play(positionRef.current)).catch(() => {
+        setTransportPlaying(false);
+        releaseAudio();
+      });
+    })();
   }, [setTransportPlaying]);
 
   const toggle = useCallback(() => {
@@ -658,6 +854,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       historyIds: library.history.map((entry) => entry.trackId),
       playCounts: library.playCounts,
       resolvedIds,
+      heldElsewhere,
+      takeAudioOver: takeOver,
       play,
       pause,
       toggle,
@@ -701,6 +899,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       library.history,
       library.playCounts,
       resolvedIds,
+      heldElsewhere,
       play,
       pause,
       toggle,
@@ -727,6 +926,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       registerBridge,
       getPosition,
       notifyEnded,
+      takeOver,
     ],
   );
 
