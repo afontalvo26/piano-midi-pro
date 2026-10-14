@@ -376,7 +376,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
    * `scripts/qa-audio-multipestana.mjs` protege.
    */
   const ensureAudioForPlayback = useCallback(async (): Promise<boolean> => {
-    const granted = (await claimAudio()) || (await claimAudioForcefully());
+    /*
+     * `claimAudio()` le pide el audio a la otra pestaña y ESPERA su respuesta. Si
+     * esa pestaña quedó colgada (cerrada a medias, oculta sin latido, o con el
+     * motor trabado), la espera **no termina nunca**: la canción se quedaba en
+     * "Cargando…" y la app dejaba de responder — el reporte exacto del dueño.
+     *
+     * Con el tope, si no hay respuesta en 1,5 s se pasa a tomarlo a la fuerza
+     * (`takeAudioOver`), que es para lo que existe. Nunca más una espera infinita.
+     */
+    const respuesta = await Promise.race([
+      claimAudio(),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500)),
+    ]);
+    const granted = respuesta || (await claimAudioForcefully());
     if (!granted) {
       setHeldElsewhere(true);
       setTransportPlaying(false);
