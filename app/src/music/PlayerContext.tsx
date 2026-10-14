@@ -389,7 +389,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       claimAudio(),
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500)),
     ]);
-    const granted = respuesta || (await claimAudioForcefully());
+    /*
+     * El camino forzado también se acota, y con timeout se sigue adelante.
+     *
+     * Acotar sólo la primera espera dejaba el agujero abierto del otro lado: si
+     * `takeAudioOver()` tampoco contesta (la otra pestaña está cerrada a medias y
+     * su BroadcastChannel quedó mudo), la app volvía a colgarse en "Cargando…".
+     * Como el objetivo del dueño es que la canción SUENE, ante la duda se
+     * reproduce: la coordinación entre pestañas es una optimización, no un
+     * requisito para escuchar música.
+     */
+    const forzado = await Promise.race([
+      claimAudioForcefully(),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 1500)),
+    ]);
+    const granted = respuesta || forzado;
     if (!granted) {
       setHeldElsewhere(true);
       setTransportPlaying(false);
