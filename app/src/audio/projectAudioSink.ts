@@ -100,6 +100,8 @@ interface TrackSlot {
   readonly meter: Tone.Analyser;
   readonly meterState: MeterState;
   readonly effects: Tone.ToneAudioNode[];
+  /** Independent post-fader, post-insert sends to bus inputs. */
+  readonly sends: Tone.Gain[];
   piano: LiveVoiceController | null;
   drums: DrumKitEngine | null;
   sampler: UserSampleEngine | MonoUserSampleEngine | null;
@@ -238,6 +240,16 @@ export class ProjectAudioSink implements SequencerSink {
         }
         slot.panner.connect(slot.meter);
         slot.meter.connect(target?.volume ?? this.master);
+        for (const send of slot.track.mix.sends) {
+          const bus = this.slots.get(send.busTrackId);
+          if (!bus || bus.track.kind !== "bus" || bus === slot) {
+            throw new Error(`Envío ${send.id}: bus destino inválido`);
+          }
+          const sendGain = new Tone.Gain(10 ** (send.gainDb / 20));
+          slot.sends.push(sendGain);
+          slot.meter.connect(sendGain);
+          sendGain.connect(bus.volume);
+        }
       }
       this.refreshMute();
     } catch (error) {
@@ -254,7 +266,7 @@ export class ProjectAudioSink implements SequencerSink {
     const meterState: MeterState = { lastAt: -Infinity, clippedLastRead: false,
       snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 } };
     const slot: TrackSlot = { track, volume, panner, muteGate, meter, meterState, effects: [],
-      piano: null, drums: null,
+      sends: [], piano: null, drums: null,
       sampler: null, rack: null, audioClips: null, sampleAsset: null,
       status: "loading", error: null, muteOverride: null, soloOverride: null,
       gainOverride: null, panOverride: null,
@@ -343,10 +355,6 @@ export class ProjectAudioSink implements SequencerSink {
           this.maybeDisposeRetired(slot);
         }, this.document.audioCrossfades ?? []);
       if (!slot.audioClips.hasClips) slot.status = "ready";
-    }
-    if (track.mix.sends.length && slot.status !== "error") {
-      slot.status = "error";
-      slot.error = "Envíos de proyecto aún no están disponibles";
     }
     if (slot.status !== "error") {
       try {
@@ -1043,6 +1051,7 @@ export class ProjectAudioSink implements SequencerSink {
     slot.sampler?.dispose();
     slot.audioClips?.dispose();
     for (const effect of slot.effects) effect.dispose();
+    for (const send of slot.sends) send.dispose();
     slot.volume.dispose();
     slot.muteGate.dispose();
     slot.panner.dispose();
