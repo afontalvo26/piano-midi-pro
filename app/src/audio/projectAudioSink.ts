@@ -12,6 +12,7 @@ import { MonoUserSampleEngine } from "./monoUserSampleEngine";
 import { DrumRackEngine, type DrumRackPadStatus } from "./drumRackEngine";
 import { AudioClipEngine } from "./audioClipEngine";
 import { connectProjectEffects } from "./projectEffects.ts";
+import { assertSafeAudioRouting } from "../project/mixRouting.ts";
 import { SALAMANDER_CORE_PACKAGE_VERSION } from "./verifiedSalamanderCore";
 import { TR808_FISCHER_VERSION, loadTr808FischerBass,
   tr808FischerBassRegion } from "./tr808FischerCore";
@@ -210,6 +211,7 @@ export class ProjectAudioSink implements SequencerSink {
     pianoBank: DecodedPianoSampleBank, ownsAudio: () => boolean,
     assetReader?: UserSampleReader) {
     if (document.ppq !== 960) throw new RangeError("project audio requires 960 PPQ");
+    assertSafeAudioRouting(document);
     this.projectId = document.id;
     this.document = document;
     this.rootOwnerId = `transport/${document.id}`;
