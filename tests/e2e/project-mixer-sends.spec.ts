@@ -81,9 +81,26 @@ test("mobile mixer adds, edits and removes an acyclic send at 320 px", async ({ 
   await level.fill("-9");
   await level.blur();
   await expect(level).toHaveValue("-9");
-  await sends.getByRole("button", { name: "Quitar envío" }).click();
-  await expect(sends.getByRole("button", { name: "Quitar envío" })).toHaveCount(0);
+  await mixer.getByRole("button", { name: "Deshacer" }).click();
+  await expect(level).toHaveValue("-12");
+  await mixer.getByRole("button", { name: "Rehacer" }).click();
+  await expect(level).toHaveValue("-9");
+  await expect(page.getByRole("region", { name: "Proyecto de Beatmaker" }))
+    .toContainText("Guardado", { timeout: 20_000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.reload();
+  await page.getByRole("button", { name: "Pistas", exact: true }).click();
+  await page.getByRole("region", { name: "Tus proyectos" })
+    .getByRole("button", { name: "Abrir en Studio" }).click();
+  await page.getByRole("button", { name: "Mezclador" }).click();
+  const reopened = page.getByRole("region", { name: "Mezclador del proyecto" })
+    .getByRole("region", { name: "Canal Piano" }).locator(".project-mixer__sends");
+  await expect(reopened.getByRole("spinbutton", { name: "Nivel (dB)" })).toHaveValue("-9");
+  await reopened.getByRole("button", { name: "Quitar envío" }).click();
+  await expect(reopened.getByRole("button", { name: "Quitar envío" })).toHaveCount(0);
+  await page.getByRole("region", { name: "Mezclador del proyecto" })
+    .getByRole("button", { name: "Deshacer" }).click();
+  await expect(reopened.getByRole("button", { name: "Quitar envío" })).toHaveCount(1);
 });
 
 
