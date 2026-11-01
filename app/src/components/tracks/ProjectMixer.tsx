@@ -128,7 +128,8 @@ export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects
               onTrackMix(track.id, event.target.value === "master" ? withoutRoute
                 : { ...withoutRoute, outputBusTrackId: event.target.value });
             }}><option value="master">Master</option>
-              {buses.filter((bus) => bus.id !== track.id).map((bus) =>
+              {buses.filter((bus) => bus.id !== track.id &&
+                !reachesTrack(document, bus.id, track.id)).map((bus) =>
                 <option value={bus.id} key={bus.id}>{bus.name}</option>)}</select></label>
           </div>
           <div className="project-mixer__toggles">
