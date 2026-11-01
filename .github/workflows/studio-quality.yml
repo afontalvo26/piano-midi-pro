@@ -34,6 +34,8 @@ jobs:
         run: npm ci --prefix app
       - name: Verify inventory of 113 requirements
         run: node scripts/audit-beatmaker-requirements.mjs
+      - name: Check MIDI evidence gate fixtures
+        run: node --test tests/unit/smk37-capture.test.mjs
       - name: Typecheck
         run: cd app && timeout 180s npx tsc -b
       - name: ESLint
