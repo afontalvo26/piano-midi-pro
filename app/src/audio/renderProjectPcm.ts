@@ -116,9 +116,32 @@ function selectTracks(document: ProjectDocumentV1, options: RenderProjectOptions
     }
     if (!reachedTap) throw new RangeError(`Pista ${id} no llega al bus de resampling`);
   }
+  if (!options.tapBusTrackId) {
+    // Sends are parallel post-fader paths. A stem must include every bus reached
+    // through either a primary output or a send, including upstream bus inserts.
+    const pending = [...include];
+    const visited = new Set<string>();
+    while (pending.length) {
+      const id = pending.pop()!;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const track = byId.get(id)!;
+      const destinations = [track.mix.outputBusTrackId,
+        ...track.mix.sends.map((send) => send.busTrackId)].filter(
+          (value): value is string => value !== undefined);
+      for (const busId of destinations) {
+        const bus = byId.get(busId);
+        if (bus?.kind !== "bus") throw new Error(`Bus ${busId} ausente`);
+        if (!include.has(busId)) include.add(busId);
+        if (!visited.has(busId)) pending.push(busId);
+      }
+    }
+  }
   const routedTracks = document.tracks.filter((track) => include.has(track.id));
-  if (routedTracks.some((track) => track.mix.sends.length)) {
-    throw new Error("Exportación con envíos aún no disponible");
+  // Tap renders only follow the output route to the selected bus. They cannot
+  // safely include parallel send paths until destination-aware taps are added.
+  if (options.tapBusTrackId && routedTracks.some((track) => track.mix.sends.length)) {
+    throw new Error("Resampling de bus con envíos aún no disponible");
   }
   const clock = new MusicalClock(document.tempoMap, document.meterMap);
   const startUs = Math.round(clock.tickToSeconds(options.startTick) * 1_000_000);
