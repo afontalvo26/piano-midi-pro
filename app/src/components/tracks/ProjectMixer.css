@@ -23,3 +23,11 @@
 .project-mixer__unsupported { margin: 0; }
 .project-mixer__master { border-color: #9972cc; }
 @media (max-width: 500px) { .project-mixer { padding: 12px; } .project-mixer__tracks { grid-template-columns: minmax(0, 1fr); } }
+
+/* Sends sit after the channel fader/pan and before the bus inputs. */
+.project-mixer__sends { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid #494055; min-width: 0; }
+.project-mixer__sends h4 { margin: 0; font-size: 13px; }
+.project-mixer__send, .project-mixer__send-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; min-width: 0; }
+.project-mixer__send button, .project-mixer__send-add button { grid-column: 1 / -1; }
+.project-mixer__send-add label { grid-column: 1 / -1; }
+.project-mixer__send input[readonly] { opacity: .85; }
