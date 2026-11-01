@@ -1,8 +1,8 @@
 import { renderProjectPcm, type RenderProgress, type RenderedProjectPcm } from "./renderProjectPcm.ts";
 import type { UserSampleReader } from "./userSampleAsset.ts";
-import type { ProjectAssetRef, ProjectAudioResample, ProjectDocumentV1,
-  ProjectTrack } from "../project/model.ts";
+import type { ProjectAssetRef, ProjectAudioResample, ProjectDocumentV1 } from "../project/model.ts";
 import type { ProjectRevision } from "../project/repository.ts";
+import { findBusResampleRoutes } from "../project/busResampleRouting.ts";
 import { encodeWavPcmAsync } from "../export/wavPcmClient.ts";
 
 export interface RenderProjectBusOptions {
@@ -23,21 +23,6 @@ export interface RenderedProjectBus {
   readonly render: RenderedProjectPcm["report"];
 }
 
-function routeToBus(track: ProjectTrack, busId: string,
-  byId: ReadonlyMap<string, ProjectTrack>): readonly ProjectTrack[] | null {
-  const path: ProjectTrack[] = [track];
-  const seen = new Set([track.id]);
-  let current = track;
-  while (current.mix.outputBusTrackId) {
-    const parent = byId.get(current.mix.outputBusTrackId);
-    if (!parent || parent.kind !== "bus" || seen.has(parent.id)) return null;
-    path.push(parent); seen.add(parent.id);
-    if (parent.id === busId) return path;
-    current = parent;
-  }
-  return null;
-}
-
 /** Render one bus after its inserts/gain/pan, before parent buses and master. */
 export async function renderProjectBusPcm(revision: ProjectRevision,
   options: RenderProjectBusOptions, assetReader: UserSampleReader, signal?: AbortSignal,
@@ -53,16 +38,13 @@ export async function renderProjectBusPcm(revision: ProjectRevision,
   if (bus?.kind !== "bus" || destination?.kind !== "audio" || bus.id === destination.id) {
     throw new RangeError("Elige un bus fuente y una pista de audio destino distintos");
   }
-  const paths = document.tracks.filter((track) => track.kind !== "bus" &&
-    track.id !== destination.id).map((track) => routeToBus(track, bus.id, byId))
-    .filter((path): path is readonly ProjectTrack[] => path !== null);
-  const sourceTrackIds = paths.map((path) => path[0]!.id);
+  const routes = findBusResampleRoutes(document, bus.id, destination.id);
+  const sourceTrackIds = routes.sourceTrackIds;
   if (!sourceTrackIds.length) throw new RangeError("El bus no tiene pistas fuente para resampling");
-  const routed = new Map(paths.flatMap((path) => path.map((track) => [track.id, track] as const)));
-  if ([...routed.values()].some((track) => track.mix.sends.length > 0)) {
+  if (routes.hasUnsupportedSends) {
     throw new RangeError("Resampling de bus con envíos aún no está disponible");
   }
-  const includedEffectIds = [...routed.values()].flatMap((track) =>
+  const includedEffectIds = routes.routedTracks.flatMap((track) =>
     track.mix.effects.filter((effect) => effect.enabled).map((effect) => effect.id));
   const rendered = await renderProjectPcm(document, {
     startTick: options.startTick, endTick: options.endTick,
