@@ -7,6 +7,7 @@
  * Usage: node scripts/gate-smk37-midi.mjs .logs/smk37-elite-physical-20261101.jsonl
  */
 import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 
 export function analyzeSmk37Capture(events) {
   const held = new Map();
@@ -69,7 +70,7 @@ export function analyzeSmk37Capture(events) {
   };
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const file = process.argv[2];
   if (!file) {
     console.error("Uso: node scripts/gate-smk37-midi.mjs <captura.jsonl>");
