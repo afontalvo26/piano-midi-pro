@@ -66,6 +66,7 @@ jobs:
             tests/e2e/project-bus-routing-preflight.spec.ts \
             tests/e2e/project-bus-resample.spec.ts \
             tests/e2e/project-studio-bus-resample.spec.ts \
+            tests/e2e/project-mixer-sends.spec.ts \
             tests/e2e/project-four-bar-flow.spec.ts \
             tests/e2e/project-bundle-preview.spec.ts \
             tests/e2e/audio-live-voice.spec.ts \
