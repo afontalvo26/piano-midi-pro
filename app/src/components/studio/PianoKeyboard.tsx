@@ -3,7 +3,7 @@
 //
 // This is the only part of the UI that must repaint on every live note, so it
 // subscribes to `pianoKeyboardStore` directly instead of receiving note state
-// from App.tsx. Keeping the hot note sets out of App's state is what prevents a
+// from PianoApp.tsx. Keeping the hot note sets out of React state is what prevents a
 // keypress from re-rendering (and stalling) the whole studio — see the store's
 // header comment for the measurements behind this.
 //
@@ -17,14 +17,12 @@ import type { CSSProperties, RefObject } from "react";
 import { isBlackKey, midiToLabel } from "../../utils/audioMidiUtils";
 import { useStorePoll } from "../../hooks/useStorePoll";
 
-/** Mirrors the `piano_show_note_names` setting in App.tsx. */
-export type NoteNameMode = "none" | "name" | "binding";
+/** Mirrors the note label setting in Studio. */
+export type NoteNameMode = "none" | "name";
 
 export interface PianoKeyboardProps {
   /** MIDI notes currently mapped to the visible range, in order. */
   visibleNotes: number[];
-  /** Notes the practice mode is waiting for (rarely changes). */
-  practiceTargets: ReadonlySet<number>;
   /** Struck velocity per held note — shared with App's keyboard handler. */
   activeNoteVelocitiesRef: RefObject<Map<number, number>>;
   showNoteNames: NoteNameMode;
@@ -36,7 +34,6 @@ export interface PianoKeyboardProps {
 
 export function PianoKeyboard({
   visibleNotes,
-  practiceTargets,
   activeNoteVelocitiesRef,
   showNoteNames,
   keyFxColor,
@@ -44,11 +41,7 @@ export function PianoKeyboard({
   onKeyMouseDown,
   onKeyMouseUp,
 }: PianoKeyboardProps) {
-  const [activeNotes, assistNotes, hitReadyNotes] = useStorePoll((s) => [
-    s.midiNotes,
-    s.assistNotes,
-    s.hitReadyNotes,
-  ]);
+  const heldNotes = useStorePoll((s) => s.midiNotes);
 
 
   const keyElsRef = useRef(new Map<number, HTMLDivElement>());
@@ -61,7 +54,7 @@ export function PianoKeyboard({
   useLayoutEffect(() => {
     const velocities = activeNoteVelocitiesRef.current;
     keyElsRef.current.forEach((el, midi) => {
-      const depth = activeNotes.has(midi) ? (velocities?.get(midi) ?? 0.75) : 0;
+      const depth = heldNotes.has(midi) ? (velocities?.get(midi) ?? 0.75) : 0;
       el.style.setProperty("--press-depth", String(depth));
     });
   });
@@ -72,17 +65,8 @@ export function PianoKeyboard({
   const whiteKeyWidthPercent = numWhiteKeys > 0 ? 100 / numWhiteKeys : 0;
   const blackKeyWidthPercent = whiteKeyWidthPercent * 0.6;
 
-  /** Notes highlighted as "play this next" (game ghost assist / practice). */
-  const isTargetNote = (midi: number): boolean =>
-    assistNotes.has(midi) || practiceTargets.has(midi);
-
   const keyClass = (midi: number, variant: "white" | "black"): string => {
-    const isActive = activeNotes.has(midi);
-    const isTarget = isTargetNote(midi);
-    const isHitReady = hitReadyNotes.has(midi);
-    return `piano-key-element ${variant} ${isActive ? "active-press" : ""} ${
-      isHitReady ? "game-hit-ready" : isTarget ? "practice-target" : ""
-    }`;
+    return `piano-key-element ${variant} ${heldNotes.has(midi) ? "active-press" : ""}`;
   };
 
   return (
@@ -110,19 +94,20 @@ export function PianoKeyboard({
                 "--press-depth": 0,
               } as CSSProperties
             }
-            onMouseDown={() => onKeyMouseDown(midi)}
-            onMouseUp={() => onKeyMouseUp(midi)}
-            onMouseEnter={(e) => {
+            onPointerDown={(e) => { e.preventDefault(); onKeyMouseDown(midi); }}
+            onPointerUp={() => onKeyMouseUp(midi)}
+            onPointerCancel={() => onKeyMouseUp(midi)}
+            onPointerEnter={(e) => {
               if (e.buttons === 1) onKeyMouseDown(midi);
             }}
-            onMouseLeave={() => {
-              if (activeNotes.has(midi)) onKeyMouseUp(midi);
+            onPointerLeave={() => {
+              if (heldNotes.has(midi)) onKeyMouseUp(midi);
             }}
           >
             <div className="piano-key-velvet-strip" />
             {showNoteNames !== "none" && (
               <span className="piano-key-label">
-                {showNoteNames === "name" ? midiToLabel(midi) : midi % 12}
+                {midiToLabel(midi)}
               </span>
             )}
           </div>
@@ -177,19 +162,20 @@ export function PianoKeyboard({
                   "--press-depth": 0,
                 } as CSSProperties
               }
-              onMouseDown={() => onKeyMouseDown(midi)}
-              onMouseUp={() => onKeyMouseUp(midi)}
-              onMouseEnter={(e) => {
+              onPointerDown={(e) => { e.preventDefault(); onKeyMouseDown(midi); }}
+              onPointerUp={() => onKeyMouseUp(midi)}
+              onPointerCancel={() => onKeyMouseUp(midi)}
+              onPointerEnter={(e) => {
                 if (e.buttons === 1) onKeyMouseDown(midi);
               }}
-              onMouseLeave={() => {
-                if (activeNotes.has(midi)) onKeyMouseUp(midi);
+              onPointerLeave={() => {
+                if (heldNotes.has(midi)) onKeyMouseUp(midi);
               }}
             >
               <div className="piano-key-velvet-strip" />
               {showNoteNames !== "none" && (
                 <span className="piano-key-label">
-                  {showNoteNames === "name" ? midiToLabel(midi) : midi % 12}
+                  {midiToLabel(midi)}
                 </span>
               )}
             </div>

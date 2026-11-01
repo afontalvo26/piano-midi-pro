@@ -1,18 +1,16 @@
 /**
  * gmDrums — mapa de percusión General MIDI (canal 10).
  *
- * Por qué existe: los .kar de vallenato, bolero y tropical traen la batería y
- * la percusión latina en el canal 10, y el reproductor **descartaba esa pista
- * entera** al parsear. Medido sobre la biblioteca: 35 de 40 archivos tropicales
- * traen canal 10, y lo que más suena ahí son maracas, congas, bongos, güiro,
- * cabasa, claves, agogo y timbales — o sea, el ritmo del género. Sin eso, un
- * vallenato suena a piano con acompañamiento.
- *
- * Este mapa traduce nota MIDI → pieza de percusión, y dice con qué voz del
- * PercussionEngine se puede sintetizar cuando todavía no hay sample real.
+ * Traduce las notas de pads y canal 10 a piezas de percusión GM.
  */
 
-import type { PercussionVoice } from "../engine/InstrumentEngine";
+/** Names retained for metadata compatibility; live pads use recorded samples. */
+export type PercussionVoice =
+  | "claves" | "conga-high" | "conga-mid" | "conga-low"
+  | "bongo-high" | "bongo-low" | "timbale-high" | "timbale-low"
+  | "cowbell" | "guiro" | "maracas" | "shaker"
+  | "snare" | "kick" | "hihat-open" | "hihat-closed"
+  | "crash" | "ride" | "tom-high" | "tom-mid" | "tom-low";
 
 export type DrumFamily =
   | "kick"
@@ -37,7 +35,7 @@ export interface GmDrumPiece {
   sample?: string;
 }
 
-/** Piezas GM 27–87 (las que aparecen de verdad en los archivos). */
+/** Piezas GM 27–87 admitidas por el motor de percusión. */
 export const GM_DRUMS: Record<number, GmDrumPiece> = {
   27: { name: "High Q", family: "fx", voice: "claves" },
   28: { name: "Slap", family: "fx", voice: "snare" },

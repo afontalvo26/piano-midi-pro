@@ -1,21 +1,6 @@
-/**
- * instrumentPanning — ubica cada instrumento en el campo estéreo.
- *
- * POR QUÉ IMPORTA
- * ---------------
- * Hasta ahora TODOS los samples salían al centro: la mezcla era un punto en el
- * medio de los dos parlantes. Es el detalle que más delata una producción
- * amateur — una banda real ocupa el escenario: el bajo y la batería al centro,
- * las guitarras a los lados, las cuerdas y los pads abiertos, los metales
- * repartidos. En un bolero el requinto y la guitarra se contestan de izquierda a
- * derecha; en un vallenato el acordeón va al frente y el bajo atrás.
- *
- * Los valores siguen la convención de mezcla de estos géneros (-1 = izquierda,
- * +1 = derecha) y son deliberadamente conservadores: un paneo exagerado cansa
- * al oído y desafina el balance en un parlante Bluetooth mono.
- */
+/** Paneo conservador del piano y la percusión en vivo (-1 izquierda, +1 derecha). */
 
-/** Paneo por programa GM (los que usa la biblioteca). */
+/** Paneo por programa GM cuando un instrumento vivo lo requiere. */
 const PROGRAM_PAN: Record<number, number> = {
   // Teclados
   0: -0.12, 1: -0.12, 2: -0.2, 3: -0.15, 4: 0.3, 5: 0.3, 6: -0.3, 7: 0.35,

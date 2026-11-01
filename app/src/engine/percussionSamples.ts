@@ -354,5 +354,20 @@ export const PERCUSSION_SAMPLES: Record<number, string[]> = {
   "77": [
     "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Claves1_Hit_v1_rr1_Sum.wav",
     "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/VSCO%201%20Percussion/varWood/claves_pp1.wav"
+  ],
+  // General MIDI: 80 = muted triangle, 81 = open triangle. VSCO-2 CE has
+  // distinct recorded articulations for both; using the open hit for 80 would
+  // make short figures ring over each other.
+  "80": [
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Triangle3-HitM_v1_rr1_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Triangle3-HitM_v1_rr2_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Triangle3-HitM_v2_rr1_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Triangle3-HitM_v2_rr2_Sum.wav"
+  ],
+  "81": [
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Triangle3-Hit_v1_rr1_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Triangle3-Hit_v1_rr2_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Triangle3-Hit_v2_rr1_Sum.wav",
+    "https://raw.githubusercontent.com/sgossner/VSCO-2-CE/master/Percussion/Triangle3-Hit_v2_rr2_Sum.wav"
   ]
 };

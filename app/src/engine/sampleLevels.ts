@@ -13,11 +13,8 @@
  *     percusión FreePats (conga)         RMS  -15.1 dB
  *     kit GM (bombo)                     RMS  -15.1 dB
  *
- * Son ~24 dB de spread. El resultado era exactamente lo que reportó el usuario:
- * la percusión y el acordeón tapan todo, los soundfonts quedan enterrados, y la
- * mezcla "empeora" a medida que la canción suma golpes — medido con un
- * analizador en la salida, el centroide espectral saltaba de 1.7 kHz a 9 kHz
- * (una lavadora de agudos) a los 10 segundos de empezar.
+ * Hay ~24 dB de diferencia entre fuentes. Sin compensación, la percusión
+ * puede tapar al piano en vivo.
  *
  * La solución es medir cada sample al cargarlo y compensar: nada de tablas
  * mágicas, el número sale del propio audio.

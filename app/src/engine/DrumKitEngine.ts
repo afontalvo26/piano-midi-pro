@@ -1,30 +1,31 @@
 /**
- * DrumKitEngine — percusión de verdad para el canal 10.
+ * DrumKitEngine — percusión muestreada para pads y canal MIDI 10.
  *
- * Por qué existe: el reproductor **descartaba la pista de percusión entera**.
- * Medido sobre la biblioteca de demos: 264.003 notas de canal 10 tiradas a la
- * basura — más que cualquier instrumento melódico (la guitarra de nylon, la más
- * usada, tiene 73.514) — y lo que más suena ahí es maracas, congas, bongos,
- * güiro, cabasa, claves y timbales. Un vallenato o un bolero sin eso no es la
- * música: es un piano con acompañamiento.
- *
- * Dos fuentes de samples reales, en este orden:
+ * El modo legacy prueba dos fuentes de samples, en este orden:
  *
  *  1. **FreePats World Percussion (CC0)** para las piezas latinas que tiene
  *     grabadas, con VARIOS golpes por pieza en round-robin. Repetir un mismo
  *     sample en una figura de 16avos suena a ametralladora; alternar 6-8 golpes
  *     distintos suena a percusionista. Eso es la "expresión" que ningún
  *     soundfont GM da.
- *  2. **Kit GM de WebAudioFont** (`128<nota>_0_FluidR3_GM`) para el resto:
+ *  2. **Kit GM de WebAudioFont** para el resto:
  *     bombo, redoblante, hi-hats, platillos, toms, güiro, agogo, woodblock.
  *
- * Si ninguna de las dos cargó (sin red), cae al PercussionEngine sintetizado
- * que ya existía — mejor un ritmo sintético que silencio.
+ * Los modos de proyecto Virtuosity y FreePats clap cargan sólo su paquete
+ * verificado; nunca cambian al kit GM si falla un archivo.
+ * Si no se puede cargar una muestra, la nota no se retrasa para sonar después.
  */
 
 import * as Tone from "tone";
+import { OwnedVoiceRegistry, type OwnedVoiceHandle, type OwnedVoiceSnapshot } from "../audio/ownedVoiceRegistry";
+import { retainUntilOfflineRender } from "../audio/offlineGraphRetention";
+import { decodeVirtuosityPiece, fetchVirtuosityManifest, virtuosityArticulation } from "../audio/virtuosityCore";
+import { decodeFreePatsHandClap, fetchFreePatsHandClapManifest,
+  FREEPATS_HANDCLAP_NOTE } from "../audio/freePatsHandClap";
+import { recordedVelocityLayerTrims } from "../audio/recordedVelocityLayers";
 import { PERCUSSION_SAMPLES } from "./percussionSamples";
 import { loadWafZoneBuffer } from "./WebAudioFont";
+import { WAF_DRUMS } from "./wafManifest";
 import { drumPiece, pieceTrimDb } from "../utils/gmDrums";
 import { panForDrumPiece } from "./instrumentPanning";
 import { eqForInstrument } from "./instrumentChain";
@@ -38,15 +39,31 @@ import {
 
 /** Cuántos golpes distintos se bajan por pieza (round-robin). */
 const MAX_VARIANTS = 6;
-/** Kit GM de WebAudioFont: 0 = Standard, 16 = Power, 22 = Jazz. */
-const GM_KIT_INDEX = 0;
-const GM_KIT_SOURCE = "FluidR3_GM";
-/** Techo de voces simultáneas: una batería no necesita más y evita picos. */
-const MAX_VOICES = 48;
 
-function wafDrumCode(note: number): string {
-  return `128${note}_${GM_KIT_INDEX}_${GM_KIT_SOURCE}`;
+/**
+ * Variantes de WebAudioFont que EXISTEN para cada nota, según el manifiesto.
+ *
+ * Sólo se prueban las variantes publicadas que constan en el manifiesto;
+ * construir un identificador a ciegas puede provocar un 404 y dejar el pad mudo.
+ */
+const WAF_DRUM_VARIANTS: Map<number, string[]> = new Map(
+  WAF_DRUMS.map((entry) => [entry.note, entry.variants]),
+);
+
+/**
+ * Variantes a probar para una pieza.
+ *
+ * Si el manifiesto no tiene la nota, se devuelve una lista VACÍA: no se inventa un
+ * id. Una nota fuera del manifiesto es una nota sin muestra publicada, y pedirla
+ * genera un 404 y una espera al pedo.
+ */
+function wafDrumVariants(note: number): string[] {
+  return WAF_DRUM_VARIANTS.get(note) ?? [];
 }
+/** Hard source ceiling, including the short tails of stolen hits. */
+const MAX_VOICES = 48;
+const ACTIVE_VOICE_LIMIT = 40;
+const FORCED_FADE_SECONDS = 0.008;
 
 /**
  * Curva de velocity: la percusión golpeada fuerte no sólo suena más fuerte,
@@ -54,20 +71,30 @@ function wafDrumCode(note: number): string {
  * marcada en vez de lineal.
  */
 function velocityToGain(velocity: number): number {
-  const v = Math.max(0.02, Math.min(1, velocity));
+  const v = Math.max(1 / 127, Math.min(1, velocity));
   return Math.pow(v, 1.35);
 }
 
 export class DrumKitEngine {
   private out: Tone.Volume;
+  readonly source: "legacy" | "virtuosity-core" | "freepats-clap";
+  private readonly onVoiceEnd?: () => void;
   /** Piezas que ya avisaron que se saltean (aviso único por pieza). */
   private warnedSkip = new Set<number>();
   /** nota GM → golpes disponibles (round-robin). */
   private variants = new Map<number, AudioBuffer[]>();
+  private layeredVariants = new Map<number, Map<number, AudioBuffer[]>>();
+  private layerTrimDb = new Map<number, ReadonlyMap<number, number>>();
+  private coreManifest: ReturnType<typeof fetchVirtuosityManifest> | null = null;
+  private clapManifest: ReturnType<typeof fetchFreePatsHandClapManifest> | null = null;
+  private loadErrors = new Map<number, string>();
   private nextVariant = new Map<number, number>();
   private pending = new Map<number, Promise<void>>();
-  private voices: Tone.ToneBufferSource[] = [];
-  /** Piezas que ya fallaron en las dos fuentes: no se reintentan por nota. */
+  private readonly voices = new Map<OwnedVoiceHandle, Tone.ToneBufferSource>();
+  private readonly ownedVoices = new OwnedVoiceRegistry();
+  private discardedHitCount = 0;
+  private disposed = false;
+  /** Piezas fallidas no se reintentan en cada golpe. */
   private failed = new Set<number>();
   /** Ganancia medida por pieza (dB) para emparejar niveles entre golpes. */
   private pieceGain = new Map<number, number>();
@@ -80,7 +107,11 @@ export class DrumKitEngine {
   /** Pasa-altos por pieza (maracas, güiro, hi-hats: sin lodo abajo). */
   private filters = new Map<number, Tone.Filter>();
 
-  constructor(destination: Tone.ToneAudioNode) {
+  constructor(destination: Tone.ToneAudioNode, options: {
+    source?: "legacy" | "virtuosity-core" | "freepats-clap"; onVoiceEnd?: () => void;
+  } = {}) {
+    this.source = options.source ?? "legacy";
+    this.onVoiceEnd = options.onVoiceEnd;
     this.out = new Tone.Volume(0).connect(destination);
   }
 
@@ -123,21 +154,41 @@ export class DrumKitEngine {
     return this.variants.size;
   }
 
+  loadError(note: number): string | null {
+    return this.loadErrors.get(note) ?? null;
+  }
+
   /** Carga el sample de una pieza (idempotente). */
   load(note: number): Promise<void> {
+    if (this.disposed) return Promise.resolve();
     const done = this.variants.get(note);
     if (done?.length) return Promise.resolve();
     const inFlight = this.pending.get(note);
     if (inFlight) return inFlight;
-    if (this.failed.has(note)) return Promise.resolve();
+    if (this.failed.has(note)) {
+      const prior = this.loadErrors.get(note);
+      return prior && this.source !== "legacy" ? Promise.reject(new Error(prior)) : Promise.resolve();
+    }
+
+    if (this.source === "virtuosity-core") {
+      const task = this.loadVirtuosity(note);
+      this.pending.set(note, task);
+      void task.finally(() => this.pending.delete(note)).catch(() => {});
+      return task;
+    }
+
+    if (this.source === "freepats-clap") {
+      const task = this.loadFreePatsClap(note);
+      this.pending.set(note, task);
+      void task.finally(() => this.pending.delete(note)).catch(() => {});
+      return task;
+    }
 
     const task = (async () => {
       const buffers: AudioBuffer[] = [];
 
       // 1. Percusión latina real de FreePats (con round-robin).
-      // En paralelo, no en serie: son hasta 6 archivos por pieza y una canción
-      // usa 8-12 piezas; en serie eso son ~50 pedidos encadenados y el ritmo
-      // arrancaba con la mitad de las piezas todavía bajando.
+      // Los golpes alternativos de un pad se cargan en paralelo.
       const urls = PERCUSSION_SAMPLES[note];
       if (urls?.length) {
         const fetched = await Promise.all(
@@ -154,15 +205,35 @@ export class DrumKitEngine {
       }
 
       // 2. Kit GM muestreado.
+      if (this.disposed) return;
       if (buffers.length === 0) {
-        try {
-          const buf = await loadWafZoneBuffer(wafDrumCode(note));
-          if (buf) buffers.push(buf);
-        } catch (err) {
-          console.warn(`[DrumKit] kit GM sin nota ${note}`, err);
+        // ── Kit GM: SÓLO las variantes que el manifiesto dice que existen ──
+        //
+        // Se prueban en orden de prioridad hasta que una cargue. Antes se pedía un
+        // id construido a mano que, para 18 de las notas del rango GM, no existe:
+        // 404, espera, y la pieza en silencio sin decir nada.
+        const variants = wafDrumVariants(note);
+        if (variants.length === 0) {
+          // Sin variante publicada no se pide nada: se acepta el silencio con un
+          // aviso, que es información útil, en vez de un 404 garantizado.
+          this.warnedSkip.add(note);
+          console.warn(
+            `[DrumKit] la nota ${note} no tiene muestra publicada; se omite`,
+          );
+        }
+        for (const variant of variants) {
+          if (buffers.length > 0) break;
+          try {
+            const buf = await loadWafZoneBuffer(variant);
+            if (buf) buffers.push(buf);
+          } catch {
+            // Se prueba la siguiente variante: son kits y fuentes distintos del
+            // mismo golpe, y basta con que una esté publicada.
+          }
         }
       }
 
+      if (this.disposed) return;
       if (buffers.length === 0) {
         this.failed.add(note);
         return;
@@ -170,10 +241,8 @@ export class DrumKitEngine {
 
       // Nivelación por RMS + ajuste por pieza.
       //
-      // Normalizar por pico no alcanzaba: un golpe de maracas al mismo pico que
-      // un bombo tiene muchísima más energía percibida (es ruido de banda
-      // ancha) y el bolero terminaba con 8 kHz de centroide espectral contra
-      // 1.25 kHz de una pieza de piano. Ver `sampleLevels.ts` y `gmDrums.ts`.
+      // El RMS evita que un golpe de banda ancha tape el piano aunque tenga
+      // el mismo pico que un bombo. Ver `sampleLevels.ts` y `gmDrums.ts`.
       const levels = buffers.map((b) => bufferRmsDb(b, 0.5));
       const measured = median(levels);
       const gain =
@@ -193,19 +262,64 @@ export class DrumKitEngine {
     return task;
   }
 
-  /** Precarga las piezas que usa la canción (y sólo esas). */
-  async prefetch(notes: number[]): Promise<void> {
-    const unique = [...new Set(notes)].filter((n) => n >= 27 && n <= 87);
-    // Las piezas también en paralelo: son pedidos independientes.
-    await Promise.all(unique.map((n) => this.load(n)));
-    console.log(
-      `[DrumKit] ${this.loadedCount()}/${unique.length} piezas con sample real`,
-    );
+  private async loadVirtuosity(note: number): Promise<void> {
+    const articulation = virtuosityArticulation(note);
+    if (!articulation) {
+      const reason = `Virtuosity core no incluye la nota GM ${note}`;
+      this.loadErrors.set(note, reason);
+      this.failed.add(note);
+      throw new Error(reason);
+    }
+    try {
+      this.coreManifest ??= fetchVirtuosityManifest();
+      const manifest = await this.coreManifest;
+      const layers = await decodeVirtuosityPiece(manifest, articulation, Tone.getContext().rawContext);
+      if (this.disposed) return;
+      const buffers = [...layers.values()].flat();
+      const measured = median(buffers.map((buffer) => bufferRmsDb(buffer, 0.5)));
+      const gain = trimDb(measured, TARGET_PERCUSSION_RMS_DB, [-20, 20]) +
+        pieceTrimDb(note) + PERCUSSION_BUS_DB;
+      this.pieceGain.set(note, gain);
+      this.layerTrimDb.set(note, recordedVelocityLayerTrims(layers, measured));
+      this.layeredVariants.set(note, layers);
+      this.variants.set(note, buffers);
+      this.loadErrors.delete(note);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.loadErrors.set(note, reason);
+      this.failed.add(note);
+      throw new Error(`No cargó Virtuosity ${articulation}: ${reason}`, { cause: error });
+    }
+  }
+
+  private async loadFreePatsClap(note: number): Promise<void> {
+    if (note !== FREEPATS_HANDCLAP_NOTE) {
+      const reason = `FreePats clap sólo incluye nota GM ${FREEPATS_HANDCLAP_NOTE}`;
+      this.loadErrors.set(note, reason);
+      this.failed.add(note);
+      throw new Error(reason);
+    }
+    try {
+      this.clapManifest ??= fetchFreePatsHandClapManifest();
+      const manifest = await this.clapManifest;
+      const buffers = await decodeFreePatsHandClap(manifest, Tone.getContext().rawContext);
+      if (this.disposed) return;
+      const measured = median(buffers.map((buffer) => bufferRmsDb(buffer, 0.5)));
+      const gain = trimDb(measured, TARGET_PERCUSSION_RMS_DB, [-20, 20]) +
+        pieceTrimDb(note) + PERCUSSION_BUS_DB;
+      this.pieceGain.set(note, gain);
+      this.variants.set(note, buffers);
+      this.loadErrors.delete(note);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      this.loadErrors.set(note, reason);
+      this.failed.add(note);
+      throw new Error(`No cargó FreePats clap: ${reason}`, { cause: error });
+    }
   }
 
   /**
-   * Dispara una pieza. Devuelve `false` cuando todavía no hay sample (el
-   * llamador usa el motor sintetizado para no perder el golpe).
+   * Dispara una pieza. Devuelve `false` cuando todavía no hay muestra lista.
    *
    * `velocity` es la del archivo y elige la dinámica del golpe (curva γ = 1.35,
    * ver `velocityToGain` local); `outGain` es la ganancia externa de la nota
@@ -213,50 +327,116 @@ export class DrumKitEngine {
    * para que mover un fader no cambie el golpe elegido.
    */
   trigger(note: number, velocity: number, time?: number, outGain = 1): boolean {
-    const list = this.variants.get(note);
-    if (!list || list.length === 0) return false;
+    return this.triggerOwned(note, velocity, "pads/live", 0, time, outGain) !== null;
+  }
+
+  /** The scheduler supplies a prepared kit, absolute audioTime and voice owner. */
+  triggerOwned(note: number, velocity: number, ownerId: string, epoch: number,
+    time?: number, outGain = 1): OwnedVoiceHandle | null {
+    if (this.disposed) return null;
+    if (!ownerId || !Number.isSafeInteger(epoch) || epoch < 0) {
+      throw new RangeError("drum hit needs ownerId and non-negative epoch");
+    }
+    const layers = this.layeredVariants.get(note);
+    const layerIndex = layers ? Math.max(0, Math.ceil(Math.max(0.01, Math.min(1, velocity)) * layers.size) - 1) : null;
+    const selectedLayer = layerIndex === null ? null : ([...layers!.keys()][layerIndex] ?? null);
+    const list = selectedLayer === null ? this.variants.get(note) : layers!.get(selectedLayer);
+    if (!list || list.length === 0) return null;
+    if (time !== undefined && (!Number.isFinite(time) || time < 0)) {
+      throw new RangeError("drum audioTime must be non-negative");
+    }
 
     const index = (this.nextVariant.get(note) ?? 0) % list.length;
     this.nextVariant.set(note, index + 1);
 
     // La ganancia de la pieza ya incluye nivel medido + ajuste + bus.
-    const pieceDb = this.pieceGain.get(note) ?? -6;
+    const pieceDb = (this.pieceGain.get(note) ?? -6) +
+      (selectedLayer === null ? 0 : this.layerTrimDb.get(note)?.get(selectedLayer) ?? 0);
     const gain =
       velocityToGain(velocity) *
       Math.max(0, outGain) *
       Math.pow(10, pieceDb / 20);
 
-    if (this.voices.length >= MAX_VOICES) {
-      const oldest = this.voices.shift();
-      try {
-        oldest?.stop();
-        oldest?.dispose();
-      } catch {
-        /* ya terminó */
-      }
+    if (this.ownedVoices.activeCount >= ACTIVE_VOICE_LIMIT) {
+      // Dense transport playback may steal transport hits, never a live pad.
+      const oldestTransport = [...this.voices.keys()].find((handle) =>
+        !this.ownedVoices.isReleasing(handle) &&
+        this.ownedVoices.ownerIdOf(handle)?.startsWith("transport/"));
+      const oldestLive = ownerId === "pads/live"
+        ? [...this.voices.keys()].find((handle) => !this.ownedVoices.isReleasing(handle))
+        : null;
+      const victim = oldestTransport ?? oldestLive;
+      if (!victim) { this.discardedHitCount++; return null; }
+      this.ownedVoices.releaseHandle(victim, time ?? Tone.immediate(), FORCED_FADE_SECONDS);
+    }
+    if (this.voices.size >= MAX_VOICES) {
+      this.discardedHitCount++;
+      return null;
     }
 
+    const scheduledAt = time ?? Tone.now();
+    let handle: OwnedVoiceHandle | null = null;
+    let finished = false;
     const source = new Tone.ToneBufferSource({
       url: list[index],
-      fadeOut: 0.008,
+      fadeOut: FORCED_FADE_SECONDS,
       onended: () => {
-        this.voices = this.voices.filter((v) => v !== source);
-        try {
-          source.dispose();
-        } catch {
-          /* ignore */
+        if (finished) return;
+        finished = true;
+        if (handle) {
+          this.voices.delete(handle);
+          this.ownedVoices.finish(handle);
         }
+        this.onVoiceEnd?.();
+        const dispose = (): void => { try { source.dispose(); } catch { /* already ended */ } };
+        if (!retainUntilOfflineRender(source.context, dispose)) dispose();
       },
     }).connect(this.inputFor(note));
 
+    handle = this.ownedVoices.register({
+      ownerId, epoch,
+      release: (audioTime, fadeSeconds) => {
+        if (audioTime < scheduledAt - 0.001) {
+          if (finished) return;
+          finished = true;
+          source.dispose();
+          if (handle) {
+            this.voices.delete(handle);
+            this.ownedVoices.finish(handle);
+          }
+          this.onVoiceEnd?.();
+          return;
+        }
+        source.fadeOut = Math.max(0.005, fadeSeconds);
+        source.stop(Math.max(audioTime, scheduledAt));
+      },
+    });
     try {
-      source.start(time ?? Tone.now(), 0, undefined, gain);
-      this.voices.push(source);
+      source.start(scheduledAt, 0, undefined, gain);
+      this.voices.set(handle, source);
     } catch (err) {
+      this.ownedVoices.finish(handle);
+      source.dispose();
       console.warn("[DrumKit] no se pudo disparar la pieza", note, err);
-      return false;
+      return null;
     }
-    return true;
+    return handle;
+  }
+
+  releaseHandle(handle: OwnedVoiceHandle, audioTime: number): boolean {
+    return this.ownedVoices.releaseHandle(handle, audioTime, FORCED_FADE_SECONDS);
+  }
+
+  releaseOwner(ownerId: string, audioTime: number, includeDescendants = false): number {
+    return this.ownedVoices.releaseOwner(ownerId, audioTime, FORCED_FADE_SECONDS, includeDescendants);
+  }
+
+  releaseEpoch(ownerId: string, epoch: number, audioTime: number, includeDescendants = false): number {
+    return this.ownedVoices.releaseEpoch(ownerId, epoch, audioTime, FORCED_FADE_SECONDS, includeDescendants);
+  }
+
+  voiceSnapshot(): OwnedVoiceSnapshot & { discardedHitCount: number } {
+    return { ...this.ownedVoices.snapshot(), discardedHitCount: this.discardedHitCount };
   }
 
   /** Aviso único por pieza que se saltea por no tener sample todavía. */
@@ -269,20 +449,25 @@ export class DrumKitEngine {
   }
 
   releaseAll(): void {
-    this.voices.forEach((v) => {
-      try {
-        v.stop();
-        v.dispose();
-      } catch {
-        /* ignore */
-      }
-    });
-    this.voices = [];
+    this.ownedVoices.panic(Tone.immediate(), FORCED_FADE_SECONDS);
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.releaseAll();
+    for (const [handle, source] of [...this.voices]) {
+      try { source.dispose(); } catch { /* already ended */ }
+      this.ownedVoices.finish(handle);
+    }
+    this.voices.clear();
     this.variants.clear();
+    this.layeredVariants.clear();
+    this.layerTrimDb.clear();
+    for (const filter of this.filters.values()) filter.dispose();
+    this.filters.clear();
+    for (const panner of this.panners.values()) panner.dispose();
+    this.panners.clear();
     this.out.dispose();
   }
 }

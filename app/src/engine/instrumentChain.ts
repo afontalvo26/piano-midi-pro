@@ -21,7 +21,6 @@
  */
 
 import * as Tone from "tone";
-import type { InstrumentVoice } from "./vscoSampler";
 import { prepareSampleBuffer, releaseForInstrument } from "./sampleProcessing";
 import { panForInstrument } from "./instrumentPanning";
 
@@ -199,4 +198,3 @@ export function createInstrumentChain(
 
 // Reexportado para que quien arme una voz no tenga que importar de dos lados.
 export { prepareSampleBuffer, releaseForInstrument };
-export type { InstrumentVoice };

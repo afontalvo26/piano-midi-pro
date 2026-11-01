@@ -1,0 +1,145 @@
+{
+  "sourceBaseUrl": "https://tonejs.github.io/audio/salamander/",
+  "license": "https://creativecommons.org/licenses/by/3.0/",
+  "author": "Alexander Holm",
+  "files": [
+    {
+      "note": "A0",
+      "file": "A0.ogg",
+      "bytes": 397686,
+      "sha256": "300282045d8b52193531806c7c8e387b4d4aaf52094e2d0f4d3d6e275a8a50d4"
+    },
+    {
+      "note": "C1",
+      "file": "C1.ogg",
+      "bytes": 378472,
+      "sha256": "6e18f65d2746f397408bc9c169b783c5b023f819534fb646a24416f9c5bb01f1"
+    },
+    {
+      "note": "D#1",
+      "file": "Ds1.ogg",
+      "bytes": 393097,
+      "sha256": "0696e0731725ecb76526a4a8d4f5c04c241cf0ba21e0381c9a9abeed1a2ebdc0"
+    },
+    {
+      "note": "F#1",
+      "file": "Fs1.ogg",
+      "bytes": 367881,
+      "sha256": "99361c6323815e4d1af971e8bbebd75d8c103fe6c0a739fe81f775861b8474d6"
+    },
+    {
+      "note": "A1",
+      "file": "A1.ogg",
+      "bytes": 381920,
+      "sha256": "5e9352daf24354b416aba1080f89b96695b8b69174810d2506e537296faa3875"
+    },
+    {
+      "note": "C2",
+      "file": "C2.ogg",
+      "bytes": 369529,
+      "sha256": "68fab6a76ca8f38477e21da0cced8f82cb4511352920d9b972026f198e7681d4"
+    },
+    {
+      "note": "D#2",
+      "file": "Ds2.ogg",
+      "bytes": 364446,
+      "sha256": "67b2f0226935ce5abffdeafc1bf9192983c14e50c2f6928dd953fc83a8887352"
+    },
+    {
+      "note": "F#2",
+      "file": "Fs2.ogg",
+      "bytes": 337880,
+      "sha256": "a61ff7a98f7b81a482052ff6d6cbeb2ed7a882bc9bf2adeb09ca2d711074861a"
+    },
+    {
+      "note": "A2",
+      "file": "A2.ogg",
+      "bytes": 263698,
+      "sha256": "0815bcf27821edcaf62dac8841249e3e9a2fdc90f8f53369c167db02b4b0d6d6"
+    },
+    {
+      "note": "D#3",
+      "file": "Ds3.ogg",
+      "bytes": 261623,
+      "sha256": "d50ede52eadbc11d5ab0459e1005efa01d173114ae11c514605f2e43a7789b27"
+    },
+    {
+      "note": "A3",
+      "file": "A3.ogg",
+      "bytes": 258086,
+      "sha256": "5b35a9b77bd3f192cb6cfc6ade81d6bc8b589b540818fff0ad3223b199d0a76f"
+    },
+    {
+      "note": "D#4",
+      "file": "Ds4.ogg",
+      "bytes": 259127,
+      "sha256": "51ef26e11a73aab5ba0b9104f660036a5d6cc23e847c3e18a50cfc334d796062"
+    },
+    {
+      "note": "A4",
+      "file": "A4.ogg",
+      "bytes": 221173,
+      "sha256": "cdcc20a09e671254b36df895d75085881eba1f46e546bb4e0aaa521ca7f3b175"
+    },
+    {
+      "note": "D#5",
+      "file": "Ds5.ogg",
+      "bytes": 210822,
+      "sha256": "8cf89a06dd01efb3ef4aba33238ddd0ac5d06a3fa995512b98aa2e12b36f800a"
+    },
+    {
+      "note": "A5",
+      "file": "A5.ogg",
+      "bytes": 176156,
+      "sha256": "c240903dc12e992af240ea38c550ee7915247a2f03b1141626695ed7c929e356"
+    },
+    {
+      "note": "D#6",
+      "file": "Ds6.ogg",
+      "bytes": 115290,
+      "sha256": "a78d905588afe818a9e615af970ef360ff4a107d6cf8f49af046fbc58ecc0102"
+    },
+    {
+      "note": "F#6",
+      "file": "Fs6.ogg",
+      "bytes": 101096,
+      "sha256": "1c743220a68139f370086214ef483f9884d61c2d5fb0c40b69e1ca561a2bc142"
+    },
+    {
+      "note": "A6",
+      "file": "A6.ogg",
+      "bytes": 114757,
+      "sha256": "25b2fe436de89efdc75a63dd87c01180fe7a4391802a163112ad4f927a0650ac"
+    },
+    {
+      "note": "C7",
+      "file": "C7.ogg",
+      "bytes": 70568,
+      "sha256": "8fc9a09e1be46ea109de4766958fd33c8f1fe6992f1498f77351d835b865ac53"
+    },
+    {
+      "note": "D#7",
+      "file": "Ds7.ogg",
+      "bytes": 83051,
+      "sha256": "5899f8419c46410266eca2feeba61871aeebb2297a8674b88637dd15f8b63bfe"
+    },
+    {
+      "note": "F#7",
+      "file": "Fs7.ogg",
+      "bytes": 86131,
+      "sha256": "8427b15ce3ce69000c0358648026ce77fc9d5b5a6d5c7d23b71f3e085da245a1"
+    },
+    {
+      "note": "A7",
+      "file": "A7.ogg",
+      "bytes": 69360,
+      "sha256": "5d66484d8c2c95fc79ff02837c61fcdd5dd6e088324a499d1117da8b7e544190"
+    },
+    {
+      "note": "C8",
+      "file": "C8.ogg",
+      "bytes": 68554,
+      "sha256": "dfdcefc1ab0e7fbe2ff8af121ff9a74a7055e7b9eba6ffa497ca744e57d22b1b"
+    }
+  ]
+}

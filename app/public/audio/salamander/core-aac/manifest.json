@@ -1,0 +1,80 @@
+{
+  "sourceManifestSha256": "3554c3717e4a7f6cb343fd7c14cd515f22f735be20f67b5d75f2d93fe452ba10",
+  "author": "Alexander Holm",
+  "license": "https://creativecommons.org/licenses/by/3.0/",
+  "sourceBaseUrl": "https://tonejs.github.io/audio/salamander/",
+  "codec": "AAC-LC",
+  "container": "M4A/MP4",
+  "sampleRate": 44100,
+  "channels": 2,
+  "encode": {
+    "encoder": "ffmpeg version 8.1.1-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers",
+    "bitrate": "192k",
+    "command": "ffmpeg -i SOURCE -map 0:a:0 -vn -c:a aac -b:a 192k -ar 44100 -ac 2 -movflags +faststart OUTPUT"
+  },
+  "files": [
+    {
+      "note": "C3",
+      "sourceFile": "C3.ogg",
+      "sourceBytes": 263870,
+      "sourceSha256": "8485c3dc9aac616a4e37f2cbeec9af104be214795742d66c12f6acc013451b38",
+      "file": "C3.m4a",
+      "bytes": 386908,
+      "sha256": "e5ab3ddde42627549831366e514e9442a160743daa48363af87072dbab657fae"
+    },
+    {
+      "note": "F#3",
+      "sourceFile": "Fs3.ogg",
+      "sourceBytes": 264396,
+      "sourceSha256": "aa77774f7b9bb4d051796fdcfb5a61db6b35c7d9b4e1f0c3df69896dd1b4b015",
+      "file": "Fs3.m4a",
+      "bytes": 390249,
+      "sha256": "78d78f4248a0cbb5be84a3fff9df20f9a372eee66376a556b667fa9c7d895450"
+    },
+    {
+      "note": "C4",
+      "sourceFile": "C4.ogg",
+      "sourceBytes": 265879,
+      "sourceSha256": "2be981a53705511b8d3d6087a5fa360d676c2f406cc5a6f0698a9c6473fa83a3",
+      "file": "C4.m4a",
+      "bytes": 391404,
+      "sha256": "c76aac09bf4f1ee7ae0e7a5c69222771e156efe6e96545a71afd0bea1aa66cea"
+    },
+    {
+      "note": "F#4",
+      "sourceFile": "Fs4.ogg",
+      "sourceBytes": 238720,
+      "sourceSha256": "1b75e47f852f215612acfbe3698ede653b01f6cfc5469f4d4c5a8da93d96c34e",
+      "file": "Fs4.m4a",
+      "bytes": 354710,
+      "sha256": "b8d200e9ae4e7521de60a5386f1d6a8d8aff224676ffa647e444a7a6f5a956da"
+    },
+    {
+      "note": "C5",
+      "sourceFile": "C5.ogg",
+      "sourceBytes": 256407,
+      "sourceSha256": "9d428f292793d02923912289827527a1bd99ed7d36bf388780519e498d8f3fad",
+      "file": "C5.m4a",
+      "bytes": 376248,
+      "sha256": "56a200bdbfcc821bf88292318baa14c987fade0439817d3878dd000229b44c09"
+    },
+    {
+      "note": "F#5",
+      "sourceFile": "Fs5.ogg",
+      "sourceBytes": 194579,
+      "sourceSha256": "a23b0e9fab39906a7e6f22b529f93e1e61830540fa18680ad73c8bc353f6cc24",
+      "file": "Fs5.m4a",
+      "bytes": 287703,
+      "sha256": "e497c64ab19ae6c812b064a9abc4a5da9de62b8edbc6dcfdc32ebef4f8d63257"
+    },
+    {
+      "note": "C6",
+      "sourceFile": "C6.ogg",
+      "sourceBytes": 107642,
+      "sourceSha256": "ade52fe2a605b70e752eaf47559be4f495b78d2872f5f1a1a299dfa3617a3be5",
+      "file": "C6.m4a",
+      "bytes": 150602,
+      "sha256": "15a089a954f6a9b03ea4477411c2392cbc77d85e84f90424d8efe222e5058933"
+    }
+  ]
+}

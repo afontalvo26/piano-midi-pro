@@ -35,6 +35,7 @@ import {
   trimDb,
 } from "./sampleLevels";
 import { prepareSampleBuffer, releaseForInstrument } from "./sampleProcessing";
+import type { DecodedPianoSample } from "../audio/toneSampleVoiceFactory";
 
 const WAF_BASES = [
   "https://surikov.github.io/webaudiofontdata/sound",
@@ -49,6 +50,9 @@ export interface WafZone {
   sampleRate: number;
   loopStart: number;
   loopEnd: number;
+  coarseTune: number;
+  fineTune: number;
+  ahdsr: boolean;
   /** MP3 en base64. */
   file: string;
 }
@@ -83,6 +87,9 @@ export function parseWafZones(text: string): WafZone[] {
       sampleRate: Number(fields.sampleRate ?? 44100),
       loopStart: Number(fields.loopStart ?? -1),
       loopEnd: Number(fields.loopEnd ?? -1),
+      coarseTune: Number(fields.coarseTune ?? 0),
+      fineTune: Number(fields.fineTune ?? 0),
+      ahdsr: /\bahdsr\s*:\s*true\b/.test(body),
       file: fields.file,
     });
   }
@@ -111,21 +118,93 @@ function wafFileName(code: string): string {
   return /_sf2(_file)?$/i.test(code) ? `${code}.js` : `${code}_sf2_file.js`;
 }
 
-async function fetchWaf(code: string): Promise<string> {
+async function fetchWaf(code: string, signal?: AbortSignal): Promise<string> {
   const file = wafFileName(code);
   let lastError: unknown;
   for (const base of WAF_BASES) {
     const url = `${base}/${file}`;
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal });
       if (!res.ok) throw new Error(`WebAudioFont: ${res.status} en ${url}`);
-      return await res.text();
+      const text = await res.text();
+      if (text.length > 20_000_000) throw new Error(`WebAudioFont: ${code} excede el límite de descarga`);
+      return text;
     } catch (err) {
+      if (signal?.aborted) throw err;
       lastError = err;
       console.warn(`[WebAudioFont] ${code}: falló ${base}`, err);
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+export interface WafDecodedBank {
+  samples: DecodedPianoSample[];
+  /** Conservative per-bank level trim, applied before the Studio master. */
+  gain: number;
+}
+
+/**
+ * Decode a curated WAF bank without unlocking live audio. The Studio keeps
+ * these zones in its per-attack voice factory, including source loop points.
+ * A failed or aborted load never changes the currently playing instrument.
+ */
+export async function loadWafDecodedBank(code: string, signal?: AbortSignal): Promise<WafDecodedBank> {
+  const zones = parseWafZones(await fetchWaf(code, signal));
+  if (zones.length === 0 || zones.length > 128) {
+    throw new Error(`WebAudioFont: ${code} no tiene un número válido de zonas`);
+  }
+  if (typeof OfflineAudioContext === "undefined") {
+    throw new Error("El navegador no permite preparar instrumentos sin activar audio");
+  }
+  const decoder = new OfflineAudioContext(2, 1, 48000);
+  const samples: DecodedPianoSample[] = [];
+  const levels: number[] = [];
+  const seen = new Set<string>();
+  let pcmBytes = 0;
+  for (const zone of zones) {
+    if (signal?.aborted) throw new DOMException("Carga cancelada", "AbortError");
+    // WebAudioFont's own player uses originalPitch - 100*coarseTune - fineTune
+    // as the recorded root in cents. Rounding only picks the nearest anchor;
+    // playback keeps the fractional root for accurate fine tuning.
+    const pitchMidi = (zone.originalPitch - 100 * zone.coarseTune - zone.fineTune) / 100;
+    const midi = Math.round(pitchMidi);
+    if (midi < 0 || midi > 127 || zone.keyRangeLow < 0 || zone.keyRangeHigh > 127
+      || zone.keyRangeLow > zone.keyRangeHigh || !Number.isFinite(zone.sampleRate)
+      || zone.sampleRate <= 0 || zone.file.length > 8_000_000) continue;
+    // Some WAF files contain separate L/R mono zones at the same pitch/range.
+    // A single deterministic zone avoids doubling the 37-key voice budget.
+    const key = `${midi}:${zone.keyRangeLow}:${zone.keyRangeHigh}`;
+    if (seen.has(key)) continue;
+    let buffer: AudioBuffer;
+    try {
+      buffer = await decoder.decodeAudioData(base64ToArrayBuffer(zone.file));
+    } catch {
+      continue;
+    }
+    if (signal?.aborted) throw new DOMException("Carga cancelada", "AbortError");
+    pcmBytes += buffer.length * buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
+    if (pcmBytes > 128_000_000) throw new Error(`WebAudioFont: ${code} excede la memoria de audio permitida`);
+    const loopStartSec = zone.loopStart / zone.sampleRate;
+    const loopEndSec = zone.loopEnd / zone.sampleRate;
+    const hasLoop = Number.isFinite(loopStartSec) && Number.isFinite(loopEndSec)
+      && loopStartSec >= 0 && loopEndSec > loopStartSec + 0.005
+      && loopEndSec <= buffer.duration;
+    samples.push({
+      midi, pitchMidi, buffer, keyRangeLow: zone.keyRangeLow, keyRangeHigh: zone.keyRangeHigh,
+      ...(hasLoop ? { loopStartSec, loopEndSec } : {}),
+      // WAF's built-in `ahdsr:true` envelope reaches zero around 5 s.
+      // Sustained instruments in this curated bank declare `ahdsr:false`.
+      ...(zone.ahdsr ? { naturalStopSeconds: 5 } : {}),
+    });
+    seen.add(key);
+    levels.push(bufferRmsDb(buffer));
+  }
+  if (samples.length === 0) throw new Error(`WebAudioFont: ${code} no decodificó muestras`);
+  // Positive trim is tightly bounded for 37-key chords; the output limiter
+  // remains the final safety net and the user retains the master control.
+  const db = trimDb(median(levels), TARGET_MELODIC_RMS_DB, [-12, 6]);
+  return { samples, gain: 10 ** (db / 20) };
 }
 
 /**
@@ -170,7 +249,7 @@ export async function loadWebAudioFontVoice(
     // cercana para las demás, igual que con los soundfonts de gleitz.
     const midi = Math.round(zone.originalPitch / 100);
     if (midi < 0 || midi > 127) continue;
-    // Si el llamador sabe qué notas usa la canción, se decodifican sólo las
+    // Si el llamador conoce las notas del pad, se decodifican sólo las
     // zonas que las cubren (o que están a ≤ 2 semitonos, donde el repitcheo es
     // inaudible). Un archivo trae 6–34 zonas por instrumento.
     if (neededNotes?.length) {

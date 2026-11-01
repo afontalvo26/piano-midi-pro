@@ -1,7 +1,7 @@
 {
   "name": "Piano MIDI Pro",
   "short_name": "Piano MIDI Pro",
-  "description": "Piano virtual con sampler real, partituras MusicXML y modo juego",
+  "description": "Piano en vivo con Studio, grabaciones MIDI y configuración",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f0f17",
@@ -15,6 +15,6 @@
       "purpose": "any"
     }
   ],
-  "categories": ["music", "education", "entertainment"],
+  "categories": ["music", "productivity"],
   "lang": "es"
 }

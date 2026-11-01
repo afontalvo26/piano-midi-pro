@@ -6,13 +6,9 @@
  *    eso se oye como un clic o un "pop", sobre todo en instrumentos sostenidos.
  *    Se aplican micro-fades (3 ms de entrada, 40 ms de salida) a cada buffer.
  *
- * 2. NOTAS CORTADAS. Los soundfonts GM traen exactamente 3.15 s por nota y sin
- *    loop: una cuerda o un acordeón que la partitura sostiene 8 s se muere a los
- *    3.15. Medido sobre la biblioteca: 1.872 notas (0.5 %) pasan ese límite y
- *    casi todas son de instrumentos sostenidos (cuerdas, pads, órgano,
- *    acordeón, coro). Acá se **extiende** el buffer cosiendo su región de
- *    sustain consigo misma con un crossfade, así el sample dura lo que dura la
- *    nota sin sonar repetido.
+ * 2. NOTAS CORTADAS. Algunas muestras GM duran 3.15 s y carecen de loop.
+ *    Para instrumentos sostenidos, se extiende el buffer con un crossfade,
+ *    permitiendo que una tecla larga conserve el sonido.
  */
 
 /**
@@ -225,7 +221,7 @@ export function releaseForInstrument(instrument: string): number {
 }
 
 /**
- * Prepara un buffer crudo para el reproductor: micro-fades siempre, y extensión
+ * Prepara un buffer crudo para el instrumento en vivo: micro-fades siempre, y extensión
  * por loop sólo si el instrumento sostiene el sonido.
  */
 export function prepareSampleBuffer(

@@ -112,3 +112,9 @@ bedrock-*.csv
 
 # Snapshot de la UI de una herramienta externa (claude-mem), no es del proyecto
 /claude-mem-viewer-snapshot.md
+
+# Entornos y temporales locales de herramientas (basic-pitch/venv/pip).
+# Son artefactos de instalación de la máquina, no fuente del proyecto.
+/.bp-node/
+/.venv-*/
+/pip-*/

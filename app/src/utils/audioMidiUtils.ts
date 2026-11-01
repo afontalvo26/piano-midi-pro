@@ -1,10 +1,8 @@
 /**
  * Audio / MIDI Utility Helpers
  *
- * Centralised helpers used across the studio, game and score views.
- * Re-exports the colour helpers already defined in `constants/ui.ts`
- * so App.tsx (and future modules) can import everything they need
- * from a single location without introducing duplication.
+ * Helpers compartidos por Studio y sus componentes MIDI.
+ * Reexporta las funciones de color de `constants/ui.ts`.
  */
 
 import { NOTE_NAMES } from "../constants/piano";

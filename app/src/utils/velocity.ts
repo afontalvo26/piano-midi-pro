@@ -1,42 +1,34 @@
 /**
- * Velocity → expression mapping (mathematically correct for piano)
+ * Velocity → expression mapping for sampled instruments
  *
  * Pipeline overview
  * ─────────────────
  *
  *   raw 1..127 (MIDI hardware)
- *     ↓ rangeRemap(min, max)             ← compensates for cheap controllers
- *                                          that send velocity 32..127 instead
- *                                          of 1..127 (no real ppp)
+ *     ↓ bounded, confidence-weighted correction ← preserves every raw step
  *   normalized 0..1
  *     ↓ applyVelocityCurve(curve)        ← γ-curve / piecewise shaping
  *   shaped 0..1
  *     ↓ floor(audibilityFloor)            ← guarantees the softest stroke is
  *                                          still audible (default 4 % gain)
- *   final gain 0.04..1
+ *   final gain floor..1
  *
- * Background
- * ──────────
- * The General MIDI 2 spec defines Channel Volume / Expression as
- * dB = 40·log₁₀(127/v), equivalent to gain = (v/127)² in linear amplitude.
- * Empirical analysis (Burred, ICMC 2006) confirms most synths follow ~x².
+ * Velocity-to-gain curves are selectable. MIDI transmits strike velocity;
+ * it does not prescribe a universal acoustic-piano amplitude curve. The
+ * timbre and attack of a sampled piano must also respond to that value.
  *
- * BUT cheap MIDI keyboards rarely transmit velocities below ~30, so applying
- * (v/127)² directly to a hardware-clamped 32..127 range gives a minimum
- * gain of (32/127)² = 6.3 %, which sounds nearly silent and kills the
- * pianissimo end of the dynamic range.
+ * Remapping needs enough observations and a meaningful velocity span. A
+ * controller sending the same velocity repeatedly must retain its raw level;
+ * treating that value as the learned minimum would nearly silence every note.
  *
- * The fix: linearly stretch the hardware's effective min..max into 0..1
- * BEFORE applying the curve. Then the user gets the full expressive range
- * of their controller — soft strokes feel ppp, hard strokes feel ff.
- *
- * The auto-calibration learns min/max as the user plays, and persists them
- * via the existing settings storage (caller responsibility).
+ * Auto-calibration learns the observed range but blends only a bounded
+ * correction. Unobserved stronger strikes retain room above the learned max.
  */
 
 export type VelocityCurve =
   | "linear"
   | "soft"
+  | "expressive"
   | "piano"
   | "hard"
   | "natural"
@@ -45,6 +37,7 @@ export type VelocityCurve =
 export const VELOCITY_CURVES: VelocityCurve[] = [
   "linear",
   "soft",
+  "expressive",
   "piano",
   "hard",
   "natural",
@@ -75,12 +68,19 @@ export const VELOCITY_CURVE_DESCRIPTORS: Record<
     label: "Suave",
     description: "Realza velocities bajas: gain = v^0.5",
     gamma: 0.5,
-    recommendedFor: "Teclados sin peso, recomendado por defecto",
+    recommendedFor: "Teclados sin peso que necesitan realzar golpes suaves",
+  },
+  expressive: {
+    id: "expressive",
+    label: "Expresiva",
+    description: "Rango amplio de pianissimo a forte: gain = v^1.7",
+    gamma: 1.7,
+    recommendedFor: "Piano MIDI con sensibilidad a la velocidad",
   },
   piano: {
     id: "piano",
-    label: "Piano (GM)",
-    description: "Curva spec MIDI: gain = v² ≡ dB = 40·log₁₀(1/v)",
+    label: "Piano (cuadrática)",
+    description: "Curva de amplitud pronunciada: gain = v²",
     gamma: 2,
     recommendedFor: "Piano realista en controlador con peso completo",
   },
@@ -94,7 +94,7 @@ export const VELOCITY_CURVE_DESCRIPTORS: Record<
   natural: {
     id: "natural",
     label: "Natural",
-    description: "Piecewise tipo Yamaha CFX — más resolución en mezzo/forte",
+    description: "Curva por tramos con más resolución en mezzo/forte",
     gamma: null,
     recommendedFor: "Piano acústico simulado",
   },
@@ -103,7 +103,7 @@ export const VELOCITY_CURVE_DESCRIPTORS: Record<
     label: "Fijo",
     description: "Sin sensibilidad: gain constante = 0.78",
     gamma: null,
-    recommendedFor: "Demos, controladores sin sensibilidad",
+    recommendedFor: "Pruebas, controladores sin sensibilidad",
   },
 };
 
@@ -119,10 +119,13 @@ export interface VelocityCalibration {
   /** Minimum gain at the bottom of the curve (0..0.2). Prevents inaudible
    *  pianissimo even on extreme γ-curves like "hard". */
   audibilityFloor: number;
-  /** When true, observed values are remapped to 0..1 before the curve. */
+  /** When true, a bounded correction uses the observed controller range. */
   autoCalibrationEnabled: boolean;
   /** Sample count, used to give the calibration confidence. */
   sampleCount: number;
+  /** Fractional estimates survive rounding of the displayed MIDI bounds. */
+  minEstimate?: number;
+  maxEstimate?: number;
 }
 
 export const DEFAULT_CALIBRATION: VelocityCalibration = {
@@ -133,44 +136,152 @@ export const DEFAULT_CALIBRATION: VelocityCalibration = {
   sampleCount: 0,
 };
 
+/** A physical controller starts with the full 1..127 range and a quieter floor. */
+export const DEFAULT_PHYSICAL_CALIBRATION: VelocityCalibration = {
+  ...DEFAULT_CALIBRATION,
+  audibilityFloor: 0.005,
+};
+
+export const VELOCITY_CALIBRATIONS_STORAGE_KEY = "piano_velocity_calibrations_v1";
+
+export interface VelocityCalibrationScope {
+  readonly profileId: string;
+  readonly inputId: string;
+  readonly inputName?: string | null;
+}
+
+export interface PortVelocityCalibration {
+  readonly profileId: string;
+  readonly inputId: string;
+  readonly inputName: string;
+  readonly updatedAtIso: string;
+  readonly calibration: VelocityCalibration;
+}
+
+export interface VelocityCalibrationBank {
+  readonly version: 1;
+  readonly entries: Readonly<Record<string, PortVelocityCalibration>>;
+}
+
+export const DEFAULT_VELOCITY_CALIBRATION_BANK: VelocityCalibrationBank = {
+  version: 1,
+  entries: {},
+};
+
+function portKey(scope: VelocityCalibrationScope): string {
+  return JSON.stringify([scope.profileId, scope.inputId]);
+}
+
+function validCalibration(cal: VelocityCalibration | undefined): cal is VelocityCalibration {
+  return !!cal && Number.isInteger(cal.minObserved) && cal.minObserved >= 1 && cal.minObserved <= 126 &&
+    Number.isInteger(cal.maxObserved) && cal.maxObserved > cal.minObserved && cal.maxObserved <= 127 &&
+    Number.isFinite(cal.audibilityFloor) && cal.audibilityFloor >= 0 && cal.audibilityFloor <= 0.2 &&
+    typeof cal.autoCalibrationEnabled === "boolean" &&
+    Number.isInteger(cal.sampleCount) && cal.sampleCount >= 0 &&
+    (cal.minEstimate === undefined || Number.isFinite(cal.minEstimate)) &&
+    (cal.maxEstimate === undefined || Number.isFinite(cal.maxEstimate));
+}
+
+function bankEntries(bank: VelocityCalibrationBank): Readonly<Record<string, PortVelocityCalibration>> {
+  return bank?.version === 1 && bank.entries && typeof bank.entries === "object" &&
+    !Array.isArray(bank.entries) ? bank.entries : {};
+}
+
+/** No global calibration is imported: its source device is unknown. */
+export function getPortVelocityCalibration(
+  bank: VelocityCalibrationBank,
+  scope: VelocityCalibrationScope,
+): VelocityCalibration {
+  if (!scope.profileId || !scope.inputId) return DEFAULT_PHYSICAL_CALIBRATION;
+  const entry = bankEntries(bank)[portKey(scope)];
+  return entry?.profileId === scope.profileId && entry.inputId === scope.inputId &&
+    validCalibration(entry.calibration) ? entry.calibration : DEFAULT_PHYSICAL_CALIBRATION;
+}
+
+/** Save a per-port setting, such as an explicitly chosen floor or curve mode. */
+export function setPortVelocityCalibration(
+  bank: VelocityCalibrationBank,
+  scope: VelocityCalibrationScope,
+  calibration: VelocityCalibration,
+  nowIso = new Date().toISOString(),
+): VelocityCalibrationBank {
+  if (!scope.profileId || !scope.inputId) return bank;
+  if (!validCalibration(calibration)) throw new RangeError("invalid velocity calibration");
+  const key = portKey(scope);
+  const previous = bankEntries(bank)[key];
+  const entry: PortVelocityCalibration = {
+    profileId: scope.profileId,
+    inputId: scope.inputId,
+    inputName: scope.inputName ?? previous?.inputName ?? "",
+    updatedAtIso: nowIso,
+    calibration,
+  };
+  return { version: 1, entries: { ...bankEntries(bank), [key]: entry } };
+}
+
+/** Observe hardware only; virtual keys must never train this bank. */
+export function recordPortVelocity(
+  bank: VelocityCalibrationBank,
+  scope: VelocityCalibrationScope,
+  rawVelocity: number,
+  nowIso = new Date().toISOString(),
+): VelocityCalibrationBank {
+  if (!scope.profileId || !scope.inputId || !Number.isFinite(rawVelocity) || rawVelocity < 1) return bank;
+  const calibration = getPortVelocityCalibration(bank, scope);
+  if (!calibration.autoCalibrationEnabled) return bank;
+  return setPortVelocityCalibration(bank, scope, recordVelocityObservation(calibration, rawVelocity), nowIso);
+}
+
+export function resetPortVelocityCalibration(
+  bank: VelocityCalibrationBank,
+  scope: VelocityCalibrationScope,
+): VelocityCalibrationBank {
+  const key = portKey(scope);
+  const entries = { ...bankEntries(bank) };
+  if (!(key in entries)) return bank;
+  delete entries[key];
+  return { version: 1, entries };
+}
+
 /**
  * Update calibration with a new observed velocity. Returns a new object
  * (immutable). The caller is expected to persist the result if desired.
  *
  * Convergence strategy:
  *   - First N samples: track absolute min / max
- *   - After N samples: keep min/max but slowly relax toward observation,
- *     so a one-off heavy strike doesn't permanently widen the range.
+ *   - After N samples: keep fractional estimators and slowly relax them
+ *     toward observation, so a one-off strike does not permanently dominate.
  */
 export function recordVelocityObservation(
   cal: VelocityCalibration,
   rawVelocity: number,
 ): VelocityCalibration {
-  if (rawVelocity <= 0) return cal;
+  if (!Number.isFinite(rawVelocity) || rawVelocity <= 0) return cal;
   const v = Math.max(1, Math.min(127, Math.round(rawVelocity)));
   const next: VelocityCalibration = { ...cal, sampleCount: cal.sampleCount + 1 };
 
   if (cal.sampleCount < 32) {
-    // Fast convergence: pure min/max during the first 32 strikes
-    next.minObserved = Math.min(cal.minObserved === 1 && cal.sampleCount === 0 ? v : cal.minObserved, v);
-    next.maxObserved = Math.max(cal.maxObserved === 127 && cal.sampleCount === 0 ? v : cal.maxObserved, v);
-    // Force the initial bounds to be reset to the first observation so
-    // the defaults of 1/127 don't permanently hold the range open.
-    if (cal.sampleCount === 0) {
-      next.minObserved = v;
-      next.maxObserved = v;
-    }
+    const minimum = cal.sampleCount === 0 ? v : Math.min(cal.minObserved, v);
+    const maximum = cal.sampleCount === 0 ? v : Math.max(cal.maxObserved, v);
+    next.minEstimate = minimum;
+    next.maxEstimate = maximum;
+    next.minObserved = minimum;
+    next.maxObserved = Math.max(minimum + 1, maximum);
   } else {
-    // Decay toward observation with low alpha, so outliers don't dominate
-    const alpha = 0.05;
-    if (v < next.minObserved) next.minObserved = v; // always shrink immediately
-    else next.minObserved = cal.minObserved + alpha * (v - cal.minObserved) * 0.1;
-
-    if (v > next.maxObserved) next.maxObserved = v; // always grow immediately
-    else next.maxObserved = cal.maxObserved + alpha * (v - cal.maxObserved) * 0.1;
+    // Never round the estimators before the next observation: rounding each
+    // 0.5%-step made most learned bounds freeze permanently after 32 notes.
+    const alpha = 0.005;
+    const minimum = Number.isFinite(cal.minEstimate)
+      ? cal.minEstimate! : cal.minObserved;
+    const maximum = Number.isFinite(cal.maxEstimate)
+      ? cal.maxEstimate! : cal.maxObserved;
+    next.minEstimate = v < minimum ? v : minimum + alpha * (v - minimum);
+    next.maxEstimate = v > maximum ? v : maximum + alpha * (v - maximum);
+    next.minObserved = Math.round(next.minEstimate);
+    next.maxObserved = Math.round(next.maxEstimate);
   }
 
-  // Sanity clamps
+  // Keep the displayed bounds valid even for a single repeated velocity.
   next.minObserved = Math.max(1, Math.min(126, Math.round(next.minObserved)));
   next.maxObserved = Math.max(next.minObserved + 1, Math.min(127, Math.round(next.maxObserved)));
 
@@ -178,8 +289,8 @@ export function recordVelocityObservation(
 }
 
 /**
- * Map a raw 1..127 MIDI velocity into a normalized 0..1 value, taking the
- * controller's actual observed range into account.
+ * Map raw MIDI velocity into 0..1. The unmodified value retains at least 75%
+ * of the slope, including above the strongest velocity observed so far.
  *
  * If autoCalibration is off, simply returns v/127.
  */
@@ -187,13 +298,20 @@ export function normalizeVelocity(
   rawVelocity: number,
   cal: VelocityCalibration,
 ): number {
-  if (rawVelocity <= 0) return 0;
-  if (!cal.autoCalibrationEnabled || cal.maxObserved <= cal.minObserved) {
-    return Math.max(0, Math.min(1, rawVelocity / 127));
+  if (!Number.isFinite(rawVelocity) || rawVelocity <= 0) return 0;
+  const raw = Math.max(0, Math.min(1, rawVelocity / 127));
+  const span = cal.maxObserved - cal.minObserved;
+  if (!cal.autoCalibrationEnabled || !Number.isFinite(cal.sampleCount) ||
+      cal.sampleCount < 32 || !Number.isFinite(span) || span < 16) {
+    return raw;
   }
-  const stretched =
-    (rawVelocity - cal.minObserved) / (cal.maxObserved - cal.minObserved);
-  return Math.max(0, Math.min(1, stretched));
+  const stretched = Math.max(0, Math.min(1, (rawVelocity - cal.minObserved) / span));
+  // A full observed-range remap saturates at its early maximum. Blend at most
+  // 25% so all 127 raw steps remain distinguishable and later forte strikes
+  // can still exceed the learned maximum.
+  const confidence = Math.min(1, (cal.sampleCount - 32) / 96) *
+    Math.min(1, (span - 16) / 32);
+  return raw + (stretched - raw) * (0.25 * confidence);
 }
 
 /**
@@ -216,8 +334,12 @@ export function applyVelocityCurve(
       // γ = 0.5 (square root) — very generous on soft strokes
       return Math.sqrt(v);
 
+    case "expressive":
+      // 1.7 retains a wide pianissimo-to-forte span on an unweighted keyboard.
+      return Math.pow(v, 1.7);
+
     case "piano":
-      // GM spec: gain = v²
+      // Squared amplitude response, offered as an explicit curve choice.
       return v * v;
 
     case "hard":
@@ -278,8 +400,7 @@ export function midiVelocityToGain(
  * curve and reflects the physical reality of hammer-on-string instruments:
  * a harder strike excites higher partials.
  *
- * Uses the same calibration-aware normalization so the brightest tones are
- * reachable across the controller's actual range.
+ * Uses the same confidence-aware normalization as gain.
  */
 export function midiVelocityToBrightness(
   midiVelocity: number,

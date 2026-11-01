@@ -3,31 +3,19 @@
 //
 // Why this exists
 // ───────────────
-// Live MIDI notes used to live in `useState` inside App.tsx. Every keypress
-// therefore re-rendered the *entire* studio tree (sidebar, transport bar,
-// mixer, settings, score panel, 37 piano keys, …) which measured ~30-50 ms per
-// note. A fast run of 16 notes/s saturated the main thread, MIDI events queued
-// up behind those renders and notes reached `triggerAttack` up to ~115 ms late —
-// which a player perceives as keys being ignored.
+// Keeping live MIDI notes outside the Studio component avoids a full screen
+// render for every keypress and keeps the event handler responsive to chords.
 //
 // The keyboard is the only thing that must repaint on every keypress, so the
 // hot note sets live here instead. Components subscribe and re-render on their
 // own; the rest of the app is untouched by live playing.
 //
-// The canvas visualizer keeps reading `stateRef.current.activeNotes`, so the
-// store writes through to that ref as well (see App.tsx).
 // ============================================================
 
 /** One immutable snapshot shared by all subscribers until something changes. */
 export interface PianoKeyboardSnapshot {
   /** Notes currently held physically (MIDI input, computer keyboard, mouse). */
   midiNotes: ReadonlySet<number>;
-  /** Ghost-assist notes coming up in the game chart. */
-  assistNotes: ReadonlySet<number>;
-  /** Notes inside the hit window right now (game mode). */
-  hitReadyNotes: ReadonlySet<number>;
-  /** Notes currently sounding from song playback (not held keys). */
-  playbackNotes: ReadonlySet<number>;
   /** Raw velocity (1..127) of the last strike, for the live readouts. */
   velocity: number;
   /** Last physical key pressed, as sent by the controller. */
@@ -37,42 +25,60 @@ export interface PianoKeyboardSnapshot {
 }
 
 const EMPTY: ReadonlySet<number> = new Set<number>();
+const DEFAULT_NOTE_SOURCE = Symbol("default-keyboard-note-source");
+type NoteSource = string | typeof DEFAULT_NOTE_SOURCE;
 
 class PianoKeyboardStore {
   private listeners = new Set<() => void>();
+  private notificationFrame = 0;
+  private notificationPending = false;
 
   private midiInternal = new Set<number>();
-  private assistInternal = new Set<number>();
-  private hitReadyInternal = new Set<number>();
-  private playbackInternal = new Set<number>();
+  private sourceNotes = new Map<NoteSource, Map<number, number>>();
+  private noteTotals = new Map<number, number>();
   private velocityInternal = 0;
   private physicalMidiInternal: number | null = null;
   private pitchBendInternal = 0;
 
   private snapshot: PianoKeyboardSnapshot = {
     midiNotes: EMPTY,
-    assistNotes: EMPTY,
-    hitReadyNotes: EMPTY,
-    playbackNotes: EMPTY,
     velocity: 0,
     physicalMidi: null,
     pitchBend: 0,
   };
 
-  /**
-   * Extra observers that are *not* React — e.g. the write-through into
-   * `stateRef.current.midiNotes`, so canvas/game code sees notes immediately.
-   */
+  /** Optional non-React observers, called without blocking audio on errors. */
   private observers = new Set<(s: PianoKeyboardSnapshot) => void>();
 
   subscribe = (listener: () => void): (() => void) => {
+    if (this.listeners.size === 0 && typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.onVisibilityChange);
+    }
     this.listeners.add(listener);
+    // The store may have changed between the subscriber's render and effect.
+    this.notificationPending = true;
+    this.scheduleNotification();
     return () => {
       this.listeners.delete(listener);
+      if (this.listeners.size === 0) {
+        if (this.notificationFrame !== 0) {
+          cancelAnimationFrame(this.notificationFrame);
+          this.notificationFrame = 0;
+        }
+        if (typeof document !== "undefined") {
+          document.removeEventListener("visibilitychange", this.onVisibilityChange);
+        }
+      }
     };
   };
 
   getSnapshot = (): PianoKeyboardSnapshot => this.snapshot;
+
+  /** Re-evaluate selectors after their props change, using the shared frame. */
+  requestRefresh = (): void => {
+    this.notificationPending = true;
+    this.scheduleNotification();
+  };
 
   /** Register a non-React observer; returns an unsubscribe function. */
   observe = (fn: (s: PianoKeyboardSnapshot) => void): (() => void) => {
@@ -89,18 +95,67 @@ class PianoKeyboardStore {
     return this.midiInternal;
   }
 
-  noteOn(midi: number): void {
-    if (this.midiInternal.has(midi)) return;
-    this.midiInternal.add(midi);
-    this.publish();
+  noteOn(midi: number, sourceId?: string): void {
+    const source = sourceId ?? DEFAULT_NOTE_SOURCE;
+    let held = this.sourceNotes.get(source);
+    if (!held) {
+      held = new Map();
+      this.sourceNotes.set(source, held);
+    }
+    held.set(midi, (held.get(midi) ?? 0) + 1);
+
+    const total = this.noteTotals.get(midi) ?? 0;
+    this.noteTotals.set(midi, total + 1);
+    if (total === 0) {
+      this.midiInternal.add(midi);
+      this.publish();
+    }
   }
 
-  noteOff(midi: number): void {
-    if (!this.midiInternal.delete(midi)) return;
-    this.publish();
+  noteOff(midi: number, sourceId?: string): void {
+    const source = sourceId ?? DEFAULT_NOTE_SOURCE;
+    const held = this.sourceNotes.get(source);
+    const count = held?.get(midi) ?? 0;
+    if (!held || count === 0) return;
+
+    if (count === 1) held.delete(midi);
+    else held.set(midi, count - 1);
+    if (held.size === 0) this.sourceNotes.delete(source);
+
+    const remaining = (this.noteTotals.get(midi) ?? 0) - 1;
+    if (remaining > 0) {
+      this.noteTotals.set(midi, remaining);
+    } else {
+      this.noteTotals.delete(midi);
+      this.midiInternal.delete(midi);
+      this.publish();
+    }
+  }
+
+  /** Release only this input's held keys, retaining other sources' notes. */
+  releaseSource(sourceId?: string): void {
+    const source = sourceId ?? DEFAULT_NOTE_SOURCE;
+    const held = this.sourceNotes.get(source);
+    if (!held) return;
+    this.sourceNotes.delete(source);
+
+    let visibleChanged = false;
+    for (const [midi, count] of held) {
+      const remaining = (this.noteTotals.get(midi) ?? 0) - count;
+      if (remaining > 0) {
+        this.noteTotals.set(midi, remaining);
+      } else {
+        this.noteTotals.delete(midi);
+        visibleChanged = this.midiInternal.delete(midi) || visibleChanged;
+      }
+    }
+    if (visibleChanged) this.publish();
   }
 
   clearMidi(): void {
+    if (this.sourceNotes.size === 0 && this.midiInternal.size === 0) return;
+    this.sourceNotes.clear();
+    this.noteTotals.clear();
     if (this.midiInternal.size === 0) return;
     this.midiInternal.clear();
     this.publish();
@@ -108,10 +163,7 @@ class PianoKeyboardStore {
 
   // ── Live readouts (MIDI stats panel, velocity monitor) ───────
 
-  /**
-   * Raw velocity of the last strike. Only the two small readout components
-   * subscribe to this — it must never re-render the studio.
-   */
+  /** Raw velocity of the last strike. */
   setVelocity(rawVelocity: number): void {
     if (this.velocityInternal === rawVelocity) return;
     this.velocityInternal = rawVelocity;
@@ -130,51 +182,11 @@ class PianoKeyboardStore {
     this.publish();
   }
 
-  // ── Game highlight sets ──────────────────────────────────────
-
-  /**
-   * Publish the notes currently sounding from song playback. Called from the
-   * transport's rAF loop, so it must stay cheap and must publish only when the
-   * set really changed.
-   */
-  setPlaybackNotes(notes: ReadonlySet<number>): void {
-    if (setsEqual(notes, this.playbackInternal)) return;
-    this.playbackInternal = new Set(notes);
-    this.publish();
-  }
-
-  /** Replace the assist/hit-ready sets. Pass `undefined` to leave one alone. */
-  setGameHighlights(
-    assist: ReadonlySet<number> | undefined,
-    hitReady: ReadonlySet<number> | undefined,
-  ): void {
-    let changed = false;
-    if (assist !== undefined && !setsEqual(assist, this.assistInternal)) {
-      this.assistInternal = new Set(assist);
-      changed = true;
-    }
-    if (hitReady !== undefined && !setsEqual(hitReady, this.hitReadyInternal)) {
-      this.hitReadyInternal = new Set(hitReady);
-      changed = true;
-    }
-    if (changed) this.publish();
-  }
-
-  clearGameHighlights(): void {
-    if (this.assistInternal.size === 0 && this.hitReadyInternal.size === 0) return;
-    this.assistInternal = new Set();
-    this.hitReadyInternal = new Set();
-    this.publish();
-  }
-
   // ── Internals ────────────────────────────────────────────────
 
   private publish(): void {
     this.snapshot = {
       midiNotes: new Set(this.midiInternal),
-      assistNotes: this.assistInternal,
-      hitReadyNotes: this.hitReadyInternal,
-      playbackNotes: this.playbackInternal,
       velocity: this.velocityInternal,
       physicalMidi: this.physicalMidiInternal,
       pitchBend: this.pitchBendInternal,
@@ -186,6 +198,38 @@ class PianoKeyboardStore {
         /* an observer must never break note handling */
       }
     }
+    this.notificationPending = true;
+    this.scheduleNotification();
+  }
+
+  private onVisibilityChange = (): void => {
+    if (document.hidden) {
+      if (this.notificationFrame !== 0) {
+        cancelAnimationFrame(this.notificationFrame);
+        this.notificationFrame = 0;
+      }
+    } else {
+      this.scheduleNotification();
+    }
+  };
+
+  private scheduleNotification(): void {
+    if (!this.notificationPending || this.listeners.size === 0) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    if (this.notificationFrame !== 0) return;
+    if (typeof requestAnimationFrame !== "function") {
+      this.flushNotifications();
+      return;
+    }
+    this.notificationFrame = requestAnimationFrame(() => {
+      this.notificationFrame = 0;
+      this.flushNotifications();
+    });
+  }
+
+  private flushNotifications(): void {
+    if (typeof document !== "undefined" && document.hidden) return;
+    this.notificationPending = false;
     for (const listener of this.listeners) {
       try {
         listener();
@@ -194,15 +238,6 @@ class PianoKeyboardStore {
       }
     }
   }
-}
-
-function setsEqual(a: ReadonlySet<number>, b: ReadonlySet<number>): boolean {
-  if (a === b) return true;
-  if (a.size !== b.size) return false;
-  for (const v of a) {
-    if (!b.has(v)) return false;
-  }
-  return true;
 }
 
 /** Singleton — one keyboard, one source of truth. */

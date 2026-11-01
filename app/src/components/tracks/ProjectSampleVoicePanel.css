@@ -1,0 +1,9 @@
+.sample-voice { width: 100%; padding: 14px; border: 1px solid #514066; border-radius: 12px; background: #211b2b; }
+.sample-voice h3 { margin: 0 0 4px; color: #f3ebff; font-size: 15px; }
+.sample-voice header p { margin: 0 0 12px; }
+.sample-voice form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 12px; }
+.sample-voice label { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: #ded2ef; font-size: 12px; font-weight: 700; }
+.sample-voice input, .sample-voice select { width: 100%; min-height: 44px; padding: 8px; border: 1px solid #765d94; border-radius: 8px; background: #2c2538; color: white; }
+.sample-voice__actions { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; grid-column: 1 / -1; }
+.sample-voice__actions button { min-height: 44px; padding: 8px 12px; border: 1px solid #8c69c4; border-radius: 8px; background: #593889; color: white; font-weight: 700; }
+.sample-voice__error { grid-column: 1 / -1; color: #ffd89a !important; }

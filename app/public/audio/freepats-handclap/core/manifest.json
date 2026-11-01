@@ -1,0 +1,97 @@
+{
+  "packId": "freepats-handclap",
+  "version": "e54eb2912a0d6d4444ab205d52f778e27da0fc96",
+  "source": "https://github.com/freepats/world-percussion/tree/e54eb2912a0d6d4444ab205d52f778e27da0fc96",
+  "license": "CC0-1.0",
+  "licenseSha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+  "readmeSha256": "b24e433686aa99d3960c2608780c446e53bd6353cd4e6d3daf2c318922922151",
+  "sfzSha256": "3117cd3bdaed4d4554dad2373e54a72632b2da717a94c3b3e8f9880c0b3d84c8",
+  "performer": "Roberto",
+  "recording": "June 2019, AKG condenser microphone",
+  "sourceMidiNote": 59,
+  "projectGmNote": 39,
+  "note": "Nine original FLAC hand-clap recordings converted to Ogg Vorbis; no synthesis or loudness processing. Opt-in pack, separate from Virtuosity core.",
+  "samples": [
+    {
+      "id": "01_02",
+      "sourcePath": "samples/HandClap/01_02.flac",
+      "sourceGitSha1": "d109ad96b42e8b4bcf681012599b9390c4854d19",
+      "sourceSha256": "7250c9c9cadadbd77550ae1067b3966a914b1c8c19d64b520b9a04040f20fb7d",
+      "file": "01_02.ogg",
+      "sha256": "3ddc0dec1e611ced71007028dbffd7f8f36e41e260c148591dd215e856b37745",
+      "byteLength": 8055
+    },
+    {
+      "id": "01_03",
+      "sourcePath": "samples/HandClap/01_03.flac",
+      "sourceGitSha1": "b202930a53bff27d59da5c2bb3a142621c771354",
+      "sourceSha256": "1439af84cdd2418a2c90f39337b05558f11ec2751b29e3d4391f273dfb034341",
+      "file": "01_03.ogg",
+      "sha256": "4d5623465f82d709e6b3ac7a657c705df43d8cd9be135270a76025367af585f1",
+      "byteLength": 7424
+    },
+    {
+      "id": "01_05",
+      "sourcePath": "samples/HandClap/01_05.flac",
+      "sourceGitSha1": "6ad4e4af8707c02f3ea33b1b086c175c16a042f5",
+      "sourceSha256": "369243d3a42d6bbbc9d370aca0365f590270aa0a2bdaef58b2280f3f71aaafb5",
+      "file": "01_05.ogg",
+      "sha256": "47f35b69e0aabdb1f565224882de32c3327bac2c5541e58c0e348ffea305e1f6",
+      "byteLength": 7924
+    },
+    {
+      "id": "01_06",
+      "sourcePath": "samples/HandClap/01_06.flac",
+      "sourceGitSha1": "005f59d060abb0f6123dc02e5b25109c1283a554",
+      "sourceSha256": "4f50c13699ee7d141dc89669ddf845ff9c5c5bc2c7eb06a4449eda390377070a",
+      "file": "01_06.ogg",
+      "sha256": "daa0ab4973db7415c407e474af729d6e8daac313ffa0c90a307445b38288a8d5",
+      "byteLength": 7361
+    },
+    {
+      "id": "01_07",
+      "sourcePath": "samples/HandClap/01_07.flac",
+      "sourceGitSha1": "acaf3b120a3a2906322ab9a83cfdec41776abed4",
+      "sourceSha256": "b0912dd1f95c66e52acb26405e3c8c7750f4b2744b07a2a36ee4a5254af1bd69",
+      "file": "01_07.ogg",
+      "sha256": "b0621882574b8b8815920cc782b40009d145fb5150fb7267db81058c2fa211bd",
+      "byteLength": 7271
+    },
+    {
+      "id": "01_08",
+      "sourcePath": "samples/HandClap/01_08.flac",
+      "sourceGitSha1": "c1469f78f04d1e134d282c96a5b27100ba7b2bd1",
+      "sourceSha256": "7bdb01071998b43276b037441183e30079131bb84a82e01b90a2b24c58e7eb25",
+      "file": "01_08.ogg",
+      "sha256": "17e072220e2b4eba05de8078eac4852ceef1eebac471eb39e31704441c54c5dc",
+      "byteLength": 7830
+    },
+    {
+      "id": "01_09",
+      "sourcePath": "samples/HandClap/01_09.flac",
+      "sourceGitSha1": "e6c51e7113c1366b483736e8c242564396fc0195",
+      "sourceSha256": "6d1529f9bee6d4e4edefa85bd717c5ba9b4e647cf330b4deb3454ee74b6d284a",
+      "file": "01_09.ogg",
+      "sha256": "29d9cdd8d61aa05cb2527629f3f755293e15936ed8f7cd792f6c233521aac701",
+      "byteLength": 7318
+    },
+    {
+      "id": "02_02",
+      "sourcePath": "samples/HandClap/02_02.flac",
+      "sourceGitSha1": "9f7723aec1193a44dff13b7aee0df676c1665343",
+      "sourceSha256": "12b0fb61e881df36bc02f13a72e176f879354d4d5710bd3ba797fdb723c3faec",
+      "file": "02_02.ogg",
+      "sha256": "e8c9c6ca344ee0c4f74401e35d908f94c8dad649d203f58fe719dae0c40ec9ac",
+      "byteLength": 7082
+    },
+    {
+      "id": "02_05",
+      "sourcePath": "samples/HandClap/02_05.flac",
+      "sourceGitSha1": "f16ffa31a79d50e30e08af96f6371ef38317bd26",
+      "sourceSha256": "f4990d6a0cef7c85df3d2d663e598bc018510f2e182c615cad7d5567b7031cc8",
+      "file": "02_05.ogg",
+      "sha256": "1db0acc14838a1e6783ab164e36228e186b16f8cf518c17ada880e18c324baf8",
+      "byteLength": 7293
+    }
+  ]
+}

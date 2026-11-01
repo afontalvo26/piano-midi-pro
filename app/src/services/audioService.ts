@@ -1,8 +1,6 @@
 import * as Tone from "tone";
 
-// Salamander Grand Piano sample map used by Tone.Sampler.
-// Mirrors the constant in App.tsx; kept here so non-React code can configure
-// the sampler without pulling in component state.
+// Mapa de muestras Salamander utilizado por el motor de Studio.
 export const salamanderSamples: Record<string, string> = {
   A0: "A0.ogg",
   C1: "C1.ogg",

@@ -1,0 +1,6 @@
+.sound-libraries ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 10px; margin: 14px 0; padding: 0; list-style: none; }
+.sound-libraries li { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 12px; border: 1px solid #4b405b; border-radius: 10px; background: #211b2b; color: #dcd2eb; font-size: 12px; }
+.sound-libraries li strong { color: #f5edff; font-size: 14px; }
+.sound-libraries li div { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 4px; }
+.sound-libraries a { color: #ceb5ff; text-underline-offset: 3px; }
+.sound-libraries a:focus-visible { outline: 2px solid #a78bfa; outline-offset: 3px; }

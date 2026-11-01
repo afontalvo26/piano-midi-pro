@@ -1,0 +1,14 @@
+.audio-latency { display: grid; gap: 14px; min-width: 0; margin-top: 14px; padding: 18px; border: 1px solid #4e4166; border-radius: 14px; background: #17141e; color: #e9e1f4; }
+.audio-latency h2, .audio-latency p { margin: 0; }
+.audio-latency p { font-size: 13px; }
+.audio-latency__controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.audio-latency__controls label { display: grid; min-width: 0; gap: 6px; color: #ded2ef; font-size: 12px; font-weight: 700; }
+.audio-latency__controls input, .audio-latency__controls select { min-width: 0; width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid #755e93; border-radius: 8px; background: #2c2538; color: white; }
+.audio-latency__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.audio-latency__actions button { min-height: 44px; padding: 8px 12px; border: 1px solid #8c69c4; border-radius: 8px; background: #30243f; color: white; font-weight: 700; }
+.audio-latency__actions button:disabled { opacity: .5; cursor: not-allowed; }
+.audio-latency__facts { color: #c9b8e9 !important; }
+.audio-latency__warning { color: #ffd89a !important; }
+.audio-latency__success { color: #bbf7d0 !important; }
+.audio-latency input:focus-visible, .audio-latency select:focus-visible, .audio-latency button:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
+@media (max-width: 600px) { .audio-latency { padding: 14px; } .audio-latency__controls { grid-template-columns: 1fr; } }

@@ -24,12 +24,11 @@ contramedida obligatoria.
 
 ### 1. La suite e2e completa
 
-7 archivos × 45 s de timeout × reintentos ≈ **6-7 minutos** con la terminal
-tomada. Y si un test espera un selector que no aparece, se queda los 180 s
-completos antes de fallar.
+Una suite completa puede tardar varios minutos. Si un test espera un selector
+que ya no existe, consume su tope entero antes de fallar.
 
 - **Obligatorio:** correr por archivo mientras se itera
-  (`npx playwright test 03-playback`), nunca la suite entera.
+  (`npx playwright test smk37-midi-panel`), nunca la suite entera.
 - La suite completa **solo** al cerrar una tanda de trabajo, con tope explícito:
 
 ```powershell
@@ -38,7 +37,7 @@ pwsh -File scripts/run-bounded.ps1 -Command "npx playwright test" -TimeoutSec 60
 
 ### 2. Servidores en primer plano
 
-`vite preview`, `npm run dev`, `start-server.ps1`: **nunca terminan**. En primer
+`vite preview`, `npm run dev`: **nunca terminan**. En primer
 plano cuelgan para siempre.
 
 - **Obligatorio:** los servidores van como **job en segundo plano**, siempre.
@@ -149,8 +148,8 @@ archivo, con `-TimeoutSec`, y en segundo plano si corresponde.
 
 **Nunca** reescribir un archivo de código con `Get-Content -Raw` + `-replace` +
 `Set-Content`. Un `Set-Content` sin `-NoNewline` y con un array mal armado
-**colapsa el archivo a una sola línea**. Eso ya destruyó `app/src/App.tsx`
-(5900 líneas) en este proyecto.
+**colapsa el archivo a una sola línea**. Eso destruyó el antiguo
+`app/src/App.tsx` en este proyecto.
 
 - Para editar código: herramienta de edición con búsqueda literal.
 - Para PowerShell: solo si el archivo es de datos, chico, y con backup previo.

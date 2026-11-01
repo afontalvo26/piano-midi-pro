@@ -11,21 +11,12 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const PORT = 1234;
 const BASE_URL = `http://localhost:${PORT}`;
-/** El reproductor independiente: restaura la sesión y es el producto del dueño. */
-const PLAYER_URL = "http://localhost:1235";
-
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  /**
-   * Each worker gets its own browser AND its own cold start: its own parse of
-   * the 117-file demo catalogue plus its own audio-engine boot. Uncapped, four
-   * workers starve one another and healthy tests start failing on
-   * `waitForLibrary` timeouts instead of on real regressions. Two keeps the
-   * suite parallel without inventing failures.
-   */
+  /** Keep parallel cold audio starts bounded so workers do not starve each other. */
   workers: process.env.CI ? 1 : 2,
   reporter: [["list"]],
   timeout: 45_000,
@@ -55,37 +46,13 @@ export default defineConfig({
     },
   ],
 
-  /**
-   * Dos servidores, uno por app.
-   *
-   * El piano (1234) es el que usa `baseURL`, así que casi toda la suite va contra
-   * él. El reproductor (1235) hace falta para los tests que sólo tienen sentido
-   * ahí —restaura la SESIÓN guardada, que es donde vivía el bug del cambio de
-   * canción (ver `13-cambio-cancion-sesion-vieja.spec.ts`)— y ese spec entra por
-   * URL absoluta.
-   *
-   * `reuseExistingServer` es lo que hace que esto no moleste: en el uso normal
-   * los dos servidores ya están levantados (`scripts/start-servers.ps1`) y
-   * Playwright no arranca nada.
-   */
-  webServer: [
-    {
-      command: "npm run dev",
-      cwd: "./app",
-      url: BASE_URL,
-      reuseExistingServer: true,
-      timeout: 120_000,
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-    {
-      command: "npm run dev",
-      cwd: "./player",
-      url: PLAYER_URL,
-      reuseExistingServer: true,
-      timeout: 120_000,
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  ],
+  webServer: {
+    command: "npm run dev",
+    cwd: "./app",
+    url: BASE_URL,
+    reuseExistingServer: true,
+    timeout: 120_000,
+    stdout: "pipe",
+    stderr: "pipe",
+  },
 });

@@ -1,0 +1,15 @@
+.project-export { display: grid; gap: 16px; padding: 18px; border: 1px solid #4e4166; border-radius: 14px; background: #17141e; color: #e9e1f4; }
+.project-export h2, .project-export p { margin: 0; }
+.project-export p { font-size: 13px; }
+.project-export__fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.project-export__fields label { min-width: 0; display: grid; gap: 6px; font-size: 12px; font-weight: 700; }
+.project-export__fields input, .project-export__fields select { width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid #755e93; border-radius: 8px; background: #2c2538; color: white; }
+.project-export__checks, .project-export__actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.project-export__checks label { display: flex; align-items: center; min-height: 44px; gap: 8px; font-size: 12px; }
+.project-export__checks input { width: 20px; height: 20px; accent-color: #a78bfa; }
+.project-export__actions button { min-height: 44px; padding: 9px 14px; border: 1px solid #8c69c4; border-radius: 8px; background: #30243f; color: white; font-weight: 700; }
+.project-export__actions .project-export__start { background: #593889; }
+.project-export__detail { color: #c9b8e9; }
+.project-export__notice { color: #d6f6e1 !important; }
+@media (max-width: 900px) { .project-export__fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .project-export { padding: 14px; } .project-export__fields { grid-template-columns: 1fr; } .project-export__actions button { flex: 1 1 auto; } }

@@ -1,0 +1,42 @@
+.instrument-browser { border-bottom: 1px solid #332d42; background: #17141d; }
+.instrument-browser__current { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px 7px; }
+.instrument-browser__current-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.instrument-browser__eyebrow { color: #b794ff; font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.instrument-browser__current-copy strong { color: #f3ecff; font-size: 16px; }
+.instrument-browser__current-copy > span:last-child { color: #aaa4b7; font-size: 12px; }
+.instrument-browser__toggle, .instrument-browser__error button { flex: none; min-height: 44px; padding: 7px 12px; border: 1px solid #7356a5; border-radius: 8px; background: #49346c; color: #fff; font-weight: 650; }
+.instrument-browser__attribution { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 0 18px 10px; color: #a59eae; font-size: 11px; }
+.instrument-browser a { color: #cbb7ff; text-underline-offset: 2px; }
+.instrument-browser__loading, .instrument-browser__notice, .instrument-browser__error { margin: 0 18px 10px; padding: 8px 10px; border-radius: 7px; font-size: 12px; }
+.instrument-browser__loading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #e4d9ff !important; background: #392a53; }
+.instrument-browser__loading button { flex: none; min-height: 44px; padding: 4px 9px; border: 1px solid #b295d8; border-radius: 7px; background: #553b79; color: white; font-weight: 700; }
+.instrument-browser__notice { color: #bdebd5 !important; background: #163c32; }
+.instrument-browser__error { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #ffd4ae; background: #4d2a1c; }
+.instrument-browser__error button { min-height: 44px; padding: 4px 9px; background: #6e3b21; border-color: #ba7647; }
+.instrument-browser__catalog { max-height: min(48vh, 430px); overflow: auto; padding: 12px 18px 16px; border-top: 1px solid #332d42; background: #111016; }
+.instrument-browser__filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.instrument-browser__filters label { display: flex; flex-direction: column; gap: 5px; color: #c7bbd7; font-size: 12px; font-weight: 650; }
+.instrument-browser__filters select { min-height: 44px; padding: 6px 9px; border: 1px solid #4b405d; border-radius: 7px; color: white; background: #292532; }
+.instrument-browser__count, .instrument-browser__empty { margin: 11px 0; font-size: 12px; }
+.instrument-browser__category { margin-top: 15px; }
+.instrument-browser__category h3 { color: #e8e1ef; font-size: 15px; margin: 0 0 8px; }
+.instrument-browser__engine { margin: 0 0 13px; }
+.instrument-browser__engine h4 { color: #a99abb; font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; margin: 0 0 7px; }
+.instrument-browser__presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0; margin: 0; list-style: none; }
+.instrument-browser__presets li { min-width: 0; padding: 9px; border: 1px solid #393246; border-radius: 9px; background: #211d29; }
+.instrument-browser__presets li.is-active { border-color: #a276e8; background: #30243f; }
+.instrument-browser__presets button { width: 100%; min-height: 54px; padding: 0; border: 0; background: transparent; color: #f0eaf7; text-align: left; }
+.instrument-browser__presets button > * { display: block; }
+.instrument-browser__presets button strong { font-size: 13px; }
+.instrument-browser__presets button span { color: #b8adbf; font-size: 11px; margin-top: 3px; }
+.instrument-browser__presets button small { color: #bca0fa; font-size: 11px; font-weight: 700; margin-top: 4px; }
+.instrument-browser__presets li > a { font-size: 11px; }
+.instrument-browser__pads { padding: 0 18px 10px; margin: 0 !important; color: #918b9e !important; font-size: 11px; }
+@media (max-width: 900px) { .instrument-browser__presets { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) {
+  .instrument-browser__current { align-items: flex-start; flex-direction: column; gap: 9px; padding: 12px; }
+  .instrument-browser__attribution, .instrument-browser__pads { padding-left: 12px; padding-right: 12px; }
+  .instrument-browser__loading, .instrument-browser__notice, .instrument-browser__error { margin-left: 12px; margin-right: 12px; }
+  .instrument-browser__catalog { padding: 12px; max-height: 42vh; }
+  .instrument-browser__filters, .instrument-browser__presets { grid-template-columns: 1fr; }
+}

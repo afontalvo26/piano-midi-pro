@@ -1,0 +1,156 @@
+.piano-roll {
+  --roll-ink: #f3eef9;
+  --roll-muted: #c5b9d0;
+  --roll-border: #54445f;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 16px;
+  color: var(--roll-ink);
+  background: #0d0b12;
+  border: 1px solid #3c3346;
+  border-radius: 14px;
+  font-family: var(--font-sans, Outfit, sans-serif);
+}
+
+.piano-roll button, .piano-roll select, .piano-roll input { font: inherit; }
+.piano-roll button { cursor: pointer; }
+.piano-roll button:disabled { cursor: not-allowed; opacity: .45; }
+.piano-roll :is(button, input, select, canvas):focus-visible { outline: 2px solid #d4b5ff; outline-offset: 2px; }
+.piano-roll__eyebrow { color: #c9a9f1; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.piano-roll__header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.piano-roll__identity { min-width: 0; }
+.piano-roll__identity h2 { margin: 2px 0 3px; font-size: clamp(20px, 2vw, 27px); line-height: 1.1; letter-spacing: -.035em; }
+.piano-roll__facts { display: block; color: var(--roll-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.piano-roll__save { flex: none; padding: 5px 8px; border: 1px solid #47624f; border-radius: 6px; background: #1a3324; color: #c6efd2; font-size: 11px; font-weight: 700; }
+.piano-roll__save--pending, .piano-roll__save--saving { background: #44331d; border-color: #86633a; color: #ffe2a9; }
+.piano-roll__save--error, .piano-roll__save--conflict { background: #4d2329; border-color: #aa5661; color: #ffd1d6; }
+.piano-roll__toolbar { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin-bottom: 8px; }
+.piano-roll__tool-set, .piano-roll__zoom, .piano-roll__history { display: flex; align-items: stretch; gap: 3px; }
+.piano-roll__zoom button { min-width: 44px; }
+.piano-roll__toolbar button, .piano-roll__select-label select, .piano-roll__selection-row button,
+.piano-roll__inspector-actions button, .piano-roll__multi-selection button, .piano-roll__inspector-toggle {
+  min-height: 44px;
+  padding: 7px 11px;
+  border: 1px solid var(--roll-border);
+  border-radius: 7px;
+  background: #29222f;
+  color: var(--roll-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+.piano-roll__tool-set button.is-active { background: #77519f; border-color: #bb8ce9; color: #fff; }
+.piano-roll__toolbar button:hover:not(:disabled), .piano-roll__selection-row button:hover:not(:disabled),
+.piano-roll__inspector-actions button:hover:not(:disabled) { border-color: #c296f1; background: #45304e; }
+.piano-roll__select-label { display: flex; align-items: center; gap: 7px; color: var(--roll-muted); font-size: 12px; }
+.piano-roll__select-label select { min-width: 86px; }
+.piano-roll__zoom output { min-width: 51px; display: grid; place-items: center; color: var(--roll-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.piano-roll__help { margin: 0 0 10px; color: var(--roll-muted); font-size: 12px; line-height: 1.35; }
+.piano-roll__help summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: #dcc9f3; font-weight: 700; }
+.piano-roll__help p { margin: 0 0 8px; }
+.piano-roll__pad-legend { margin: 0 0 10px; color: var(--roll-muted); font-size: 12px; }
+.piano-roll__pad-legend summary { min-height: 44px; display: flex; align-items: center; cursor: pointer;
+  color: #dcc9f3; font-weight: 700; }
+.piano-roll__pad-legend ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 5px; margin: 0; padding: 0; list-style: none; }
+.piano-roll__pad-legend li { display: flex; min-width: 0; gap: 5px; padding: 5px 7px;
+  border: 1px solid #4c3d56; border-radius: 5px; background: #19141f; }
+.piano-roll__pad-legend li span { flex: none; font-variant-numeric: tabular-nums; }
+.piano-roll__pad-legend li strong { min-width: 0; overflow-wrap: anywhere; color: var(--roll-ink); }
+.piano-roll__error { margin: 0 0 10px; padding: 9px 11px; border: 1px solid #b76071; border-radius: 6px; color: #ffe0e4; background: #4c202b; font-size: 12px; }
+.piano-roll__viewport { width: 100%; height: clamp(300px, 50vh, 550px); overflow: auto; overscroll-behavior: contain; background: #100f17; border: 1px solid #665373; border-radius: 8px; scrollbar-color: #68507c #191421; }
+.piano-roll__viewport-shell { position: relative; min-width: 0; }
+.piano-roll__live-playhead { position: absolute; top: 1px; bottom: 1px; left: 0; z-index: 4; display: none;
+  width: 2px; background: #ffc36a; box-shadow: 0 0 8px #ffc36a88; pointer-events: none; will-change: transform; }
+.piano-roll__world { position: relative; }
+.piano-roll__canvas { display: block; position: sticky; top: 0; left: 0; max-width: none; cursor: crosshair; }
+.piano-roll__canvas:focus-visible { outline-offset: -3px; }
+.piano-roll__selection-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; min-height: 55px; padding: 6px 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.piano-roll__selection-row > span { color: #e1cffa; }
+.piano-roll__selection-row > div { display: flex; gap: 6px; }
+.piano-roll__inspector { border-top: 1px solid #4c3d56; padding-top: 10px; }
+.piano-roll__inspector-toggle { display: none; width: 100%; justify-content: space-between; align-items: center; text-align: left; }
+.piano-roll__inspector-content { display: block; }
+.piano-roll__inspector-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.piano-roll__inspector-heading strong { display: block; margin-top: 3px; font-size: 16px; }
+.piano-roll__inspector-heading small { color: var(--roll-muted); font-size: 11px; font-weight: 500; }
+.piano-roll__note-origin { padding: 4px 6px; border: 1px solid #766686; border-radius: 5px; color: #e4d2f4; font-size: 11px; }
+.piano-roll__fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.piano-roll__fields label { display: flex; flex-direction: column; min-width: 0; gap: 5px; color: var(--roll-muted); font-size: 11px; font-weight: 700; }
+.piano-roll__fields input { width: 100%; min-height: 44px; padding: 7px 9px; border: 1px solid #695777; border-radius: 6px; background: #201927; color: #fff; font-variant-numeric: tabular-nums; }
+.piano-roll__performance-fields { margin-top: 9px; border: 1px solid #594765; border-radius: 7px; background: #1b1521; }
+.piano-roll__performance-fields summary { min-height: 44px; display: flex; align-items: center; padding: 7px 10px;
+  color: #dec8ef; font-size: 12px; font-weight: 800; cursor: pointer; }
+.piano-roll__performance-fields[open] .piano-roll__fields { padding: 10px; }
+.piano-roll__performance-mute { display: flex !important; flex-direction: row !important; align-items: center; min-height: 44px; gap: 7px; }
+.piano-roll__performance-mute input { width: 18px; height: 18px; min-height: 0; }
+.piano-roll__inspector-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.piano-roll__inspector-actions .piano-roll__primary { background: #75509d; border-color: #b58ae8; }
+.piano-roll__inspector-actions .piano-roll__danger, .piano-roll__multi-selection .piano-roll__danger { color: #ffd7dc; border-color: #a35664; background: #4a222e; }
+.piano-roll__no-selection, .piano-roll__multi-selection p { color: var(--roll-muted); font-size: 12px; }
+.piano-roll__multi-selection button { margin-top: 8px; }
+.piano-roll__operations { margin-top: 11px; border-top: 1px solid #4c3d56; color: var(--roll-muted); font-size: 12px; }
+.piano-roll__operations summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: #e6d1f7; font-weight: 800; }
+.piano-roll__operation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding-bottom: 5px; }
+.piano-roll__operation-card { min-width: 0; padding: 11px; border: 1px solid #4c3d56; border-radius: 8px; background: #19141f; }
+.piano-roll__operation-card > strong { display: block; margin-bottom: 9px; color: #f3eef9; font-size: 13px; }
+.piano-roll__operation-card p { margin: 0 0 9px; font-size: 11px; line-height: 1.4; }
+.piano-roll__operation-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.piano-roll__operation-actions button, .piano-roll__operation-form button { min-height: 44px; padding: 7px 10px;
+  border: 1px solid var(--roll-border); border-radius: 7px; background: #29222f; color: var(--roll-ink); font-size: 11px; font-weight: 700; }
+.piano-roll__operation-actions button:hover:not(:disabled), .piano-roll__operation-form button:hover:not(:disabled) { border-color: #c296f1; background: #45304e; }
+.piano-roll__operation-actions .piano-roll__primary { border-color: #b58ae8; background: #75509d; }
+.piano-roll__operation-form { display: flex; align-items: end; gap: 6px; margin-top: 9px; }
+.piano-roll__operation-form label, .piano-roll__operation-fields label { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 4px; font-size: 11px; font-weight: 700; }
+.piano-roll__operation-form input, .piano-roll__operation-fields input { width: 100%; min-height: 44px; padding: 7px 9px;
+  border: 1px solid #695777; border-radius: 6px; background: #201927; color: #fff; font-variant-numeric: tabular-nums; }
+.piano-roll__operation-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.piano-roll__lane { min-width: 0; margin-top: 8px; padding: 9px; border: 1px solid #4c3d56; border-radius: 8px; background: #18131f; }
+.piano-roll__lane-toolbar { display: flex; align-items: end; gap: 7px; flex-wrap: wrap; margin-bottom: 8px; }
+.piano-roll__lane-toolbar label { display: flex; flex-direction: column; gap: 4px; min-width: 75px; color: var(--roll-muted); font-size: 11px; font-weight: 700; }
+.piano-roll__lane-toolbar :is(select, input), .piano-roll__expression-fields input { min-height: 44px; padding: 7px 9px;
+  border: 1px solid #695777; border-radius: 6px; background: #201927; color: #fff; font-size: 12px; }
+.piano-roll__lane-toolbar input { width: 70px; }
+.piano-roll__lane-canvas { display: block; max-width: 100%; border: 1px solid #665373; border-radius: 5px; cursor: crosshair; }
+.piano-roll__lane-note { margin: 7px 0 0; color: var(--roll-muted); font-size: 11px; line-height: 1.4; }
+.piano-roll__lane-navigation { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.piano-roll__lane-navigation span { margin-right: auto; color: var(--roll-muted); font-size: 11px; }
+.piano-roll__lane-navigation button, .piano-roll__expression-actions button { min-height: 44px; padding: 7px 10px;
+  border: 1px solid var(--roll-border); border-radius: 7px; background: #29222f; color: var(--roll-ink); font-size: 11px; font-weight: 700; }
+.piano-roll__expression-form { padding-top: 10px; border-top: 1px solid #4c3d56; }
+.piano-roll__expression-heading { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.piano-roll__expression-heading strong { color: #f3eef9; font-size: 13px; }
+.piano-roll__expression-heading small { color: var(--roll-muted); font-size: 11px; }
+.piano-roll__expression-fields { display: flex; flex-wrap: wrap; gap: 7px; }
+.piano-roll__expression-fields label { display: flex; flex-direction: column; min-width: 0; flex: 1 1 100px;
+  gap: 4px; color: var(--roll-muted); font-size: 11px; font-weight: 700; }
+.piano-roll__expression-fields input { width: 100%; }
+.piano-roll__expression-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.piano-roll__expression-actions .piano-roll__primary { border-color: #b58ae8; background: #75509d; }
+.piano-roll__expression-actions .piano-roll__danger { border-color: #a35664; background: #4a222e; color: #ffd7dc; }
+.piano-roll--empty { min-height: 160px; display: flex; flex-direction: column; justify-content: center; gap: 7px; }
+.piano-roll--empty h2 { margin: 0; font-size: 20px; }
+.piano-roll--empty p { margin: 0; color: var(--roll-muted); font-size: 13px; }
+
+@media (max-width: 700px) {
+  .piano-roll { padding: 12px; border-radius: 9px; }
+  .piano-roll__header { align-items: flex-start; }
+  .piano-roll__save { max-width: 100px; text-align: center; }
+  .piano-roll__tool-set { width: 100%; }
+  .piano-roll__tool-set button { flex: 1; min-width: 0; padding-left: 5px; padding-right: 5px; }
+  .piano-roll__history { margin-left: auto; }
+  .piano-roll__help { font-size: 11px; }
+  .piano-roll__viewport { height: clamp(280px, 48vh, 440px); }
+  .piano-roll__inspector-toggle { display: flex; }
+  .piano-roll__inspector-content { display: none; padding-top: 12px; }
+  .piano-roll__inspector-content.is-open { display: block; }
+  .piano-roll__fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .piano-roll__operation-grid { grid-template-columns: minmax(0, 1fr); }
+  .piano-roll__lane-toolbar label:first-child { flex: 1 1 40%; }
+}
+
+@media (max-width: 360px) {
+  .piano-roll__fields { grid-template-columns: 1fr; }
+  .piano-roll__selection-row > div { width: 100%; }
+  .piano-roll__selection-row button { flex: 1; }
+}

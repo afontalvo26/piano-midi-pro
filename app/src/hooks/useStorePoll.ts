@@ -1,5 +1,5 @@
 // ============================================================
-// useStorePoll — read the keyboard store once per animation frame.
+// useStorePoll — select frame-batched keyboard-store notifications.
 //
 // Why not `useSyncExternalStore`?
 // ───────────────────────────────
@@ -12,12 +12,12 @@
 //
 // The MIDI callback is the one place that must stay cheap: whatever it spends is
 // added directly to how late the note is scheduled, and at playing speed a
-// repaint storm leaves MIDI events queued behind React. Sampling once per frame
-// is enough — a key cannot change faster than a frame — so the audio path is
-// never blocked by rendering.
+// repaint storm leaves MIDI events queued behind React. The store schedules a
+// notification only after a change, at most once per frame, so the audio path
+// is never blocked by rendering and idle components do not keep polling.
 // ============================================================
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PianoKeyboardSnapshot } from "../state/pianoKeyboardStore";
 import { pianoKeyboardStore } from "../state/pianoKeyboardStore";
 
@@ -48,8 +48,8 @@ export function useStorePoll<T>(
     selector(pianoKeyboardStore.getSnapshot()),
   );
 
-  // Latest render's props, kept in refs so the rAF loop never closes over a
-  // stale selector. Written from an effect, never during render.
+  // Latest render's props, kept in refs so a store notification never closes
+  // over a stale selector. Written from an effect, never during render.
   const latest = useRef({ selector, isEqual, value });
 
   useEffect(() => {
@@ -58,34 +58,28 @@ export function useStorePoll<T>(
     latest.current.value = value;
   });
 
-  useEffect(() => {
-    let frame = 0;
-    let stopped = false;
-
-    const tick = () => {
-      if (stopped) return;
-      frame = requestAnimationFrame(tick);
-
-      const state = latest.current;
-      const next = state.selector(pianoKeyboardStore.getSnapshot());
-      const prev = state.value;
-      const equal =
-        state.isEqual !== undefined
-          ? state.isEqual(prev, next)
-          : Array.isArray(prev) && Array.isArray(next)
-            ? shallowArrayEqual(prev as unknown[], next as unknown[])
-            : Object.is(prev, next);
-      if (equal) return;
-      state.value = next;
-      setValue(next);
-    };
-
-    frame = requestAnimationFrame(tick);
-    return () => {
-      stopped = true;
-      cancelAnimationFrame(frame);
-    };
+  const update = useCallback(() => {
+    const state = latest.current;
+    const next = state.selector(pianoKeyboardStore.getSnapshot());
+    const prev = state.value;
+    const equal =
+      state.isEqual !== undefined
+        ? state.isEqual(prev, next)
+        : Array.isArray(prev) && Array.isArray(next)
+          ? shallowArrayEqual(prev as unknown[], next as unknown[])
+          : Object.is(prev, next);
+    if (equal) return;
+    state.value = next;
+    setValue(next);
   }, []);
+
+  useEffect(() => pianoKeyboardStore.subscribe(update), [update]);
+
+  // A selector may depend on props. Ask the store for one shared notification;
+  // while hidden it is retained until the page becomes visible again.
+  useEffect(() => {
+    pianoKeyboardStore.requestRefresh();
+  }, [selector, isEqual]);
 
   return value;
 }

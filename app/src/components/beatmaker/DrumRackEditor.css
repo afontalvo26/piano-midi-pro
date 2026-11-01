@@ -1,0 +1,101 @@
+.drum-rack { width: 100%; min-width: 0; overflow: hidden; padding: 14px; border: 1px solid #4c3d58;
+  border-radius: 12px; background: #0e0b13; color: #f4edf8; font-family: var(--font-sans, Outfit, sans-serif); }
+.drum-rack *, .drum-rack *::before, .drum-rack *::after { box-sizing: border-box; }
+.drum-rack button, .drum-rack input, .drum-rack select { font: inherit; }
+.drum-rack button { min-height: 44px; cursor: pointer; }
+.drum-rack button:disabled { opacity: .45; cursor: not-allowed; }
+.drum-rack :is(button, input, select):focus-visible { outline: 2px solid #d5a8ff; outline-offset: 2px; }
+.drum-rack__header { display: flex; justify-content: space-between; gap: 9px; margin-bottom: 12px; }
+.drum-rack__header span { color: #d3a9f2; font-size: 11px; font-weight: 800; letter-spacing: .1em; }
+.drum-rack__header h2 { margin: 3px 0; font-size: clamp(19px, 2vw, 27px); line-height: 1.1; }
+.drum-rack__header p { margin: 0; color: #cbbbd6; font-size: 12px; line-height: 1.45; }
+.drum-rack__header small { flex: none; height: fit-content; padding: 6px 8px; border: 1px solid #766385;
+  border-radius: 6px; color: #f1e3fa; font-size: 11px; }
+.drum-rack__toolbar { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+.drum-rack__toolbar > div { display: flex; align-items: stretch; gap: 4px; min-width: 0; }
+.drum-rack__toolbar span { display: grid; place-items: center; min-width: 93px; color: #e1d1ed;
+  font-size: 12px; font-variant-numeric: tabular-nums; }
+.drum-rack__toolbar button, .drum-rack__inspector > button, .drum-rack__pad-inspector button {
+  padding: 7px 10px; border: 1px solid #735c85; border-radius: 7px; background: #302538;
+  color: #f5eafb; font-size: 12px; font-weight: 700; }
+.drum-rack__toolbar button:hover:not(:disabled), .drum-rack__pad-inspector button:hover:not(:disabled) {
+  background: #493452; border-color: #bc8be9; }
+.drum-rack__swing { display: flex; align-items: end; flex-wrap: wrap; gap: 7px; margin: 0 0 10px; }
+.drum-rack__swing label { display: grid; gap: 4px; color: #cfbcdb; font-size: 11px; font-weight: 700; }
+.drum-rack__swing input { width: 100px; min-height: 44px; padding: 7px; border: 1px solid #705982;
+  border-radius: 6px; background: #241b2c; color: #fff; font-size: 16px; }
+.drum-rack__swing button { min-height: 44px; padding: 7px 10px; border: 1px solid #735c85;
+  border-radius: 7px; background: #302538; color: #f5eafb; font-size: 12px; font-weight: 700; }
+.drum-rack__hint { margin: 0 0 9px; color: #cbbbd6; font-size: 12px; line-height: 1.45; }
+.drum-rack__error { margin: 0 0 9px; padding: 9px; border: 1px solid #b96574; border-radius: 6px;
+  background: #4b202c; color: #ffe3e6; font-size: 12px; }
+.drum-rack__scroll { width: 100%; overflow: auto; max-height: min(58vh, 630px);
+  overscroll-behavior: contain; border: 1px solid #6d597a; border-radius: 8px;
+  scrollbar-color: #6b507e #18121e; }
+.drum-rack__grid { display: grid; grid-template-columns: 116px repeat(16, 44px); width: max-content;
+  min-width: 100%; background: #100d17; }
+.drum-rack__row { display: contents; }
+.drum-rack__corner, .drum-rack__head { position: sticky; top: 0; z-index: 3; display: grid;
+  place-items: center; min-height: 36px; border-bottom: 1px solid #6d597a; background: #1b1522;
+  color: #e2c8ef; font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.drum-rack__corner { left: 0; z-index: 5; }
+.drum-rack__pad { position: sticky; left: 0; z-index: 2; display: grid; align-content: center;
+  min-height: 80px; padding: 4px 5px; border-right: 1px solid #6d597a; border-bottom: 1px solid #34283e;
+  background: #211927; }
+.drum-rack__pad strong { display: block; padding-left: 5px; border-left: 3px solid #ba8ddd;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.drum-rack__pad small { color: #cbbbd6; font-size: 10px; white-space: nowrap; }
+.drum-rack__pad div { display: flex; gap: 3px; }
+.drum-rack__pad button { min-width: 44px; min-height: 44px; padding: 1px 5px; border: 1px solid #88649d;
+  border-radius: 5px; background: #4e3263; color: #fff; font-size: 13px; }
+.drum-rack__step { display: grid; place-items: center; width: 44px; height: 80px; min-height: 80px !important;
+  padding: 0; border: 1px solid #30283a; border-radius: 0; background: #17121d;
+  color: #f0e3fa; font-size: 16px; font-weight: 800; }
+.drum-rack__step:nth-child(4n) { background: #1f1726; }
+.drum-rack__step.is-active { background: #7951a1; border-color: #c995f2; color: #fff; }
+.drum-rack__step.has-offset:not(.is-active) { color: #f0c487; background: #31232b; }
+.drum-rack__step:hover:not(:disabled) { border-color: #dbb0ff; }
+.drum-rack__inspector { margin-top: 11px; padding-top: 9px; border-top: 1px solid #4e3d59; }
+.drum-rack__inspector > button { width: 100%; text-align: left; }
+.drum-rack__inspector > p { color: #cbbbd6; font-size: 12px; }
+.drum-rack__inspector .piano-roll__inspector-form { margin-top: 10px; }
+.drum-rack__inspector .piano-roll__fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.drum-rack__inspector .piano-roll__fields label { display: grid; gap: 4px; min-width: 0; color: #d0bfdc; font-size: 11px; }
+.drum-rack__inspector .piano-roll__fields input { min-width: 0; min-height: 44px; padding: 7px;
+  border: 1px solid #705982; border-radius: 6px; background: #211929; color: #fff; }
+.drum-rack__inspector .piano-roll__performance-fields { margin-top: 9px; border: 1px solid #705982; border-radius: 7px; }
+.drum-rack__inspector .piano-roll__performance-fields summary { min-height: 44px; padding: 10px; cursor: pointer; }
+.drum-rack__inspector .piano-roll__performance-fields[open] .piano-roll__fields { padding: 9px; }
+.drum-rack__inspector .piano-roll__inspector-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+.drum-rack__inspector .piano-roll__inspector-actions button { min-height: 44px; padding: 7px 10px;
+  border: 1px solid #705982; border-radius: 7px; background: #392846; color: #fff; }
+.drum-rack__pad-inspector { margin-top: 12px; padding: 11px; border: 1px solid #705982;
+  border-radius: 8px; background: #1a1321; }
+.drum-rack__pad-inspector header { display: flex; justify-content: space-between; align-items: center; gap: 9px; }
+.drum-rack__pad-inspector h3 { margin: 0; font-size: 16px; }
+.drum-rack__pad-inspector p { margin: 7px 0 10px; color: #cfbcdb; font-size: 12px; }
+.drum-rack__pad-inspector form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.drum-rack__pad-inspector label { display: grid; align-content: start; gap: 4px; min-width: 0;
+  color: #d0bfdc; font-size: 11px; font-weight: 700; }
+.drum-rack__pad-inspector input, .drum-rack__pad-inspector select { width: 100%; min-width: 0;
+  min-height: 44px; padding: 7px; border: 1px solid #705982; border-radius: 6px;
+  background: #241b2c; color: #fff; font-size: 16px; }
+.drum-rack__pad-inspector input[type="color"] { padding: 3px; }
+.drum-rack__pad-inspector .drum-rack__check { display: flex; align-items: center; gap: 7px; min-height: 44px; }
+.drum-rack__pad-inspector .drum-rack__check input { width: 19px; min-height: 19px; height: 19px; }
+.drum-rack__actions { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.drum-rack__actions span { color: #cfbcdb; font-size: 12px; }
+
+@media (max-width: 700px) {
+  .drum-rack { padding: 10px; border-radius: 8px; }
+  .drum-rack__header { flex-direction: column; }
+  .drum-rack__header small { align-self: flex-start; }
+  .drum-rack__toolbar > div:first-child { width: 100%; justify-content: space-between; }
+  .drum-rack__toolbar > div:first-child button { flex: 1; }
+  .drum-rack__pad-inspector form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .drum-rack__inspector .piano-roll__fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 360px) {
+  .drum-rack__pad-inspector form { grid-template-columns: 1fr; }
+  .drum-rack__inspector .piano-roll__fields { grid-template-columns: 1fr; }
+}

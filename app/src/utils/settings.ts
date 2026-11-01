@@ -1,13 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 /**
  * Like useState() but persists value to localStorage under `key`.
  *
- * Reads stored value on init; writes only when the value actually changes
- * from what was loaded. This avoids overwriting localStorage with the
- * default value on mount, which would clobber any direct localStorage
- * writes made by other code paths (e.g. async loaders that bypass React
- * state).
+ * Reads stored value on init; writes only when the value changes from the
+ * last successful write. This avoids overwriting localStorage on mount while
+ * still persisting a later transition back to the initial value.
  *
  * Falls back to `defaultValue` if nothing stored or parse fails.
  */
@@ -37,17 +35,20 @@ export function useLocalStorageState<T>(
     };
   });
 
+  const lastPersistedRef = useRef(initialSerialized);
   useEffect(() => {
     try {
       const serialized = JSON.stringify(state);
-      // Skip write if the value is identical to what was loaded — prevents
-      // wiping fresh writes made by other code paths during the same render.
-      if (serialized === initialSerialized) return;
+      // The mount value is already in storage (or is the intended default).
+      // Compare with the last write, not the immutable mount value: 0→1→0
+      // must persist the final 0.
+      if (serialized === lastPersistedRef.current) return;
       localStorage.setItem(key, serialized);
+      lastPersistedRef.current = serialized;
     } catch {
       // quota exceeded or storage disabled → silently ignore
     }
-  }, [key, state, initialSerialized]);
+  }, [key, state]);
 
   // Stable setter that supports functional updates
   const setValue = useCallback((value: T | ((prev: T) => T)) => {

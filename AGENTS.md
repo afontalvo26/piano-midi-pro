@@ -1,77 +1,73 @@
-# AGENTS.md — Reglas obligatorias para agentes
+# AGENTS.md — Piano MIDI Pro
 
-Este archivo es la puerta de entrada. Si sos un agente trabajando en este repo,
-leelo **antes de ejecutar nada**.
+Este archivo es la puerta de entrada para agentes. Leé también
+[`.kiro/steering/agent-execution-rules.md`](.kiro/steering/agent-execution-rules.md)
+antes de ejecutar comandos.
 
-La regla completa y razonada vive en
-[`.kiro/steering/agent-execution-rules.md`](.kiro/steering/agent-execution-rules.md).
-Esto es el resumen operativo.
+## Producto vigente
 
----
+La app tiene sólo **Studio**, **Pistas de grabaciones MIDI propias** y
+**Configuración**. Música, Canciones, reproductor de canciones, letras/karaoke,
+Juego, Partitura y la app independiente `player/` se retiraron. El contrato
+verificable está en [`.kiro/specs/piano-only/requirements.md`](.kiro/specs/piano-only/requirements.md).
+No reintroduzcas imports, rutas, assets o controles de transporte de esas
+funciones.
 
-## ⛔ La regla principal
+Studio debe seguir tocando 37 teclas simultáneas y soltarlas todas, incluso
+con sustain y dos acordes seguidos. Conserva expresión MIDI (CC1/7/11,
+pedales CC64/66/67, pitch bend y presión), pads, metrónomo, MIDI Learn,
+grabación y un solo dueño de audio entre pestañas. El SMK-37 Elite/Pro es la
+prioridad, con entrada genérica opcional. Los botones internos del dispositivo
+no tienen un mapa MIDI universal: sólo marca un control como verificado tras
+observar sus bytes reales.
 
-**Nada se ejecuta en primer plano si puede tardar más de 20 segundos.**
+Pistas usa IndexedDB local (`midi/recordingLibrary.ts`). Cada toma guarda
+metadatos y bytes `.mid` juntos. No importa ni reproduce canciones. Las
+grabaciones ya existentes del navegador no se deben borrar al limpiar
+localStorage o cambiar el service worker.
 
-Todo lo demás va por el runner acotado:
+## Ejecución obligatoria
+
+**Nada que pueda durar más de 20 segundos corre en primer plano.** Usa:
 
 ```powershell
 pwsh -File scripts/run-bounded.ps1 -Command "<comando>" -TimeoutSec <segundos> [-Cwd app] [-Label nombre]
 ```
 
-Aplica un tope duro, escribe toda la salida a `.logs/<fecha>-<label>.log` (sin
-pipes, nada se bufferiza), mata el árbol de procesos al agotarse, e imprime un
-resumen corto.
+Topes por defecto: `npx tsc -b` 180 s; `npx vite build` 300 s;
+`npx eslint <archivo>` 60 s; `npx playwright test <un archivo>` 180 s;
+suite completa 600 s sólo al cerrar una tanda transversal. El runner deja
+la salida en `.logs/`. Nunca lances `npm run dev` o `vite preview` en
+primer plano. Antes de abrir un servidor, comprueba si el puerto 1234
+ya tiene uno y reutilízalo. No uses pipes `comando-largo | Select-Object`,
+bucles de sondeo ni reescrituras `Get-Content -Raw` + `-replace` +
+`Set-Content`; usa edición literal.
 
-**Códigos de salida:** `0..n` el código real · `124` se agotó el tiempo · `125` uso incorrecto.
+## Arquitectura activa
 
----
+- `app/src/main.tsx` monta `PianoApp.tsx` sin providers de canciones.
+- `app/src/audio/liveStudioEngine.ts` maneja piano, pedales, expresión,
+  pads y metrónomo. `studioAudioLock.ts` coordina una sola pestaña.
+- `app/src/midi/` parsea, diagnostica, aprende controles, graba y guarda
+  tomas. `components/tracks/RecordedTracks.tsx` muestra Pistas.
+- `app/src/state/pianoKeyboardStore.ts` agrupa repintados de teclas por
+  frame. Evita `setState` del App por cada nota de un acorde.
+- `app/public/audio/salamander/core/` contiene las siete muestras locales
+  críticas. Los pads y muestras no núcleo pueden necesitar red.
+- `app/public/sw.js` cachea sólo shell, assets de la app y piano núcleo;
+  al actualizar limpia sólo cachés `pmp-*` antiguas.
 
-## Topes por defecto
+El código y activos retirados se conservaron fuera del repositorio en un
+resguardo hermano `piano-midi-pro-retired-20261031`, con manifiestos SHA-256.
+No lo uses como catálogo activo. Antes de mover/borrar cualquier ruta, verifica
+el límite absoluto de origen y destino y preserva cambios ajenos.
 
-| Tarea | Tope |
-|---|---|
-| `npx tsc -b` | 180 s |
-| `npx vite build` | 300 s |
-| `npx eslint <archivo>` | 60 s |
-| `npx playwright test <un archivo>` | 180 s |
-| `npx playwright test` (suite completa) | 600 s |
+## Verificación
 
----
-
-## Prohibiciones explícitas
-
-1. ❌ **Comandos largos sin tope.** Siempre `-TimeoutSec` o `timeoutMs`.
-2. ❌ **Servidores en primer plano.** `npm run dev` / `vite preview` nunca
-   terminan: van como job en segundo plano.
-3. ❌ **`comando-largo | Select-Object -Last N`.** PowerShell no emite nada
-   hasta que el proceso cierra → no ves salida incremental. Redirigí a archivo.
-4. ❌ **La suite e2e completa mientras se itera.** Corré por archivo
-   (`npx playwright test 03-playback`); la completa solo al cerrar una tanda.
-5. ❌ **Bucles de sondeo** (`while` / `sleep`) esperando un job. Para eso está la
-   notificación de fin de job.
-6. ❌ **Reescribir código con `Get-Content -Raw` + `-replace` + `Set-Content`.**
-   Un `Set-Content` mal armado colapsa el archivo a una sola línea — ya destruyó
-   `app/src/App.tsx`. Editá con la herramienta de edición, literal.
-
----
-
-## Puertos y servidores
-
-- El dev server es **1234** (`app/vite.config.ts`, `strictPort: true`), no 5173.
-- Si ya hay uno levantado, **se reutiliza**. Nunca lances un segundo.
-- Los scripts de prueba propios deben bajar el techo de espera:
-
-```js
-page.setDefaultTimeout(20000);
-await page.waitForSelector(".selector", { timeout: 15000 });
-```
-
----
-
-## Checklist de preflight
-
-- [ ] ¿Hay dev server en 1234? Si no, levantarlo como job en segundo plano.
-- [ ] ¿Algún comando puede tardar más de 20 s? Va por `run-bounded.ps1`.
-- [ ] ¿Voy a correr tests? Por archivo, con tope.
-- [ ] ¿Voy a editar código? Con la herramienta de edición, nunca `Set-Content` masivo.
+En cada tanda de código: `tsc -b`, ESLint de archivos tocados, build de Vite
+y pruebas focales con runner. Las pruebas activas cubren motor live, 37 notas,
+pedal/lock entre pestañas, MIDI simulado, persistencia y service worker.
+Comprueba también que `app/dist` no contenga `demo/`, `covers/`,
+`samples/` ni `player/`; debe mantener las siete OGG núcleo. Una prueba
+en Chromium simulado no demuestra por sí sola la calidad de la salida física
+del SMK-37.

@@ -1,0 +1,315 @@
+.midi-panel {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+.midi-panel__card {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: var(--bg-card);
+}
+
+.midi-panel__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.midi-panel__heading h3 {
+  margin: 0 0 5px;
+  font-size: 1rem;
+}
+
+.midi-panel__heading p,
+.midi-panel__hint,
+.midi-panel__current {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.midi-panel__current {
+  margin: 12px 0;
+}
+
+.midi-panel__current strong {
+  color: var(--text-primary);
+}
+
+.midi-panel__hint {
+  margin-top: 12px;
+}
+
+.midi-panel__badge {
+  flex: none;
+  padding: 5px 10px;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-radius: 999px;
+  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.1);
+  font-size: 0.75rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.midi-panel__badge--recording {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.midi-panel__field {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 540px;
+  font-size: 0.85rem;
+}
+
+.midi-panel__field span {
+  min-width: 60px;
+  color: var(--text-secondary);
+}
+
+.midi-panel__field select {
+  min-width: 0;
+  min-height: 44px;
+  flex: 1;
+  padding: 9px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+}
+
+.midi-panel__field select:focus-visible,
+.midi-panel__value-mode:focus-visible,
+.midi-panel__button:focus-visible,
+.midi-panel__binding-actions input:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.midi-panel__ports {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.midi-panel__ports li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.midi-panel__ports li.midi-panel__port--selected {
+  border-color: rgba(139, 92, 246, 0.5);
+  color: var(--text-primary);
+  background: rgba(139, 92, 246, 0.08);
+}
+
+.midi-panel__ports code,
+.midi-panel__table code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.midi-panel__ports code {
+  max-width: 55%;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.midi-panel__ports small {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
+.midi-panel__notice {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 8px;
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.08);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.midi-panel__conflicts {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.midi-panel__table-scroll {
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.midi-panel__events-scroll { max-height: 340px; }
+.midi-panel__matrix-scroll { max-height: 360px; }
+
+.midi-panel__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.midi-panel__table caption {
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  text-align: left;
+  caption-side: bottom;
+}
+
+.midi-panel__table th,
+.midi-panel__table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: top;
+}
+
+.midi-panel__table thead th {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  color: var(--text-secondary);
+  background: #191923;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.midi-panel__table tbody th { font-weight: 550; }
+.midi-panel__table tbody tr:last-child th,
+.midi-panel__table tbody tr:last-child td { border-bottom: 0; }
+.midi-panel__table td { color: var(--text-secondary); }
+.midi-panel__table td code { color: #c4b5fd; white-space: nowrap; }
+.midi-panel__table td small { display: block; margin-top: 3px; }
+.midi-panel__mirror { color: #fcd34d; }
+.midi-panel__row--conflict { background: rgba(245, 158, 11, 0.08); }
+
+.midi-panel__actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.midi-panel__bank-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.midi-panel__bank-picker strong {
+  color: var(--text-primary);
+}
+
+.midi-panel__bank-hint {
+  margin: 8px 0 16px;
+}
+
+.midi-panel__action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 0.82rem;
+}
+
+.midi-panel__button {
+  flex: none;
+  min-height: 44px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.midi-panel__button:hover:not(:disabled) { border-color: var(--accent-primary); }
+.midi-panel__button:disabled { opacity: 0.45; cursor: not-allowed; }
+.midi-panel__button--selected {
+  border-color: var(--accent-primary);
+  color: white;
+  background: rgba(139, 92, 246, 0.2);
+}
+.midi-panel__button--primary {
+  border-color: transparent;
+  background: var(--accent-primary);
+  color: white;
+  font-weight: 650;
+}
+
+.midi-panel__value-mode {
+  max-width: 220px;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.midi-panel__learning {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: #c4b5fd;
+  font-size: 0.85rem;
+}
+
+.midi-panel__binding-actions,
+.midi-panel__record-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.midi-panel__binding-actions label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .midi-panel__card { padding: 14px; }
+  .midi-panel__heading { flex-wrap: wrap; }
+  .midi-panel__field { align-items: stretch; flex-direction: column; gap: 6px; }
+  .midi-panel__table { min-width: 650px; }
+}

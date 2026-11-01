@@ -1,0 +1,22 @@
+.audio-recorder { display: grid; gap: 14px; min-width: 0; padding: 18px; border: 1px solid #3c354c; border-radius: 16px; background: #17141e; }
+.audio-recorder h2 { margin: 0; }
+.audio-recorder p { margin: 4px 0 0; color: #c9c0d3; font-size: 13px; }
+.audio-recorder__controls { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.audio-recorder__controls label { display: grid; gap: 4px; color: #e6dfee; font-size: 12px; font-weight: 700; }
+.audio-recorder select, .audio-recorder button, .audio-recorder input[type="number"] { min-height: 44px; padding: 8px 12px; border: 1px solid #705c86; border-radius: 8px; background: #302a39; color: white; font: inherit; }
+.audio-recorder button { font-weight: 700; }
+.audio-recorder button:disabled { opacity: .55; }
+.audio-recorder__check { display: flex !important; align-items: center; min-height: 44px; gap: 8px !important; }
+.audio-recorder__check input { min-width: 20px; min-height: 20px; accent-color: #af83eb; }
+.audio-recorder__record { border-color: #ff7e8b !important; background: #853744 !important; }
+.audio-recorder__status { display: flex; flex-wrap: wrap; gap: 5px 15px; color: #d9d1e1; font-size: 12px; }
+.audio-recorder__monitor { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.audio-recorder__monitor label { display: flex; align-items: center; min-height: 44px; gap: 7px; font-size: 12px; }
+.audio-recorder__monitor input { min-width: 18px; min-height: 18px; accent-color: #af83eb; }
+.audio-recorder__monitor button[aria-pressed="true"] { background: #6943a0; }
+.audio-recorder__meter { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; color: #d9d1e1; font-size: 11px; }
+.audio-recorder meter { min-width: min(100%, 160px); flex: 1; }
+.audio-recorder__meter strong { color: #ffbb93; }
+.audio-recorder__notice { color: #ffd89a !important; }
+.audio-recorder select:focus-visible, .audio-recorder button:focus-visible, .audio-recorder input:focus-visible { outline: 2px solid #b794ff; outline-offset: 2px; }
+@media (max-width: 500px) { .audio-recorder { padding: 12px; } .audio-recorder__controls label { flex: 1 1 100%; } }

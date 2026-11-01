@@ -1,0 +1,14 @@
+{
+  "sourceBaseUrl": "https://tonejs.github.io/audio/salamander/",
+  "license": "https://creativecommons.org/licenses/by/3.0/",
+  "author": "Alexander Holm",
+  "files": [
+    { "note": "C3", "file": "C3.ogg", "bytes": 263870, "sha256": "8485c3dc9aac616a4e37f2cbeec9af104be214795742d66c12f6acc013451b38" },
+    { "note": "F#3", "file": "Fs3.ogg", "bytes": 264396, "sha256": "aa77774f7b9bb4d051796fdcfb5a61db6b35c7d9b4e1f0c3df69896dd1b4b015" },
+    { "note": "C4", "file": "C4.ogg", "bytes": 265879, "sha256": "2be981a53705511b8d3d6087a5fa360d676c2f406cc5a6f0698a9c6473fa83a3" },
+    { "note": "F#4", "file": "Fs4.ogg", "bytes": 238720, "sha256": "1b75e47f852f215612acfbe3698ede653b01f6cfc5469f4d4c5a8da93d96c34e" },
+    { "note": "C5", "file": "C5.ogg", "bytes": 256407, "sha256": "9d428f292793d02923912289827527a1bd99ed7d36bf388780519e498d8f3fad" },
+    { "note": "F#5", "file": "Fs5.ogg", "bytes": 194579, "sha256": "a23b0e9fab39906a7e6f22b529f93e1e61830540fa18680ad73c8bc353f6cc24" },
+    { "note": "C6", "file": "C6.ogg", "bytes": 107642, "sha256": "ade52fe2a605b70e752eaf47559be4f495b78d2872f5f1a1a299dfa3617a3be5" }
+  ]
+}
