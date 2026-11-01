@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ProjectDocumentV1 } from "../../project/model";
 import type { RenderProgress } from "../../audio/renderProjectPcm";
+import { findBusResampleRoutes } from "../../project/busResampleRouting";
 import "./ProjectBusResamplePanel.css";
 
 export interface ProjectBusResampleRequest {
@@ -47,9 +48,8 @@ export function ProjectBusResamplePanel({ document, busy, progress, notice,
     Number.isSafeInteger(parsedStart) && parsedStart >= 0 &&
     Number.isSafeInteger(parsedEnd) && parsedEnd > parsedStart &&
     Number.isFinite(parsedTail) && parsedTail >= 0 && parsedTail <= 5;
-  const routedSources = document.tracks.filter((track) =>
-    track.kind !== "bus" && track.id !== selectedDestinationId &&
-    track.mix.outputBusTrackId === selectedBusId);
+  const routes = findBusResampleRoutes(document, selectedBusId, selectedDestinationId);
+  const routedSourceCount = routes.sourceTrackIds.length;
 
   return <section className="bus-resample" aria-label="Resampling de bus">
     <header><h2>Resamplear bus</h2>
@@ -81,11 +81,14 @@ export function ProjectBusResamplePanel({ document, busy, progress, notice,
       </div>
       {!destinations.length && <div className="bus-resample__empty"><p>Falta una pista de audio destino vacía.</p>
         <button type="button" disabled={busy} onClick={onCreateDestination}>Crear pista destino</button></div>}
-      {!!destinations.length && <p className={routedSources.length ? "bus-resample__facts" : "bus-resample__warning"}>
-        {routedSources.length ? `${routedSources.length} ${routedSources.length === 1 ? "pista directa" : "pistas directas"} hacia este bus; también se incluyen sub-buses de sus rutas.`
-          : "No hay una pista fuente directa hacia este bus; el render validará también rutas por sub-bus."}</p>}
+      {!!destinations.length && <p className={routedSourceCount && !routes.hasUnsupportedSends ? "bus-resample__facts" : "bus-resample__warning"}>
+        {routes.hasUnsupportedSends
+          ? "Este bus tiene envíos en una ruta incluida. El resampling con envíos todavía no está disponible."
+          : routedSourceCount
+            ? `${routedSourceCount} ${routedSourceCount === 1 ? "pista fuente" : "pistas fuente"} hacia este bus, incluidas las conexiones por sub-buses.`
+            : "No hay pistas fuente que lleguen a este bus. Enruta una pista antes de renderizar."}</p>}
       <div className="bus-resample__actions">
-        <button type="button" className="bus-resample__primary" disabled={busy || !valid}
+        <button type="button" className="bus-resample__primary" disabled={busy || !valid || !routedSourceCount || routes.hasUnsupportedSends}
           onClick={() => onRender({ sourceBusTrackId: selectedBusId,
             destinationTrackId: selectedDestinationId, startTick: parsedStart,
             endTick: parsedEnd, sampleRate, tailSeconds: parsedTail })}>
