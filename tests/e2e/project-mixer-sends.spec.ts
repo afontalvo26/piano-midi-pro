@@ -85,3 +85,37 @@ test("mobile mixer adds, edits and removes an acyclic send at 320 px", async ({ 
   await expect(sends.getByRole("button", { name: "Quitar envío" })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+
+test("routing graph rejects feedback, missing buses and unsafe send levels", async ({ page }) => {
+  await page.goto("/", { waitUntil: "domcontentloaded", timeout: 15_000 });
+  const checks = await page.evaluate(async () => {
+    const { assertSafeAudioRouting } = await import("/src/project/mixRouting.ts");
+    const mix = { gainDb: 0, pan: 0, mute: false, solo: false, armed: false,
+      effects: [], sends: [] };
+    const source = { id: "source", kind: "audio" as const, name: "Source", mix };
+    const bus = { id: "bus", kind: "bus" as const, name: "Bus", mix };
+    const sound = { tracks: [source, bus] };
+    const accepts = (doc: typeof sound): boolean => {
+      try { assertSafeAudioRouting(doc); return true; } catch { return false; }
+    };
+    const send = (busTrackId: string, gainDb = -12) =>
+      [{ id: "test-send", busTrackId, gainDb }];
+    return {
+      clean: accepts(sound),
+      goodSend: accepts({ tracks: [{ ...source, mix: { ...mix,
+        sends: send(bus.id) } }, bus] }),
+      selfSend: accepts({ tracks: [source, { ...bus, mix: { ...mix,
+        sends: send(bus.id) } }] }),
+      missing: accepts({ tracks: [{ ...source, mix: { ...mix,
+        sends: send("absent") } }, bus] }),
+      cycle: accepts({ tracks: [{ ...source, mix: { ...mix,
+        sends: send("bus") } }, { ...bus, mix: { ...mix,
+        outputBusTrackId: "source" } }] }),
+      dangerousLevel: accepts({ tracks: [{ ...source, mix: { ...mix,
+        sends: send("bus", Number.POSITIVE_INFINITY) } }, bus] }),
+    };
+  });
+  expect(checks).toEqual({ clean: true, goodSend: true, selfSend: false,
+    missing: false, cycle: false, dangerousLevel: false });
+});
