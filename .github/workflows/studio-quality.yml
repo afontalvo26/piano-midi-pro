@@ -1,0 +1,82 @@
+name: Beatmaker Studio quality gates
+
+on:
+  pull_request:
+    branches:
+      - feat/reproductor-instrumentos-reales
+      - master
+  push:
+    branches:
+      - feat/reproductor-instrumentos-reales
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: studio-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-and-build:
+    name: TypeScript, ESLint, build and audio asset audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install app dependencies
+        run: npm ci --prefix app
+      - name: Typecheck
+        run: cd app && timeout 180s npx tsc -b
+      - name: ESLint
+        run: cd app && timeout 120s npx eslint .
+      - name: Production build
+        run: cd app && timeout 300s npx vite build
+      - name: Audit offline core audio and retired routes
+        run: node scripts/audit-studio-dist.mjs
+
+  focal-browser:
+    name: Studio core and bus resampling browser regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            app/package-lock.json
+      - name: Install test and app dependencies
+        run: |
+          npm ci
+          npm ci --prefix app
+      - name: Install headless Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run bounded core tests
+        run: |
+          timeout 720s npx playwright test \
+            tests/e2e/project-bus-routing-preflight.spec.ts \
+            tests/e2e/project-bus-resample.spec.ts \
+            tests/e2e/project-studio-bus-resample.spec.ts \
+            tests/e2e/project-four-bar-flow.spec.ts \
+            tests/e2e/project-bundle-preview.spec.ts \
+            tests/e2e/audio-live-voice.spec.ts \
+            --workers=1 --retries=0
+        env:
+          CI: 'true'
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-playwright-failures
+          path: test-results
+          if-no-files-found: ignore
+          retention-days: 7
