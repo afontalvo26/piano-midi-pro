@@ -70,6 +70,7 @@ export interface ProjectTrackAudioStatus {
   readonly gainDb: number;
   readonly pan: number;
   readonly sidechainSourceTrackId: string | null;
+  readonly sidechainLookaheadMs: number;
   readonly sidechainReductionDb: number;
   readonly sidechainReductionPeakDb: number;
   readonly sidechainError: string | null;
@@ -122,6 +123,8 @@ interface TrackSlot {
   readonly muteGate: Tone.Gain;
   /** Post-fader main output can be isolated independently from auxiliary sends. */
   readonly mainGate: Tone.Gain;
+  /** Target-only delay provides actual detector lookahead without delaying the key source. */
+  readonly sidechainDelay: Tone.Delay;
   /** Audio-rate gain controlled by the sidechain detector; unity when sidechain is disabled. */
   readonly sidechainGate: Tone.Gain;
   readonly meter: Tone.Analyser;
@@ -311,7 +314,8 @@ export class ProjectAudioSink implements SequencerSink {
         if (slot.track.mix.outputBusTrackId && (!target || target.track.kind !== "bus")) {
           throw new Error(`Pista ${slot.track.id}: bus de salida inexistente`);
         }
-        slot.panner.connect(slot.sidechainGate);
+        slot.panner.connect(slot.sidechainDelay);
+        slot.sidechainDelay.connect(slot.sidechainGate);
         slot.sidechainGate.connect(slot.meter);
         slot.meter.connect(slot.mainGate);
         const detectorOnly = silentTrackIds.has(slot.track.id);
@@ -344,6 +348,8 @@ export class ProjectAudioSink implements SequencerSink {
     const panner = new Tone.Panner(track.mix.pan);
     const muteGate = new Tone.Gain(1).connect(panner);
     const mainGate = new Tone.Gain(1);
+    const lookaheadMs = track.mix.sidechain?.lookaheadMs ?? 0;
+    const sidechainDelay = new Tone.Delay(lookaheadMs / 1000, 0.05);
     const sidechainGate = new Tone.Gain(1);
     const volume = new Tone.Volume(track.mix.gainDb);
     const meter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
@@ -359,7 +365,7 @@ export class ProjectAudioSink implements SequencerSink {
     const processedEffectGain = new Tone.Gain(1).connect(muteGate);
     originalEffectMeter.connect(originalEffectGain);
     processedEffectMeter.connect(processedEffectGain);
-    const slot: TrackSlot = { track, volume, panner, muteGate, mainGate, sidechainGate, meter, meterState,
+    const slot: TrackSlot = { track, volume, panner, muteGate, mainGate, sidechainDelay, sidechainGate, meter, meterState,
       originalEffectMeter, originalEffectMeterState, processedEffectMeter, processedEffectMeterState,
       originalEffectGain, processedEffectGain, effectComparisonMode: "off",
       effectComparisonOriginalDb: 0, effectComparisonProcessedDb: 0, effects: [],
@@ -1332,6 +1338,7 @@ export class ProjectAudioSink implements SequencerSink {
           gainDb: slot.gainOverride ?? slot.track.mix.gainDb,
           pan: slot.panOverride ?? slot.track.mix.pan,
           sidechainSourceTrackId: slot.track.mix.sidechain?.sourceTrackId ?? null,
+          sidechainLookaheadMs: slot.track.mix.sidechain?.lookaheadMs ?? 0,
           sidechainReductionDb: slot.sidechainReductionDb,
           sidechainReductionPeakDb: slot.sidechainReductionPeakDb,
           sidechainError: slot.sidechainError,
@@ -1423,6 +1430,7 @@ export class ProjectAudioSink implements SequencerSink {
     slot.processedEffectGain.dispose();
     slot.muteGate.dispose();
     slot.mainGate.dispose();
+    slot.sidechainDelay.dispose();
     slot.sidechainGate.dispose();
     slot.panner.dispose();
     slot.meter.dispose();
