@@ -17,7 +17,7 @@ type IconName =
   | "layers" | "sliders" | "library" | "export" | "edit" | "spark"
   | "folder" | "settings" | "chevron" | "metronome" | "wave"
   | "close" | "plus" | "maximize" | "music" | "heart" | "headphones"
-  | "grid" | "scissors" | "select" | "volume" | "keyboard" | "save";
+  | "grid" | "scissors" | "select" | "volume" | "keyboard" | "save" | "undo" | "redo";
 
 const paths: Record<IconName, string> = {
   piano: "M4 4h16v16H4z M9 4v16 M14 4v16 M19 4v16 M7 4v8h3V4 M12 4v8h3V4",
@@ -50,6 +50,8 @@ const paths: Record<IconName, string> = {
   volume: "M3 9h5l5-5v16l-5-5H3z M17 9q4 3 0 6",
   keyboard: "M2 5h20v14H2z M7 5v8 M12 5v8 M17 5v8 M9 13v6 M14 13v6",
   save: "M4 3h14l3 3v15H3V3z M7 3v7h10V3 M7 21v-8h10v8",
+  undo: "M9 14 4 9l5-5 M4 9h10a6 6 0 0 1 0 12",
+  redo: "m15 14 5-5-5-5 M20 9H10a6 6 0 0 0 0 12",
 };
 
 function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
@@ -109,6 +111,10 @@ export interface ReferenceStudioProps {
   onTrackSelect: (track: ProjectTrack) => void;
   onOpenPattern: (trackId: string, patternId: string) => void;
   onTrackMix: (trackId: string, mix: ProjectTrack["mix"]) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
   onMasterGain: (gainDb: number) => void;
   onFullEditor: () => void;
   onFullMixer: () => void;
@@ -130,7 +136,8 @@ export function ReferenceStudio({
   masterLevel, trackLevels, editor, instrumentPicker, performancePanel, notationPanel, loopEnabled, onLoopChange,
   onSeekTick, onArrangementCommand, onMacroChange, onWorkspace, onLibrary, onProjects, onSettings,
   onNew, onPlay, onStop, onRecord, onMetronome, onTempoDraft, onTempoCommit,
-  onTrackSelect, onOpenPattern, onTrackMix, onMasterGain, onFullEditor, onFullMixer,
+  onTrackSelect, onOpenPattern, onTrackMix, onUndo, onRedo, canUndo, canRedo,
+  onMasterGain, onFullEditor, onFullMixer,
 }: ReferenceStudioProps) {
   const [tool, setTool] = useState<ReferenceArrangementTool>("select");
   const [inspector, setInspector] = useState<"instrument" | "inspect">("instrument");
@@ -250,7 +257,7 @@ export function ReferenceStudio({
         <button type="button" aria-label="Detener" onClick={onStop}><Icon name="stop" size={17}/></button>
         <button type="button" className={isPlaying ? "ref-playing" : "ref-play"} aria-label={isPlaying ? "Pausar" : "Reproducir"}
           onClick={onPlay} disabled={!document}><Icon name={isPlaying ? "pause" : "play"} size={20}/></button>
-        <button type="button" aria-label="Continuar o pausar" onClick={onPlay} disabled={!document}><Icon name="forward" size={18}/></button>
+        <button type="button" aria-label="Avanzar un compás" title="Avanzar un compás" onClick={()=>onSeekTick(Math.round((Math.floor(tick/ticksPerBar)+1)*ticksPerBar))} disabled={!document}><Icon name="forward" size={18}/></button>
         <button type="button" className={"ref-record" + (recording ? " is-active" : "")}
           aria-label={recording ? "Detener grabación MIDI" : "Grabar MIDI"} aria-pressed={recording}
           onClick={onRecord}><Icon name="record" size={19}/></button>
@@ -280,8 +287,8 @@ export function ReferenceStudio({
     <aside className="ref-sidebar" aria-label="Navegación musical">
       <nav className="ref-nav" aria-label="Flujos de trabajo">
         {NAV.map((item) => <button type="button" key={item.id}
-          className={workspace === item.id ? "is-current" : ""}
-          aria-current={workspace === item.id ? "page" : undefined}
+          className={workspace === item.id || (item.id==="library"&&instrumentChooserOpen) ? "is-current" : ""}
+          aria-current={workspace === item.id || (item.id==="library"&&instrumentChooserOpen) ? "page" : undefined}
           onClick={() => { if(item.id==="library"){setInstrumentChooserOpen(true);return;} if(item.id==="performance")setKeyboardOpen(true); setScoreOpen(false); onWorkspace(item.id); }}>
           <Icon name={item.icon} size={24}/><span>{item.label}</span>
         </button>)}
@@ -297,8 +304,8 @@ export function ReferenceStudio({
         </button>
         <button type="button" className={"ref-device-card" + (midiConnected ? " is-online" : "")}
           onClick={onSettings}><Icon name="keyboard" size={24}/>
-          <span><strong>{midiConnected ? "SMK-37 conectado" : "Conectar MIDI"}</strong>
-          <small>Controlador MIDI</small></span><span className="ref-state-dot"/>
+          <span><strong>{midiConnected ? "Entrada MIDI activa" : "Conectar MIDI"}</strong>
+          <small>{midiConnected ? midiStatus : "Controlador MIDI"}</small></span><span className="ref-state-dot"/>
         </button>
       </div>
       <div className="ref-sidebar-decoration" aria-hidden="true"><i/><i/><i/></div>
@@ -326,6 +333,10 @@ export function ReferenceStudio({
                   aria-label={value === "select" ? "Seleccionar" : value === "draw" ? "Dibujar" : "Cortar"}
                   aria-pressed={tool === value} onClick={()=>setTool(value)}>
                   <Icon name={value === "select" ? "select" : value === "draw" ? "edit" : "scissors"} size={17}/></button>)}
+              <button type="button" title="Deshacer última edición" aria-label="Deshacer"
+                onClick={onUndo} disabled={!canUndo}><Icon name="undo" size={17}/></button>
+              <button type="button" title="Rehacer última edición" aria-label="Rehacer"
+                onClick={onRedo} disabled={!canRedo}><Icon name="redo" size={17}/></button>
               <button type="button" title="Editor completo" aria-label="Editor de arreglo completo"
                 onClick={()=>{onWorkspace("arrangement");onFullEditor();}}><Icon name="maximize" size={17}/></button>
             </div>
