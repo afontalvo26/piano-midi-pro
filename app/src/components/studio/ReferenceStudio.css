@@ -760,3 +760,16 @@
  .ref-global-alert,.ref-global-progress{font-size:11px;flex-wrap:wrap}
  .ref-global-alert button{min-height:44px}
 }
+
+/* Variable meter: only actual bar boundaries are emphasized. */
+.ref-ruler-numbers {background:#101528}
+.ref-track-lane {background:#0d1121}
+.ref-track-lane::before {background:none}
+.ref-bar-guide,.ref-lane-guide{
+ position:absolute;top:0;bottom:0;width:1px;
+ background:#394060;pointer-events:none;z-index:0
+}
+.ref-bar-guide{background:#454160}
+.ref-ruler-numbers>span{z-index:2}
+.ref-lane-guide{z-index:0}
+.ref-clip{z-index:2}
