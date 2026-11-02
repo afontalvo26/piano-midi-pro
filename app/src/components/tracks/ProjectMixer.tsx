@@ -191,7 +191,7 @@ export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects
             aria-label={`Sidechain de ${track.name}`}>
             <div className="project-mixer__sidechain-head"><div>
               <h4>Sidechain Kick → 808/Bass</h4>
-              <p>Detector de audio real · post-insert/post-pan · también se aplica al WAV.</p>
+              <p>Detector de audio real · post-insert/post-pan · lookahead retrasa sólo el target · también se aplica al WAV.</p>
             </div><button type="button" aria-pressed={!!sidechain}
               disabled={!sidechain && !defaultKey} onClick={() => {
                 if (sidechain) {
@@ -201,7 +201,7 @@ export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects
                 } else if (defaultKey) {
                   onTrackMix(track.id, { ...mix, sidechain: {
                     sourceTrackId: defaultKey.id, thresholdDb: -24, ratio: 4,
-                    attackMs: 5, releaseMs: 120, maxReductionDb: 12,
+                    attackMs: 5, releaseMs: 120, lookaheadMs: 5, maxReductionDb: 12,
                   } });
                 }
               }}>{sidechain ? "Activo" : "Activar"}</button></div>
@@ -240,6 +240,13 @@ export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects
                   const value = Number(event.target.value);
                   if (Number.isFinite(value) && value >= 1 && value <= 2000) onTrackMix(track.id,
                     { ...mix, sidechain: { ...sidechain, releaseMs: value } });
+                }} /></label>
+              <label>Lookahead (ms)<input aria-label={`Lookahead sidechain de ${track.name}`}
+                type="number" min="0" max="50" step="0.5"
+                value={sidechain.lookaheadMs ?? 0} onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value) && value >= 0 && value <= 50) onTrackMix(track.id,
+                    { ...mix, sidechain: { ...sidechain, lookaheadMs: value } });
                 }} /></label>
               <label>Reducción máx. (dB)<input aria-label={`Reducción máxima sidechain de ${track.name}`}
                 type="number" min="0" max="36" step="0.5"
