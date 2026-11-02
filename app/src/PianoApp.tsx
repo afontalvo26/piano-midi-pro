@@ -72,7 +72,7 @@ import {
 import { advancePickup, automationBaseValue, automationMidiAction, automationMidiValueMode,
   parseAutomationMidiAction, scaleAutomationMidiValue,
   type PickupState } from "./midi/automationMidi";
-import { baseAutomationParameter } from "./project/automationParameters";
+import { projectAutomationParameter, projectAutomationTargets } from "./project/automationParameters";
 import { MidiRecorder, type MidiRecorderSnapshot } from "./midi/recorder";
 import { RecordingLibrary, type RecordedTakeSummary, type SaveRecordingOptions } from "./midi/recordingLibrary";
 import { InstrumentBrowser } from "./components/studio/InstrumentBrowser";
@@ -776,8 +776,8 @@ export default function PianoApp() {
       if (event.kind !== "cc" && event.kind !== "pitchBend") return false;
       const document = projectSessionRef.current?.getSnapshot().document;
       const lane = document?.automation.find((item) => item.id === automationAction.laneId);
-      const descriptor = lane && baseAutomationParameter(lane.target);
-      if (!document || !lane || !descriptor || lane.target.scope === "clip" || lane.target.effectId) return false;
+      const descriptor = lane && document ? projectAutomationParameter(document, lane.target) : undefined;
+      if (!document || !lane || !descriptor || lane.target.scope === "clip") return false;
       const live = engine.projectAutomationSnapshot().find((item) => item.laneId === lane.id)?.value;
       const currentValue = live ?? automationBaseValue(lane, document);
       if (automationAction.takeover === "pickup") {
@@ -2471,13 +2471,9 @@ export default function PianoApp() {
       mode: track.effectComparisonMode, originalDb: track.effectComparisonOriginalDb,
       processedDb: track.effectComparisonProcessedDb,
     }]));
-  const automationTargets: readonly BaseAutomationTarget[] = projectView ? [
-    { scope: "master", parameterId: "masterGainDb" },
-    ...projectView.document.tracks.flatMap((track): BaseAutomationTarget[] => [
-      { scope: "track", ownerId: track.id, parameterId: "gainDb" },
-      { scope: "track", ownerId: track.id, parameterId: "pan" },
-    ]),
-  ] : [];
+  const automationTargets: readonly BaseAutomationTarget[] = projectView
+    ? projectAutomationTargets(projectView.document) as readonly BaseAutomationTarget[]
+    : [];
   const effectiveAutomationValues = workspace === "automation"
     ? engine.projectAutomationSnapshot() : undefined;
 
