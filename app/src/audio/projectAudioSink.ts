@@ -209,9 +209,16 @@ export class ProjectAudioSink implements SequencerSink {
 
   constructor(document: ProjectDocumentV1, destination: Tone.ToneAudioNode,
     pianoBank: DecodedPianoSampleBank, ownsAudio: () => boolean,
-    assetReader?: UserSampleReader) {
+    assetReader?: UserSampleReader,
+    /** Offline-only, pre-master capture of exactly one bus or direct source outlets. */
+    renderTap?: { readonly busTrackId?: string; readonly directMaster?: boolean }) {
     if (document.ppq !== 960) throw new RangeError("project audio requires 960 PPQ");
     assertSafeAudioRouting(document);
+    if ((renderTap?.busTrackId && renderTap.directMaster) ||
+        (renderTap?.busTrackId && !document.tracks.some((track) =>
+          track.id === renderTap.busTrackId && track.kind === "bus"))) {
+      throw new RangeError("Punto de captura de audio inválido");
+    }
     this.projectId = document.id;
     this.document = document;
     this.rootOwnerId = `transport/${document.id}`;
@@ -220,7 +227,12 @@ export class ProjectAudioSink implements SequencerSink {
     this.assetReader = assetReader;
     this.master = new Tone.Volume(document.mix.masterGainDb);
     this.masterMeter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
-    this.masterMeter.connect(destination);
+    // In a tapped offline render the master graph is deliberately silent.
+    // Connecting a chosen bus's post-fader meter straight to the destination
+    // excludes all other parallel paths, parent buses and master processing.
+    if (!renderTap?.busTrackId && !renderTap?.directMaster) {
+      this.masterMeter.connect(destination);
+    }
     let masterError: string | null = null;
     try {
       this.masterEffects.push(...connectProjectEffects(document.mix.masterEffects,
@@ -242,6 +254,11 @@ export class ProjectAudioSink implements SequencerSink {
         }
         slot.panner.connect(slot.meter);
         slot.meter.connect(target?.volume ?? this.master);
+        if (renderTap?.busTrackId === slot.track.id ||
+            (renderTap?.directMaster && slot.track.kind !== "bus" &&
+              !slot.track.mix.outputBusTrackId)) {
+          slot.meter.connect(destination);
+        }
         for (const send of slot.track.mix.sends) {
           const bus = this.slots.get(send.busTrackId);
           if (!bus || bus.track.kind !== "bus" || bus === slot) {
