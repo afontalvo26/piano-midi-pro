@@ -17,7 +17,7 @@ export interface AutomationValueSnapshot {
   readonly laneId: string;
   readonly target: BaseTarget;
   readonly value: number;
-  readonly owner: "base" | "read";
+  readonly owner: "base" | "read" | "physical";
   readonly tick: number;
 }
 
