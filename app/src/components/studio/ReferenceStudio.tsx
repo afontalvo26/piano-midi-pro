@@ -275,7 +275,7 @@ export function ReferenceStudio({
       <div className={"ref-save-status " + (saveStatus === "error" ? "is-error" : "")}
         role="status"><Icon name="save" size={15}/>{saveLabel}</div>
       <div className="ref-transport" role="group" aria-label="Transporte">
-        <button type="button" aria-label="Ir al inicio" onClick={onStop}><Icon name="back" size={18}/></button>
+        <button type="button" aria-label="Ir al inicio sin detener" onClick={()=>onSeekTick(0)} disabled={!document}><Icon name="back" size={18}/></button>
         <button type="button" aria-label="Detener" onClick={onStop}><Icon name="stop" size={17}/></button>
         <button type="button" className={isPlaying ? "ref-playing" : "ref-play"} aria-label={isPlaying ? "Pausar" : "Reproducir"}
           onClick={onPlay} disabled={!document}><Icon name={isPlaying ? "pause" : "play"} size={20}/></button>
