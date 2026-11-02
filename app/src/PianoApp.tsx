@@ -77,6 +77,7 @@ import { MidiRecorder, type MidiRecorderSnapshot } from "./midi/recorder";
 import { RecordingLibrary, type RecordedTakeSummary, type SaveRecordingOptions } from "./midi/recordingLibrary";
 import { InstrumentBrowser } from "./components/studio/InstrumentBrowser";
 import { DEFAULT_INSTRUMENT_ID, getInstrument } from "./instruments/catalog";
+import { getProjectInstrument } from "./instruments/projectCatalog";
 import { pianoKeyboardStore } from "./state/pianoKeyboardStore";
 import { midiToLabel } from "./utils/audioMidiUtils";
 import { useLocalStorageState } from "./utils/settings";
@@ -2612,9 +2613,11 @@ export default function PianoApp() {
             if(!session || !track || track.kind!=="instrument") {
               throw new Error("Selecciona una pista de instrumento válida");
             }
-            const bank=instrumentId==="salamander-grand" ? PROJECT_PIANO_INSTRUMENT
-              : instrumentId==="tr808-fischer-core" ? PROJECT_808_INSTRUMENT : null;
-            if(!bank)throw new RangeError("Banco de proyecto no autorizado o aún no instalado");
+            const descriptor=getProjectInstrument(instrumentId);
+            if(!descriptor || descriptor.packageState!=="installed") {
+              throw new RangeError("Banco de proyecto no autorizado o aún no instalado");
+            }
+            const bank=descriptor.ref;
             if(track.instrument?.instrumentId===bank.instrumentId &&
                track.instrument.packageVersion===bank.packageVersion &&
                track.instrument.presetId===bank.presetId) return;
