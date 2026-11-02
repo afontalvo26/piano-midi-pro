@@ -1343,6 +1343,8 @@ export default function PianoApp() {
         projectSessionRef.current = null;
         setProjectView(null);
       }
+      setStudioLoopEnabled(false);
+      setStudioPendingSeek(null);
       activateProject(await open());
       await refreshProjects();
     } finally {
