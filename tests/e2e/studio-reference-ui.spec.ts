@@ -546,3 +546,51 @@ test("Studio instrument card never labels an unprepared project bank as active",
   await expect(card).toContainText("Bajo 808 Fischer · pista");
   await expect(card).toContainText("Audio sin preparar");
 });
+
+
+test("MIDI recording destination honors track arm state and refuses ambiguous capture",async({page})=>{
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const result=await page.evaluate(async()=>{
+    const {createProjectDocument}=await import("/src/project/model.ts");
+    const {selectMidiRecordingTarget}=await import("/src/project/midiRecordingTarget.ts");
+    const mix=(armed:boolean)=>({gainDb:0,pan:0,mute:false,solo:false,
+      armed,effects:[],sends:[]});
+    const make=(id:string,armed:boolean)=>({id,name:id,kind:"instrument" as const,mix:mix(armed)});
+    const initial=createProjectDocument({id:"armed-target",at:1});
+    const doc={...initial,trackOrder:["piano","bass"],
+      tracks:[make("piano",false),make("bass",false)]};
+    const single={...doc,tracks:[make("piano",true),make("bass",false)]};
+    const multiple={...doc,tracks:[make("piano",true),make("bass",true)]};
+    let ambiguous=false;
+    try{selectMidiRecordingTarget(multiple,null);}catch{ambiguous=true;}
+    return {
+      unarmed:selectedId(selectMidiRecordingTarget(doc,"bass")),
+      armedSelectedOther:selectedId(selectMidiRecordingTarget(single,"bass")),
+      multipleChosen:selectedId(selectMidiRecordingTarget(multiple,"bass")),
+      multipleNoSelection:ambiguous,
+      noProject:selectMidiRecordingTarget(null,"piano")===null,
+    };
+    function selectedId(track:{id:string}|null){return track?.id??null;}
+  });
+  expect(result).toEqual({unarmed:"bass",armedSelectedOther:"piano",
+    multipleChosen:"bass",multipleNoSelection:true,noProject:true});
+});
+
+test("Studio record tool shows the explicitly armed MIDI destination",async({page})=>{
+  await page.setViewportSize({width:1586,height:992});
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const studio=page.getByTestId("reference-studio");
+  await studio.getByRole("button",{name:"Nueva idea"}).click();
+  const arm=studio.getByRole("button",{name:"Armar MIDI de Piano"});
+  await expect(arm).toHaveAttribute("aria-pressed","false");
+  await arm.click();
+  await expect(arm).toHaveAttribute("aria-pressed","true");
+  await expect(studio.getByRole("button",{name:"Grabar MIDI"}))
+    .toHaveAttribute("title","Pista MIDI armada: Piano");
+  await studio.locator(".ref-track-row").nth(2).locator(".ref-track-info").click();
+  await expect(studio.getByRole("button",{name:"Grabar MIDI"}))
+    .toHaveAttribute("title","Pista MIDI armada: Piano");
+  await arm.click();
+  await expect(studio.getByRole("button",{name:"Grabar MIDI"}))
+    .toHaveAttribute("title",/Sin pistas armadas/);
+});
