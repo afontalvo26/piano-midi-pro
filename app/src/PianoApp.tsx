@@ -324,6 +324,8 @@ export default function PianoApp() {
   const [projectSwitching, setProjectSwitching] = useState(false);
   const [workspace, setWorkspace] = useState<"performance" | "piano-roll" | "drums" | "arrangement" | "sampler" | "audio" | "mixer" | "automation" | "export">("performance");
   const [referenceStudioOpen, setReferenceStudioOpen] = useState(true);
+  const [studioLoopEnabled, setStudioLoopEnabled] = useState(false);
+  const [studioPendingSeek, setStudioPendingSeek] = useState<number | null>(null);
   const [editorPatternId, setEditorPatternId] = useState<string | null>(null);
   const [editorTrackId, setEditorTrackId] = useState<string | null>(null);
   const [projectAudioPreparing, setProjectAudioPreparing] = useState(false);
@@ -2066,8 +2068,13 @@ export default function PianoApp() {
     setProjectAudioPreparing(true);
     setProjectAudioStatus("Cargando muestras grabadas…");
     try {
+      const meterPoint = document.meterMap[0];
+      const barTicks = meterPoint
+        ? 960 * 4 * meterPoint.numerator / meterPoint.denominator : 3840;
+      const loopRange = studioLoopEnabled
+        ? { startTick: barTicks * 4, endTick: barTicks * 12 } : undefined;
       const playback = await engine.prepareProjectPlayback(document, createArrangementResolver(document),
-        undefined, projectRepository);
+        loopRange, projectRepository);
       if (request !== projectAudioRequestRef.current || projectSessionRef.current?.getSnapshot().document !== document) {
         if (playback && engine.projectPlaybackSnapshot()?.audio.projectId === document.id) engine.stopProjectPlayback();
         return false;
@@ -2115,7 +2122,8 @@ export default function PianoApp() {
       return;
     }
     if (!(await prepareProjectAudio())) return;
-    const played = await engine.playProjectPlayback();
+    const played = await engine.playProjectPlayback(studioPendingSeek ?? undefined);
+    if (played) setStudioPendingSeek(null);
     setProjectTransport(played ? "playing" : engine.projectPlaybackSnapshot()?.transport.state ?? "blocked");
     refreshProjectLauncher();
     if (!played) setProjectAudioStatus("No se pudo iniciar el transporte. Activa el audio y vuelve a intentar.");
@@ -2130,6 +2138,7 @@ export default function PianoApp() {
     engine.stopProjectPlayback();
     setProjectTransport("stopped");
     setProjectTick(0);
+    setStudioPendingSeek(null);
     refreshProjectLauncher();
   };
 
@@ -2416,6 +2425,34 @@ export default function PianoApp() {
         {screen === "studio" && referenceStudioOpen && <ReferenceStudio
           document={projectView?.document ?? null}
           workspace={workspace}
+          loopEnabled={studioLoopEnabled}
+          onLoopChange={(enabled) => {
+            const meterPoint = projectView?.document.meterMap[0];
+            const barTicks = meterPoint
+              ? 960 * 4 * meterPoint.numerator / meterPoint.denominator : 3840;
+            const range = enabled ? {startTick:barTicks * 4,endTick:barTicks * 12} : null;
+            engine.setProjectLoopRange(range);
+            setStudioLoopEnabled(enabled);
+            setProjectTick(engine.projectTransportTick() ?? projectTick);
+          }}
+          onSeekTick={(requested) => {
+            const meterPoint = projectView?.document.meterMap[0];
+            const barTicks = meterPoint
+              ? 960 * 4 * meterPoint.numerator / meterPoint.denominator : 3840;
+            const tick = studioLoopEnabled && requested >= barTicks * 12
+              ? barTicks * 4 : requested;
+            if (engine.projectPlaybackSnapshot()) {
+              engine.seekProjectPlayback(tick);
+              setStudioPendingSeek(null);
+            } else {
+              setStudioPendingSeek(tick);
+            }
+            setProjectTick(tick);
+          }}
+          onArrangementCommand={(command) => {
+            if (!projectSessionRef.current) throw new Error("Abre un proyecto para editar el arreglo");
+            projectSessionRef.current.dispatch(command);
+          }}
           activeTrackId={projectTrack?.id}
           saveStatus={projectView?.status ?? "none"}
           transport={projectTransport}
