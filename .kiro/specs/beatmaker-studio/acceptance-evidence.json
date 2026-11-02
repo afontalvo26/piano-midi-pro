@@ -1,0 +1,686 @@
+{
+  "schemaVersion": 1,
+  "kind": "beatmaker-acceptance-evidence",
+  "updatedAt": "2026-11-01",
+  "description": "El estado pending no niega que haya implementación; indica que la evidencia de aceptación todavía no está cerrada.",
+  "requirements": [
+    {
+      "id": "PRJ-01",
+      "module": "project-storage",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "PRJ-02",
+      "module": "project-storage",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "PRJ-03",
+      "module": "project-storage",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "PRJ-04",
+      "module": "project-storage",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "PRJ-05",
+      "module": "project-storage",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "PRJ-06",
+      "module": "project-storage",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "PRJ-07",
+      "module": "project-storage",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "PRJ-08",
+      "module": "project-storage",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ENG-01",
+      "module": "audio-engine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ENG-02",
+      "module": "audio-engine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ENG-03",
+      "module": "audio-engine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ENG-04",
+      "module": "audio-engine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ENG-05",
+      "module": "audio-engine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ENG-06",
+      "module": "audio-engine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ENG-07",
+      "module": "audio-engine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ENG-08",
+      "module": "audio-engine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLK-01",
+      "module": "transport",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLK-02",
+      "module": "transport",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLK-03",
+      "module": "transport",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLK-04",
+      "module": "transport",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLK-05",
+      "module": "transport",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLK-06",
+      "module": "transport",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLK-07",
+      "module": "transport",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "CLK-08",
+      "module": "transport",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MID-01",
+      "module": "midi-controller",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MID-02",
+      "module": "midi-controller",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MID-03",
+      "module": "midi-controller",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MID-04",
+      "module": "midi-controller",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MID-05",
+      "module": "midi-controller",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MID-06",
+      "module": "midi-controller",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MID-07",
+      "module": "midi-controller",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MID-08",
+      "module": "midi-controller",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ROL-01",
+      "module": "piano-roll",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ROL-02",
+      "module": "piano-roll",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ROL-03",
+      "module": "piano-roll",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ROL-04",
+      "module": "piano-roll",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ROL-05",
+      "module": "piano-roll",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ROL-06",
+      "module": "piano-roll",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ROL-07",
+      "module": "piano-roll",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "DRM-01",
+      "module": "drum-machine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "DRM-02",
+      "module": "drum-machine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "DRM-03",
+      "module": "drum-machine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "DRM-04",
+      "module": "drum-machine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "DRM-05",
+      "module": "drum-machine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "DRM-06",
+      "module": "drum-machine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "DRM-07",
+      "module": "drum-machine",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SMP-01",
+      "module": "sampler-808",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SMP-02",
+      "module": "sampler-808",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SMP-03",
+      "module": "sampler-808",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SMP-04",
+      "module": "sampler-808",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SMP-05",
+      "module": "sampler-808",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SMP-06",
+      "module": "sampler-808",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "SMP-07",
+      "module": "sampler-808",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUD-01",
+      "module": "audio-recording",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUD-02",
+      "module": "audio-recording",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUD-03",
+      "module": "audio-recording",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUD-04",
+      "module": "audio-recording",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUD-05",
+      "module": "audio-recording",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUD-06",
+      "module": "audio-recording",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUD-07",
+      "module": "audio-recording",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "INS-01",
+      "module": "instrument-library",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "INS-02",
+      "module": "instrument-library",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "INS-03",
+      "module": "instrument-library",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "INS-04",
+      "module": "instrument-library",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "INS-05",
+      "module": "instrument-library",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "INS-06",
+      "module": "instrument-library",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "INS-07",
+      "module": "instrument-library",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "INS-08",
+      "module": "instrument-library",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ARR-01",
+      "module": "arrangement",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ARR-02",
+      "module": "arrangement",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ARR-03",
+      "module": "arrangement",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ARR-04",
+      "module": "arrangement",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ARR-05",
+      "module": "arrangement",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ARR-06",
+      "module": "arrangement",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "ARR-07",
+      "module": "arrangement",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MIX-01",
+      "module": "mixer-effects",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MIX-02",
+      "module": "mixer-effects",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MIX-03",
+      "module": "mixer-effects",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MIX-04",
+      "module": "mixer-effects",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MIX-05",
+      "module": "mixer-effects",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MIX-06",
+      "module": "mixer-effects",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "MIX-07",
+      "module": "mixer-effects",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUT-01",
+      "module": "automation",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUT-02",
+      "module": "automation",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUT-03",
+      "module": "automation",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUT-04",
+      "module": "automation",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUT-05",
+      "module": "automation",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUT-06",
+      "module": "automation",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "AUT-07",
+      "module": "automation",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "EXP-01",
+      "module": "export",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "EXP-02",
+      "module": "export",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "EXP-03",
+      "module": "export",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "EXP-04",
+      "module": "export",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "EXP-05",
+      "module": "export",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "EXP-06",
+      "module": "export",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "EXP-07",
+      "module": "export",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "UXP-01",
+      "module": "studio-experience",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "UXP-02",
+      "module": "studio-experience",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "UXP-03",
+      "module": "studio-experience",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "UXP-04",
+      "module": "studio-experience",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "UXP-05",
+      "module": "studio-experience",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "UXP-06",
+      "module": "studio-experience",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "UXP-07",
+      "module": "studio-experience",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "UXP-08",
+      "module": "studio-experience",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "QLT-01",
+      "module": "quality-gates",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "QLT-02",
+      "module": "quality-gates",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "QLT-03",
+      "module": "quality-gates",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "QLT-04",
+      "module": "quality-gates",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "QLT-05",
+      "module": "quality-gates",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "QLT-06",
+      "module": "quality-gates",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "QLT-07",
+      "module": "quality-gates",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "QLT-08",
+      "module": "quality-gates",
+      "state": "pending",
+      "evidence": []
+    },
+    {
+      "id": "QLT-09",
+      "module": "quality-gates",
+      "state": "pending",
+      "evidence": []
+    }
+  ]
+}
