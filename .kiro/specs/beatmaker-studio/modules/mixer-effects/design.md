@@ -52,3 +52,25 @@ ejecutado. El sidechain MIX-04 y A/B MIX-06 siguen pendientes.
 - La semántica de mute/solo cuando una pista utiliza salidas paralelas
   requiere prueba y cierre explícitos, incluido silencio de colas.
 - No se declara compensación de latencia de plugins ni sidechain implementado.
+
+
+### Corrección de escucha con ruta principal silenciada
+
+Si una fuente tiene `outputBusTrackId` hacia un bus silenciado y un
+`send` paralelo hacia otro bus activo, **no** se apaga su
+`muteGate` de origen: el bus principal aplica su propio silencio y el
+envío sigue audible. `ProjectAudioSink.hasUnmutedPath` recorre todas las
+rutas de salida/sends con los overrides de mute; al mutear un bus no se
+liberan handles de una pista que aún tiene salida válida por otro
+bus. `EXP.audioPlan` selecciona sólo fuentes que alcanzan una salida
+no silenciada, incluyendo su ruta de envío. Una pista propiamente
+silenciada sí calla en ambas rutas.
+
+`tests/e2e/project-mixer-sends.spec.ts` contiene una comparación de
+energía del mismo clip con y sin ese envío, además de comprobar el
+preflight de bus y cero ataques omitidos. Esta prueba debe ejecutarse
+en Chromium real; los cambios actuales siguen pendientes de aceptación.
+
+**Solo explícito en buses auxiliares** requiere una comprobación más
+fina de puertas por ruta primaria frente a rutas de envío, junto con
+pruebas físicas de colas y motores activos. No se aprueba MIX-05 aún.
