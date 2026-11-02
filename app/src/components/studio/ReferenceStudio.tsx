@@ -498,13 +498,20 @@ export function ReferenceStudio({
           <div className="ref-macros">
             <h3>Controles del instrumento</h3>
             <div className="ref-macro-list">
-              {["Brillo","Cuerpo","Reverb","Dinámica"].map((name,index)=>
-                <label className="ref-macro" key={name} title="Control de interfaz: conexión al motor pendiente">
-                  <input type="range" min={0} max={100} value={macroValues[index]} aria-label={name}
-                    onChange={(event)=>setMacroValues(values=>values.map((v,i)=>i===index?Number(event.target.value):v))}/>
-                  <span className="ref-knob" style={{"--dial-progress":(macroValues[index]/100*280)+"deg"} as CSSProperties}/>
-                  <strong>{name}</strong><small>{macroValues[index]}%</small>
-                </label>)}
+              {STUDIO_MACROS.map((macro)=>{
+                const value = macroDrafts[macro.id] ??
+                  (selectedTrack ? readStudioMacro(selectedTrack.mix.effects,selectedTrack.id,macro.id) : macro.neutral);
+                return <label className="ref-macro" key={macro.id} title={"Procesador real: "+macro.label}>
+                  <input type="range" min={0} max={100} value={value}
+                    disabled={!selectedTrack} aria-label={macro.label}
+                    onChange={(event)=>setMacroDrafts((previous)=>({...previous,[macro.id]:Number(event.target.value)}))}
+                    onPointerUp={()=>commitMacro(macro.id)}
+                    onKeyUp={()=>commitMacro(macro.id)}
+                    onBlur={()=>commitMacro(macro.id)}/>
+                  <span className="ref-knob" style={{"--dial-progress":(value/100*280)+"deg"} as CSSProperties}/>
+                  <strong>{macro.label}</strong><small>{value}%</small>
+                </label>;
+              })}
             </div>
           </div>
         </>:<div className="ref-inspection-content">
