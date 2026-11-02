@@ -403,7 +403,8 @@
 .ref-mini-keyboard span{flex:1;height:100%;border-right:1px solid #494c5e;background:linear-gradient(#eeeff9,#b8c2d3);position:relative}
 .ref-mini-keyboard span.is-black::before{content:"";position:absolute;top:0;left:-44%;width:75%;height:64%;
   background:linear-gradient(#151728,#0a0c18);z-index:1;border-radius:0 0 2px 2px}
-.ref-mini-keyboard span:nth-child(8),.ref-mini-keyboard span:nth-child(13){background:#59e9c8}
+.ref-mini-keyboard span.is-current{background:#59e9c8;box-shadow:inset 0 0 12px #03debf,0 0 8px #29f5d3}
+.ref-mini-keyboard span.is-current.is-black::before{background:linear-gradient(#0fe2c8,#06544d)}
 .ref-meter{display:flex;gap:2px;align-items:end;justify-content:center;height:24px;flex:none}
 .ref-meter i{display:block;flex:1;max-width:4px;min-width:2px;height:6px;background:#223449;border-radius:1px}
 .ref-meter i.lit{height:16px;background:#0af1af;box-shadow:0 0 4px #04eeb58a}
