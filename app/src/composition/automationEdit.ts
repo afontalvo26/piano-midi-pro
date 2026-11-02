@@ -87,6 +87,68 @@ export function setAutomationWriteMode(document: ProjectDocumentV1, laneId: stri
   return command(document, laneId, { ...lane, writeMode }, at);
 }
 
+export interface AutomationTouchSample {
+  readonly tick: number;
+  readonly value: number;
+}
+
+function baseLaneValue(document: ProjectDocumentV1, lane: ProjectAutomationLane): number {
+  if (lane.target.scope === "master") return document.mix.masterGainDb;
+  const track = document.tracks.find((item) => item.id === lane.target.ownerId);
+  return lane.target.parameterId === "pan" ? track?.mix.pan ?? 0 : track?.mix.gainDb ?? 0;
+}
+
+function laneValueAt(document: ProjectDocumentV1, lane: ProjectAutomationLane, tick: number): number {
+  let index = -1;
+  for (let i = 0; i < lane.points.length && lane.points[i]!.tick <= tick; i++) index = i;
+  if (index < 0) return baseLaneValue(document, lane);
+  const point = lane.points[index]!;
+  const next = lane.points[index + 1];
+  if (!next || point.shape === "step") return point.value;
+  const fraction = (tick - point.tick) / (next.tick - point.tick);
+  return point.value + (next.value - point.value) * fraction;
+}
+
+/** One touch gesture becomes one reversible command. The release returns to the prior read curve. */
+export function writeAutomationTouchGesture(document: ProjectDocumentV1, laneId: string,
+  samples: readonly AutomationTouchSample[], at = Date.now(),
+  nextId: () => string = () => crypto.randomUUID()): ProjectCommand {
+  const lane = laneById(document, laneId);
+  if (lane.writeMode !== "touch") throw new Error("Activa Touch antes de grabar automatización");
+  const descriptor = baseAutomationParameter(lane.target);
+  if (!descriptor || lane.target.scope === "clip" || lane.target.effectId !== undefined) {
+    throw new Error("El parámetro no admite Touch");
+  }
+  const byTick = new Map<number, number>();
+  for (const sample of samples) {
+    if (!Number.isSafeInteger(sample.tick) || sample.tick < 0 ||
+        !Number.isFinite(sample.value) || sample.value < descriptor.min || sample.value > descriptor.max) {
+      throw new RangeError("Muestra Touch fuera de rango");
+    }
+    byTick.set(sample.tick, sample.value);
+  }
+  const orderedSamples = [...byTick].sort((a, b) => a[0] - b[0]);
+  if (!orderedSamples.length) throw new RangeError("El gesto Touch no contiene muestras");
+  const startTick = orderedSamples[0]![0];
+  const endTick = orderedSamples.at(-1)![0];
+  // ~15 ms at 120 BPM; intentionally short and deterministic in tick space.
+  const returnTick = Math.min(Number.MAX_SAFE_INTEGER, endTick + 30);
+  const returnValue = laneValueAt(document, lane, returnTick);
+  const preserved = lane.points.filter((point) => point.tick < startTick || point.tick > returnTick);
+  const created: ProjectAutomationPoint[] = [];
+  if (startTick > 0 && !preserved.some((point) => point.tick === startTick - 1)) {
+    created.push({ id: nextId(), tick: startTick - 1,
+      value: laneValueAt(document, lane, startTick - 1), shape: "linear" });
+  }
+  for (const [tick, value] of orderedSamples) {
+    created.push({ id: nextId(), tick, value, shape: "linear" });
+  }
+  if (!created.some((point) => point.tick === returnTick)) {
+    created.push({ id: nextId(), tick: returnTick, value: returnValue, shape: "linear" });
+  }
+  return replacePoints(document, lane, [...preserved, ...created], at);
+}
+
 export function addAutomationPoint(document: ProjectDocumentV1, laneId: string,
   point: ProjectAutomationPoint, at = Date.now()): ProjectCommand {
   const lane = laneById(document, laneId);
