@@ -1,11 +1,14 @@
 import { expect, test } from "@playwright/test";
 
 test("post-fader send contributes to live-like offline WAV and one-track stem", async ({ page }) => {
+  test.setTimeout(120_000);
   page.setDefaultTimeout(20_000);
   await page.goto("/", { waitUntil: "domcontentloaded", timeout: 15_000 });
   const result = await page.evaluate(async () => {
     const { analyzeUserSample } = await import("/src/audio/userSampleAsset.ts");
     const { renderProjectPcm } = await import("/src/audio/renderProjectPcm.ts");
+    const { planProjectAudioExport } = await import("/src/export/audioPlan.ts");
+    const { exportProjectWav } = await import("/src/export/projectWav.ts");
     const { createProjectDocument } = await import("/src/project/model.ts");
     const frames = 12_000;
     const sampleRate = 48_000;
@@ -41,6 +44,16 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
         sends: [{ id: "send-parallel", busTrackId: bus.id, gainDb: 0 }] } }, bus] };
     const reader = { readAsset: async () => analyzed.data };
     const options = { startTick: 0, endTick: 480, sampleRate, tailSeconds: 0, seed: "send-e2e" };
+    const plan = planProjectAudioExport(wet, { startTick: 0, endTick: 480,
+      sampleRate: 48_000, tailSeconds: 0, stems: "tracks" });
+    let busStemError = "";
+    try { planProjectAudioExport(wet, { startTick: 0, endTick: 480,
+      sampleRate: 48_000, tailSeconds: 0, stems: "buses" }); }
+    catch (error) { busStemError = String(error); }
+    const wav = await exportProjectWav({ projectId: wet.id, revision: 2,
+      hash: "a".repeat(64), committedAt: 2, document: wet }, reader, {
+      ...options, stems: "tracks", format: "pcm16", dither: false,
+    });
     const dryPcm = await renderProjectPcm(dry, options, reader);
     const wetPcm = await renderProjectPcm(wet, options, reader);
     const stemPcm = await renderProjectPcm(wet, { ...options, trackId: source.id }, reader);
@@ -52,6 +65,12 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
       dryLength: dryPcm.left.length, wetLength: wetPcm.left.length,
       finite: allFinite(wetPcm.left) && allFinite(wetPcm.right),
       stemSources: stemPcm.report.selectedTrackIds,
+      planStemCount: plan.stems.length,
+      renderedSendsIncluded: wav.sendsIncluded,
+      wavKinds: wav.files.map((file) => file.kind),
+      wavFrames: wav.files.map((file) => file.pcm.frames),
+      busStemRejected: /[Ss]tems por bus/.test(busStemError),
+      encodedAudioBytes: wav.files.map((file) => file.bytes.byteLength),
     };
   });
   expect(result.dryEnergy).toBeGreaterThan(0.01);
@@ -61,6 +80,12 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
   expect(result.wetLength).toBe(12_000);
   expect(result.finite).toBe(true);
   expect(result.stemSources).toEqual(["source"]);
+  expect(result.planStemCount).toBe(1);
+  expect(result.renderedSendsIncluded).toBe(true);
+  expect(result.wavKinds).toEqual(["master", "track"]);
+  expect(result.wavFrames).toEqual([12_000, 12_000]);
+  expect(result.busStemRejected).toBe(true);
+  expect(result.encodedAudioBytes.every((value: number) => value > 44)).toBe(true);
 });
 
 test("mobile mixer adds, edits and removes an acyclic send at 320 px", async ({ page }) => {
