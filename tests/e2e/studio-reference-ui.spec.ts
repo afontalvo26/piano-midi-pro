@@ -187,3 +187,18 @@ test("four instrument macro controls create real persisted validated processors"
   expect(result.values).toEqual([38,75,42,60]);
   expect(result.kinds).toEqual(["filter","eq3","reverb","compressor"]);
 });
+
+
+test("Partitura shows real project notes and returns to editing",async({page})=>{
+  test.setTimeout(60_000);
+  await page.setViewportSize({width:1586,height:992});
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const shell=page.getByTestId("reference-studio");
+  await shell.getByRole("button",{name:"Nueva idea"}).click();
+  await shell.getByRole("button",{name:"Partitura"}).click();
+  await expect(shell.getByRole("region",{name:"Partitura de lectura"})).toBeVisible();
+  await expect(shell.getByRole("img",{name:/Partitura de/})).toBeVisible();
+  await shell.getByRole("button",{name:"Piano Roll"}).click();
+  await expect(shell.getByRole("region",{name:"Partitura de lectura"})).toHaveCount(0);
+  await expect(shell.locator(".piano-roll__viewport")).toBeVisible();
+});
