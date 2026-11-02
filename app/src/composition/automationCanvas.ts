@@ -1,4 +1,5 @@
 import type { MeterPoint, ProjectAutomationPoint } from "../project/model.ts";
+import { automationInterpolatedValue } from "./automationCurve.ts";
 
 export const AUTOMATION_CANVAS_HEIGHT = 248;
 export const AUTOMATION_CANVAS_LEFT = 46;
@@ -73,9 +74,10 @@ export function automationValueAtTick(points: readonly ProjectAutomationPoint[],
   if (next?.tick === tick) return next.value;
   const previous = points[nextIndex - 1];
   if (!previous) return baseValue;
-  if (!next || previous.shape !== "linear") return previous.value;
+  if (!next || previous.shape === "step") return previous.value;
   const fraction = (tick - previous.tick) / (next.tick - previous.tick);
-  return previous.value + (next.value - previous.value) * fraction;
+  return automationInterpolatedValue(previous.value, next.value,
+    previous.shape, previous.curve, fraction);
 }
 
 export function drawAutomationLane(context: CanvasRenderingContext2D,
@@ -134,6 +136,17 @@ export function drawAutomationLane(context: CanvasRenderingContext2D,
     if (point.tick < startTick || x > width) continue;
     if (!prior || prior.shape === "step") {
       context.lineTo(x, automationPointY(currentValue, viewport));
+    } else if (prior.shape === "bezier" && point.tick > prior.tick) {
+      const samples = 16;
+      for (let sample = 1; sample < samples; sample++) {
+        const fraction = sample / samples;
+        const tick = prior.tick + (point.tick - prior.tick) * fraction;
+        const sampleX = automationPointX(tick, viewport);
+        if (sampleX < -8 || sampleX > width + 8) continue;
+        const value = automationInterpolatedValue(prior.value, point.value,
+          "bezier", prior.curve, fraction);
+        context.lineTo(sampleX, automationPointY(value, viewport));
+      }
     }
     context.lineTo(x, automationPointY(point.value, viewport));
     currentValue = point.value;
