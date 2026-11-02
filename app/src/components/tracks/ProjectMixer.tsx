@@ -23,6 +23,24 @@ function meterPercent(value: number): number {
   return Math.round(Math.max(0, Math.min(1, value)) * 100);
 }
 
+/** Never offer a send that would feed a source back into itself. */
+function reachesTrack(document: ProjectDocumentV1, fromId: string, targetId: string): boolean {
+  const tracks = new Map(document.tracks.map((track) => [track.id, track]));
+  const pending = [fromId];
+  const seen = new Set<string>();
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (id === targetId) return true;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const mix = tracks.get(id)?.mix;
+    if (!mix) continue;
+    if (mix.outputBusTrackId) pending.push(mix.outputBusTrackId);
+    for (const send of mix.sends) pending.push(send.busTrackId);
+  }
+  return false;
+}
+
 export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects, onMasterEffects,
   onCreateBus, onRemoveBus,
   onUndo, onRedo, canUndo, canRedo, meter, masterMeter }: ProjectMixerProps) {
@@ -31,6 +49,8 @@ export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects
   const [masterDraft, setMasterDraft] = useState<string | null>(null);
   const [busName, setBusName] = useState("");
   const [removeBusId, setRemoveBusId] = useState<string | null>(null);
+  const [sendDrafts, setSendDrafts] = useState<Record<string, string>>({});
+  const [sendLevelDrafts, setSendLevelDrafts] = useState<Record<string, string>>({});
   const buses = document.tracks.filter((track) => track.kind === "bus");
 
   function commitGain(trackId: string, mix: ProjectMixChannel) {
@@ -81,6 +101,12 @@ export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects
       {document.tracks.map((track) => {
         const mix = track.mix;
         const level = meter?.[track.id];
+        const availableSendBuses = buses.filter((bus) =>
+          bus.id !== mix.outputBusTrackId &&
+          !mix.sends.some((send) => send.busTrackId === bus.id) &&
+          !reachesTrack(document, bus.id, track.id));
+        const sendDestination = availableSendBuses.some((bus) => bus.id === sendDrafts[track.id])
+          ? sendDrafts[track.id]! : availableSendBuses[0]?.id ?? "";
         return <section key={track.id} className="project-mixer__channel" aria-label={`Canal ${track.name}`}>
           <div className="project-mixer__channel-head"><h3>{track.name}</h3><span>{track.kind}</span></div>
           <div className="project-mixer__controls">
@@ -102,7 +128,8 @@ export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects
               onTrackMix(track.id, event.target.value === "master" ? withoutRoute
                 : { ...withoutRoute, outputBusTrackId: event.target.value });
             }}><option value="master">Master</option>
-              {buses.filter((bus) => bus.id !== track.id).map((bus) =>
+              {buses.filter((bus) => bus.id !== track.id &&
+                !reachesTrack(document, bus.id, track.id)).map((bus) =>
                 <option value={bus.id} key={bus.id}>{bus.name}</option>)}</select></label>
           </div>
           <div className="project-mixer__toggles">
@@ -120,8 +147,53 @@ export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects
           </div>
           {onTrackEffects && <ProjectEffectsPanel label={track.name} effects={mix.effects}
             onChange={(effects) => onTrackEffects(track.id, effects)} />}
-          {mix.sends.length > 0 && <p className="project-mixer__unsupported">
-            {mix.sends.length} envíos aún no tienen motor de audio ni exportación.</p>}
+          {buses.length > 0 && <div className="project-mixer__sends" aria-label={`Envíos de ${track.name}`}>
+            <h4>Envíos post-fader</h4>
+            {mix.sends.map((send) => <div className="project-mixer__send" key={send.id}>
+              <label>Bus destino
+                <input type="text" readOnly value={buses.find((bus) => bus.id === send.busTrackId)?.name ?? send.busTrackId} />
+              </label>
+              <label>Nivel (dB)
+                <input type="number" inputMode="decimal" min="-120" max="24" step="0.1"
+                  value={sendLevelDrafts[send.id] ?? String(send.gainDb)}
+                  onChange={(event) => setSendLevelDrafts((current) => ({ ...current, [send.id]: event.target.value }))}
+                  onBlur={() => {
+                    const draft = sendLevelDrafts[send.id];
+                    if (draft === undefined) return;
+                    setSendLevelDrafts((current) => {
+                      const next = { ...current }; delete next[send.id]; return next;
+                    });
+                    const value = Number(draft);
+                    if (draft.trim() && Number.isFinite(value) && value >= -120 && value <= 24 &&
+                        value !== send.gainDb) {
+                      onTrackMix(track.id, { ...mix, sends: mix.sends.map((item) =>
+                        item.id === send.id ? { ...item, gainDb: value } : item) });
+                    }
+                  }}
+                  onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+              </label>
+              <button type="button" onClick={() => onTrackMix(track.id,
+                { ...mix, sends: mix.sends.filter((item) => item.id !== send.id) })}>
+                Quitar envío
+              </button>
+            </div>)}
+            <div className="project-mixer__send-add">
+              <label>Nuevo destino
+                <select aria-label={`Nuevo envío de ${track.name}`} value={sendDestination}
+                  disabled={!sendDestination} onChange={(event) => setSendDrafts((current) =>
+                    ({ ...current, [track.id]: event.target.value }))}>
+                  {availableSendBuses.length === 0 && <option value="">Sin buses disponibles</option>}
+                  {availableSendBuses.map((bus) => <option key={bus.id} value={bus.id}>{bus.name}</option>)}
+                </select>
+              </label>
+              <button type="button" disabled={!sendDestination} onClick={() =>
+                onTrackMix(track.id, { ...mix, sends: [...mix.sends, {
+                  id: `send-${crypto.randomUUID()}`, busTrackId: sendDestination, gainDb: -12,
+                }] })}>
+                Añadir envío (−12 dB)
+              </button>
+            </div>
+          </div>}
           {track.kind === "bus" && onRemoveBus && (removeBusId === track.id ?
             <div className="project-mixer__remove"><button type="button" onClick={() => {
               onRemoveBus(track.id); setRemoveBusId(null);

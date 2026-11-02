@@ -94,7 +94,7 @@ test("bus resample installs own WAV atomically, survives Undo and portable reope
     importedHash: result.sha256, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
 });
 
-test("bus resample renders its routed sources post-bus and before master", async ({ page }) => {
+test("bus resample captures send-only source post-bus, excludes master and destination", async ({ page }) => {
   page.setDefaultTimeout(20_000);
   await page.goto("/", { waitUntil: "domcontentloaded", timeout: 15_000 });
   const result = await page.evaluate(async () => {
@@ -122,12 +122,13 @@ test("bus resample renders its routed sources post-bus and before master", async
     const mix = { gainDb: 0, pan: 0, mute: false, solo: false, armed: false,
       sends: [], effects: [] };
     const source = { id: "source", name: "Fuente", kind: "audio" as const,
-      mix: { ...mix, outputBusTrackId: "bus" } };
+      mix: { ...mix, sends: [{ id: "send-to-bus", busTrackId: "bus", gainDb: 0 }] } };
     const busEffect = { id: "bus-filter", kind: "filter", enabled: true,
       parameters: { type: "lowpass", cutoffHz: 8_000, q: 0.7 } };
     const bus = { id: "bus", name: "Bus", kind: "bus" as const,
       mix: { ...mix, gainDb: -6, effects: [busEffect] } };
-    const destination = { id: "destination", name: "Render", kind: "audio" as const, mix };
+    const destination = { id: "destination", name: "Render", kind: "audio" as const,
+      mix: { ...mix, outputBusTrackId: "bus" } };
     const clip = (id: string, trackId: string) => ({ id, trackId, kind: "audio" as const,
       startTick: 0, lengthTicks: 480, sourceOffsetTick: 0, loopMode: "none" as const,
       tailPolicy: "cut" as const, transpose: 0, gainDb: 0, muted: false,
@@ -155,6 +156,7 @@ test("bus resample renders its routed sources post-bus and before master", async
     return { energy, peak, frames: decoded.length, selected: rendered.render.selectedTrackIds,
       sources: rendered.provenance.sourceTrackIds,
       effects: rendered.provenance.includedEffectIds,
+      sends: rendered.provenance.includedSendIds,
       tap: rendered.provenance.tap, destination: rendered.provenance.destinationTrackId,
       hash: rendered.asset.sha256, bytes: rendered.asset.byteLength,
       frameCount: rendered.provenance.frameCount };
@@ -166,6 +168,7 @@ test("bus resample renders its routed sources post-bus and before master", async
   expect(result.selected).toEqual(["source"]);
   expect(result.sources).toEqual(["source"]);
   expect(result.effects).toEqual(["bus-filter"]);
+  expect(result.sends).toEqual(["send-to-bus"]);
   expect(result.tap).toBe("post-bus-pre-master");
   expect(result.destination).toBe("destination");
   expect(result.hash).toMatch(/^[a-f0-9]{64}$/);

@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "device": "SMK-37 Elite",
+  "status": "pending",
+  "simulated": false,
+  "commit": null,
+  "measuredNotes": 0,
+  "completeChordCycles": 0,
+  "unmatchedNoteOffs": null,
+  "dropouts": null,
+  "pedals": {
+    "cc64": false,
+    "cc66": false,
+    "cc67": false
+  },
+  "latencyMs": {
+    "p50": null,
+    "p95": null,
+    "p99": null
+  },
+  "audioLoopbackSha256": null,
+  "midiCaptureSha256": null,
+  "environment": {
+    "date": null,
+    "os": null,
+    "browser": null,
+    "firmware": null,
+    "midiInput": null,
+    "audioOutput": null,
+    "sampleRate": null,
+    "bufferSize": null
+  },
+  "limitations": [
+    "No completar con datos simulados.",
+    "La captura WinMM parcial de 23 notas no verifica 37+37 ni pedales.",
+    "Se exige loopback cableado y audición real."
+  ]
+}

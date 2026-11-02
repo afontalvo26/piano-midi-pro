@@ -2,6 +2,7 @@ import type { ProjectDocumentV1, ProjectTrack } from "../project/model.ts";
 import { MusicalClock } from "../sequencer/musicalClock.ts";
 import { projectEffectParameters } from "../project/effectParameters.ts";
 import { createBaseAutomationResolver } from "../sequencer/automationResolver.ts";
+import { findBusResampleRoutes } from "../project/busResampleRouting.ts";
 
 export type AudioStemMode = "none" | "tracks" | "buses";
 
@@ -47,23 +48,33 @@ function sourceTracks(document: ProjectDocumentV1): readonly ProjectTrack[] {
   }).filter((track) => track.kind !== "bus");
 }
 
-function routingChain(track: ProjectTrack, byId: ReadonlyMap<string, ProjectTrack>): readonly string[] {
-  const path: string[] = [];
-  let current = track.mix.outputBusTrackId;
-  while (current) {
-    if (path.includes(current)) throw new RangeError("Ciclo de buses en exportación de audio");
-    path.push(current);
-    current = byId.get(current)?.mix.outputBusTrackId;
-  }
-  return path;
+/** Choose audibly routed sources, including send-only solo and muted main buses. */
+function sourceCanReachOutput(track: ProjectTrack,
+  byId: ReadonlyMap<string, ProjectTrack>, hasSolo: boolean): boolean {
+  const active = new Set<string>();
+  const visit = (id: string, soloAlongPath: boolean): boolean => {
+    if (active.has(id)) throw new RangeError("Ciclo de buses en exportación de audio");
+    const current = byId.get(id);
+    if (!current || current.mix.mute) return false;
+    active.add(id);
+    const solo = soloAlongPath || current.mix.solo;
+    const hasDirectOutput = !current.mix.outputBusTrackId && (!hasSolo || solo);
+    const next = [current.mix.outputBusTrackId,
+      ...current.mix.sends.map((send) => send.busTrackId)]
+      .filter((dest): dest is string => dest !== undefined);
+    const audible = hasDirectOutput || next.some((dest) => visit(dest, solo));
+    active.delete(id);
+    return audible;
+  };
+  return visit(track.id, false);
 }
 
 /** Read-only preflight; unsupported DSP never disappears silently in a WAV. */
 export function planProjectAudioExport(document: ProjectDocumentV1,
   options: AudioExportPlanOptions): AudioExportPlan {
-  if (document.tracks.some((track) => track.mix.sends.length > 0)) {
-    throw new RangeError("WAV aún no admite envíos; retíralos antes de exportar");
-  }
+  // All three modes use isolated outputs. Bus stems are captured after the
+  // selected bus's inserts/pan; direct stems capture only primary master
+  // outlets, independently of any send returns.
   // The offline renderer consumes the same resolver as project playback. This
   // preflight rejects effect/clip/bezier lanes instead of silently omitting them.
   createBaseAutomationResolver(document,
@@ -104,12 +115,8 @@ export function planProjectAudioExport(document: ProjectDocumentV1,
     (clip.kind === "audio" || soundingPatterns.has(clip.sourceId)))
     .map((clip) => clip.trackId));
   const hasSolo = document.tracks.some((track) => track.mix.solo);
-  const sources = allSources.filter((track) => {
-    if (!clipTrackIds.has(track.id) || track.mix.mute) return false;
-    const chain = routingChain(track, byId);
-    if (chain.some((id) => byId.get(id)?.mix.mute)) return false;
-    return !hasSolo || track.mix.solo || chain.some((id) => byId.get(id)?.mix.solo);
-  });
+  const sources = allSources.filter((track) =>
+    clipTrackIds.has(track.id) && sourceCanReachOutput(track, byId, hasSolo));
   const activeIds = new Set(sources.map((track) => track.id));
   const omittedSourceTrackIds = allSources.filter((track) => !activeIds.has(track.id))
     .map((track) => track.id);
@@ -122,17 +129,25 @@ export function planProjectAudioExport(document: ProjectDocumentV1,
     stems = sources.map((track): PlannedAudioStem => ({ kind: "track", id: track.id, name: track.name,
       sourceTrackIds: [track.id] }));
   } else if (options.stems === "buses") {
-    const chains = new Map(sources.map((track) => [track.id, routingChain(track, byId)]));
-    const buses = document.trackOrder.map((id) => byId.get(id)!).filter((track) => track.kind === "bus");
-    stems = buses.map((bus): PlannedAudioStem => ({ kind: "bus", id: bus.id, name: bus.name,
-      sourceTrackIds: sources.filter((track) => chains.get(track.id)!.includes(bus.id))
-        .map((track) => track.id) }))
-      .filter((stem) => stem.sourceTrackIds.length > 0);
-    const direct = sources.filter((track) => chains.get(track.id)!.length === 0).map((track) => track.id);
+    const buses = document.trackOrder.map((id) => byId.get(id)!)
+      .filter((track) => track.kind === "bus");
+    stems = buses.map((bus): PlannedAudioStem => ({
+      kind: "bus", id: bus.id, name: bus.name,
+      sourceTrackIds: findBusResampleRoutes(document, bus.id, "")
+        .sourceTrackIds.filter((id) => activeIds.has(id)),
+    })).filter((stem) => stem.sourceTrackIds.length > 0);
+    // A source with no primary bus contributes to master directly even if it
+    // also sends to a bus. Its direct stem must exclude those send returns.
+    const direct = sources.filter((track) => !track.mix.outputBusTrackId)
+      .map((track) => track.id);
     if (direct.length > 0) stems.push({ kind: "direct", id: "master-direct",
       name: "Directo al master", sourceTrackIds: direct });
+    // Multiple bus feeds, nested buses, and shared nonlinear processors make
+    // bus stems non-additive. Report overlap rather than assuming a sum.
     busStemsOverlap = stems.some((stem) => stem.kind === "bus" &&
-      byId.get(stem.id)?.mix.outputBusTrackId !== undefined);
+      (byId.get(stem.id)?.mix.outputBusTrackId !== undefined ||
+      document.tracks.some((track) => track.mix.sends.some((send) =>
+        send.busTrackId === stem.id))));
   }
   return { startTick, endTick, durationSeconds, tailSeconds,
     sampleRate: options.sampleRate, stems, omittedSourceTrackIds,

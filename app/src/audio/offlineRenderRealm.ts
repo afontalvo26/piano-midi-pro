@@ -59,10 +59,13 @@ async function render(request: RealmRequest, port: MessagePort): Promise<void> {
       ? await loadVerifiedSalamanderCore(Tone.getContext().rawContext)
       : new DecodedPianoSampleBank();
     if (cancelled) throw new DOMException("Exportación cancelada", "AbortError");
-    output = options.tapBusTrackId ? new Tone.Gain(1).toDestination()
-      : new Tone.Limiter(-2).toDestination();
+    output = options.tapBusTrackId || options.tapDirectMaster
+      ? new Tone.Gain(1).toDestination() : new Tone.Limiter(-2).toDestination();
     sink = new ProjectAudioSink(document, output, bank, () => !cancelled,
-      { readAsset: async (ref) => blobs.get(ref.id) ?? null });
+      { readAsset: async (ref) => blobs.get(ref.id) ?? null },
+      options.tapBusTrackId || options.tapDirectMaster
+        ? { busTrackId: options.tapBusTrackId, directMaster: options.tapDirectMaster }
+        : undefined);
     const prepared = await sink.prepare({ metronome: false });
     if (prepared.masterError || prepared.tracks.some((track) => track.error)) {
       checkReport({ state: "stopped", tick: options.startTick, iteration: 0, epoch: 0,

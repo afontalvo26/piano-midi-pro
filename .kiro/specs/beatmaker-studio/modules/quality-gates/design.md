@@ -15,3 +15,20 @@ El audio de exportación no debe contener valores no finitos ni clipping no soli
 ## Puertas
 
 Pre-merge: estático, unitario, focales y build. Pre-release: suite transversal, inspección de dist, import/export, dos pestañas, offline y stress. Aprobación sonora: escucha física Elite y, para afirmar Pro, prueba Pro. Se conserva un reporte de diferencias conocidas, con bloqueo si afectan expresión, estabilidad o datos.
+
+
+## Diagnóstico de plataforma GitHub Actions — 2026-11-01
+
+En el workflow `studio-quality.yml`, el run 41364098020 presenta
+dos jobs `failure` en 2–3 segundos, ambos con
+`runner_id=0` y `steps=[]`. **No ejecutaron TypeScript, ESLint, Vite
+ni Playwright.** Los logs de jobs no son accesibles en la conexión actual.
+No se atribuye el error a compilación sin logs reales. Investigar permisos,
+facturación/cuota o disponibilidad de runners en la interfaz Actions antes
+de tratarlo como regresión del código.
+
+Como respaldo reproducible en Windows, `scripts/validate-studio.ps1`
+ejecuta `run-bounded.ps1` y deja todos los resultados en `.logs/`.
+La salida exit 0 de cada comprobación y el commit exacto deben registrarse
+en `validation.md` o evidencia por requisito. Ni la ausencia de logs ni
+la existencia de scripts puede sustituir a una corrida real.

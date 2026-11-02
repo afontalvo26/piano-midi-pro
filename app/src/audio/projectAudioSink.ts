@@ -12,6 +12,7 @@ import { MonoUserSampleEngine } from "./monoUserSampleEngine";
 import { DrumRackEngine, type DrumRackPadStatus } from "./drumRackEngine";
 import { AudioClipEngine } from "./audioClipEngine";
 import { connectProjectEffects } from "./projectEffects.ts";
+import { assertSafeAudioRouting } from "../project/mixRouting.ts";
 import { SALAMANDER_CORE_PACKAGE_VERSION } from "./verifiedSalamanderCore";
 import { TR808_FISCHER_VERSION, loadTr808FischerBass,
   tr808FischerBassRegion } from "./tr808FischerCore";
@@ -100,6 +101,8 @@ interface TrackSlot {
   readonly meter: Tone.Analyser;
   readonly meterState: MeterState;
   readonly effects: Tone.ToneAudioNode[];
+  /** Independent post-fader, post-insert sends to bus inputs. */
+  readonly sends: Tone.Gain[];
   piano: LiveVoiceController | null;
   drums: DrumKitEngine | null;
   sampler: UserSampleEngine | MonoUserSampleEngine | null;
@@ -206,8 +209,17 @@ export class ProjectAudioSink implements SequencerSink {
 
   constructor(document: ProjectDocumentV1, destination: Tone.ToneAudioNode,
     pianoBank: DecodedPianoSampleBank, ownsAudio: () => boolean,
-    assetReader?: UserSampleReader) {
+    assetReader?: UserSampleReader,
+    /** Offline-only, pre-master capture of exactly one bus or direct source outlets. */
+    renderTap?: { readonly busTrackId?: string; readonly directMaster?: boolean }) {
     if (document.ppq !== 960) throw new RangeError("project audio requires 960 PPQ");
+    assertSafeAudioRouting(document);
+    const tappedBusId = renderTap?.busTrackId;
+    if ((tappedBusId && renderTap?.directMaster) ||
+        (tappedBusId && !document.tracks.some((track) =>
+          track.id === tappedBusId && track.kind === "bus"))) {
+      throw new RangeError("Punto de captura de audio inválido");
+    }
     this.projectId = document.id;
     this.document = document;
     this.rootOwnerId = `transport/${document.id}`;
@@ -216,7 +228,12 @@ export class ProjectAudioSink implements SequencerSink {
     this.assetReader = assetReader;
     this.master = new Tone.Volume(document.mix.masterGainDb);
     this.masterMeter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
-    this.masterMeter.connect(destination);
+    // In a tapped offline render the master graph is deliberately silent.
+    // Connecting a chosen bus's post-fader meter straight to the destination
+    // excludes all other parallel paths, parent buses and master processing.
+    if (!renderTap?.busTrackId && !renderTap?.directMaster) {
+      this.masterMeter.connect(destination);
+    }
     let masterError: string | null = null;
     try {
       this.masterEffects.push(...connectProjectEffects(document.mix.masterEffects,
@@ -238,6 +255,21 @@ export class ProjectAudioSink implements SequencerSink {
         }
         slot.panner.connect(slot.meter);
         slot.meter.connect(target?.volume ?? this.master);
+        if (renderTap?.busTrackId === slot.track.id ||
+            (renderTap?.directMaster && slot.track.kind !== "bus" &&
+              !slot.track.mix.outputBusTrackId)) {
+          slot.meter.connect(destination);
+        }
+        for (const send of slot.track.mix.sends) {
+          const bus = this.slots.get(send.busTrackId);
+          if (!bus || bus.track.kind !== "bus" || bus === slot) {
+            throw new Error(`Envío ${send.id}: bus destino inválido`);
+          }
+          const sendGain = new Tone.Gain(10 ** (send.gainDb / 20));
+          slot.sends.push(sendGain);
+          slot.meter.connect(sendGain);
+          sendGain.connect(bus.volume);
+        }
       }
       this.refreshMute();
     } catch (error) {
@@ -254,7 +286,7 @@ export class ProjectAudioSink implements SequencerSink {
     const meterState: MeterState = { lastAt: -Infinity, clippedLastRead: false,
       snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 } };
     const slot: TrackSlot = { track, volume, panner, muteGate, meter, meterState, effects: [],
-      piano: null, drums: null,
+      sends: [], piano: null, drums: null,
       sampler: null, rack: null, audioClips: null, sampleAsset: null,
       status: "loading", error: null, muteOverride: null, soloOverride: null,
       gainOverride: null, panOverride: null,
@@ -343,10 +375,6 @@ export class ProjectAudioSink implements SequencerSink {
           this.maybeDisposeRetired(slot);
         }, this.document.audioCrossfades ?? []);
       if (!slot.audioClips.hasClips) slot.status = "ready";
-    }
-    if (track.mix.sends.length && slot.status !== "error") {
-      slot.status = "error";
-      slot.error = "Envíos de proyecto aún no están disponibles";
     }
     if (slot.status !== "error") {
       try {
@@ -754,33 +782,56 @@ export class ProjectAudioSink implements SequencerSink {
     return this.effectiveMute.get(slot.track.id) ?? this.computeMuted(slot);
   }
 
+  /** A muted primary bus does not silence an independent auxiliary send. */
+  private hasUnmutedPath(slot: TrackSlot): boolean {
+    const active = new Set<string>();
+    const reachable = (id: string): boolean => {
+      if (active.has(id)) return false;
+      const candidate = this.slots.get(id);
+      if (!candidate || (candidate.muteOverride ?? candidate.track.mix.mute)) {
+        return false;
+      }
+      active.add(id);
+      const main = candidate.track.mix.outputBusTrackId;
+      // No destination means the main output connects to master.
+      const heard = (!main || reachable(main)) ||
+        candidate.track.mix.sends.some((send) => reachable(send.busTrackId));
+      active.delete(id);
+      return heard;
+    };
+    return reachable(slot.track.id);
+  }
+
   private computeMuted(slot: TrackSlot): boolean {
-    const visited = new Set<string>();
-    let parentId = slot.track.mix.outputBusTrackId;
-    while (parentId && !visited.has(parentId)) {
-      visited.add(parentId);
-      const parent = this.slots.get(parentId);
-      if (parent && (parent.muteOverride ?? parent.track.mix.mute)) return true;
-      parentId = parent?.track.mix.outputBusTrackId;
-    }
+    if (!this.hasUnmutedPath(slot)) return true;
     const soloed = [...this.slots.values()].some((candidate) =>
       candidate.soloOverride ?? candidate.track.mix.solo);
     const solo = slot.soloOverride ?? slot.track.mix.solo;
-    if (slot.muteOverride ?? slot.track.mix.mute) return true;
     if (!soloed || solo) return false;
     if ([...this.slots.values()].some((candidate) => candidate.track.kind === "bus" &&
-        (candidate.soloOverride ?? candidate.track.mix.solo) && this.routesThrough(slot, candidate.track.id))) return false;
+        (candidate.soloOverride ?? candidate.track.mix.solo) &&
+        this.routesThrough(slot, candidate.track.id))) return false;
     return slot.track.kind !== "bus" || ![...this.slots.values()].some((candidate) =>
-      (candidate.soloOverride ?? candidate.track.mix.solo) && this.routesThrough(candidate, slot.track.id));
+      (candidate.soloOverride ?? candidate.track.mix.solo) &&
+      this.routesThrough(candidate, slot.track.id));
   }
 
+  /** Follow output and parallel send edges for solo/route diagnostics. */
   private routesThrough(slot: TrackSlot, busTrackId: string): boolean {
+    const pending = [slot.track.id];
     const visited = new Set<string>();
-    let parentId = slot.track.mix.outputBusTrackId;
-    while (parentId && !visited.has(parentId)) {
-      if (parentId === busTrackId) return true;
-      visited.add(parentId);
-      parentId = this.slots.get(parentId)?.track.mix.outputBusTrackId;
+    while (pending.length) {
+      const id = pending.pop()!;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const track = this.slots.get(id)?.track;
+      if (!track) continue;
+      const destinations = [track.mix.outputBusTrackId,
+        ...track.mix.sends.map((send) => send.busTrackId)];
+      for (const next of destinations) {
+        if (next === busTrackId) return true;
+        if (next && !visited.has(next)) pending.push(next);
+      }
     }
     return false;
   }
@@ -801,7 +852,10 @@ export class ProjectAudioSink implements SequencerSink {
     this.refreshMute(audioTime);
     if (muted) {
       for (const candidate of this.slots.values()) {
-        if (candidate === slot || this.routesThrough(candidate, trackId)) {
+        if (candidate === slot ||
+            (this.routesThrough(candidate, trackId) && this.isMuted(candidate))) {
+          // Do not kill the source when its independent send still reaches an
+          // audible bus. Only voices actually losing every route are retired.
           candidate.piano?.releaseOwner(this.rootOwnerId, audioTime, true);
           candidate.drums?.releaseOwner(this.rootOwnerId, audioTime, true);
           candidate.rack?.releaseOwner(this.rootOwnerId, audioTime, true);
@@ -1043,6 +1097,7 @@ export class ProjectAudioSink implements SequencerSink {
     slot.sampler?.dispose();
     slot.audioClips?.dispose();
     for (const effect of slot.effects) effect.dispose();
+    for (const send of slot.sends) send.dispose();
     slot.volume.dispose();
     slot.muteGate.dispose();
     slot.panner.dispose();

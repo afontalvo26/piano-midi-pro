@@ -299,6 +299,8 @@ export interface ProjectAudioResample {
   readonly tap: "post-bus-pre-master";
   readonly sourceTrackIds: readonly TrackId[];
   readonly includedEffectIds: readonly string[];
+  /** Route-specific sends feeding the captured bus; legacy renders omit this. */
+  readonly includedSendIds?: readonly string[];
   readonly seed: string;
   readonly sampleRate: number;
   readonly channelCount: number;

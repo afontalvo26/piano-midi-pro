@@ -1014,6 +1014,16 @@ export function validateProjectDocument(value: unknown): asserts value is Projec
         if (seenEffects.has(effectId)) invalid(`${path}.audioResample.includedEffectIds`, "efecto duplicado");
         seenEffects.add(effectId);
       });
+      if (resample.includedSendIds !== undefined) {
+        const sends = array(resample.includedSendIds,
+          `${path}.audioResample.includedSendIds`, 1024);
+        const unique = new Set<string>();
+        sends.forEach((value, index) => {
+          const sendId = id(value, `${path}.audioResample.includedSendIds[${index}]`);
+          if (unique.has(sendId)) invalid(`${path}.audioResample.includedSendIds`, "envío duplicado");
+          unique.add(sendId);
+        });
+      }
       text(resample.seed, `${path}.audioResample.seed`);
       const sampleRate = integer(resample.sampleRate, `${path}.audioResample.sampleRate`, 8_000, 384_000);
       const channelCount = integer(resample.channelCount, `${path}.audioResample.channelCount`, 1, 2);

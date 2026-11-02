@@ -4,6 +4,7 @@ import type { TransportSnapshot } from "../sequencer/transportScheduler";
 import { MusicalClock } from "../sequencer/musicalClock";
 import type { UserSampleReader } from "./userSampleAsset";
 import type { ProjectAudioDiagnostics } from "./projectAudioSink";
+import { findBusResampleRoutes } from "../project/busResampleRouting.ts";
 
 export interface RenderProjectOptions {
   readonly startTick: number;
@@ -15,8 +16,10 @@ export interface RenderProjectOptions {
   readonly trackId?: string;
   /** Group of source tracks for a bus stem; their routing buses remain intact. */
   readonly trackIds?: readonly string[];
-  /** Stop routing at this bus and render post-bus, before parent/master processing. */
+  /** Capture this bus only after inserts/pan, excluding all parallel/master paths. */
   readonly tapBusTrackId?: string;
+  /** Capture source outlets routed directly to master, without their send returns. */
+  readonly tapDirectMaster?: boolean;
 }
 
 export interface RenderProgress {
@@ -56,7 +59,13 @@ function checkOptions(document: ProjectDocumentV1, options: RenderProjectOptions
       (options.seed !== undefined && (typeof options.seed !== "string" || options.seed.length > 128)) ||
       (options.trackId !== undefined && options.trackIds !== undefined) ||
       (options.tapBusTrackId !== undefined &&
-        (options.trackId !== undefined || options.trackIds === undefined))) {
+        (typeof options.tapBusTrackId !== "string" ||
+          options.tapBusTrackId.length === 0 ||
+          options.trackId !== undefined || options.trackIds === undefined)) ||
+      (options.tapDirectMaster !== undefined && typeof options.tapDirectMaster !== "boolean") ||
+      (options.tapDirectMaster === true &&
+        (options.tapBusTrackId !== undefined ||
+          options.trackId !== undefined || options.trackIds === undefined))) {
     throw new RangeError("Opciones de render musical inválidas");
   }
   const micros = document.tempoMap;
@@ -99,27 +108,40 @@ function selectTracks(document: ProjectDocumentV1, options: RenderProjectOptions
   if (options.tapBusTrackId && tapBus?.kind !== "bus") {
     throw new RangeError("El punto de resampling debe ser una pista bus existente");
   }
+  // Shared route selection keeps the render tap identical to the source
+  // preview and bus-resample install. It includes parallel sends and nested
+  // buses, but only those paths which actually reach the selected tap.
   const include = new Set(sourceIds);
-  for (const id of sourceIds) {
-    let track: ProjectTrack | undefined = byId.get(id);
-    const seen = new Set<string>();
-    let reachedTap = options.tapBusTrackId === undefined;
-    while (track?.mix.outputBusTrackId) {
-      const parentId: string = track.mix.outputBusTrackId;
-      if (seen.has(parentId)) throw new Error("Ruta de bus cíclica");
-      seen.add(parentId);
-      const parent = byId.get(parentId);
-      if (!parent || parent.kind !== "bus") throw new Error(`Bus ${parentId} ausente`);
-      include.add(parentId);
-      track = parent;
-      if (parentId === options.tapBusTrackId) { reachedTap = true; break; }
+  if (options.tapBusTrackId) {
+    const routes = findBusResampleRoutes(document, options.tapBusTrackId, "",
+      [...sourceIds]);
+    if (routes.sourceTrackIds.length !== sourceIds.size) {
+      throw new RangeError("Una pista no llega al bus de resampling");
     }
-    if (!reachedTap) throw new RangeError(`Pista ${id} no llega al bus de resampling`);
+    for (const track of routes.routedTracks) include.add(track.id);
+  } else {
+    // Master, track stems and direct-master stems need the full ancestry
+    // of every selected source, including its auxiliary send returns.
+    const pending = [...sourceIds];
+    const visited = new Set<string>();
+    while (pending.length) {
+      const id = pending.pop()!;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const track = byId.get(id)!;
+      const destinations = [track.mix.outputBusTrackId,
+        ...track.mix.sends.map((send) => send.busTrackId)]
+        .filter((next): next is string => next !== undefined);
+      for (const next of destinations) {
+        if (byId.get(next)?.kind !== "bus") {
+          throw new RangeError(`Bus ${next} ausente`);
+        }
+        include.add(next);
+        if (!visited.has(next)) pending.push(next);
+      }
+    }
   }
   const routedTracks = document.tracks.filter((track) => include.has(track.id));
-  if (routedTracks.some((track) => track.mix.sends.length)) {
-    throw new Error("Exportación con envíos aún no disponible");
-  }
   const clock = new MusicalClock(document.tempoMap, document.meterMap);
   const startUs = Math.round(clock.tickToSeconds(options.startTick) * 1_000_000);
   const endUs = Math.round(clock.tickToSeconds(options.endTick) * 1_000_000);
@@ -155,11 +177,12 @@ function selectTracks(document: ProjectDocumentV1, options: RenderProjectOptions
       : track : {
     id: track.id, name: track.name, kind: "bus", mix: { ...track.mix, sends: [], effects: [] },
   });
-  const automation = options.tapBusTrackId ? document.automation.filter((lane) =>
+  const isTap = !!options.tapBusTrackId || !!options.tapDirectMaster;
+  const automation = isTap ? document.automation.filter((lane) =>
     lane.target.scope === "track" && lane.target.ownerId !== undefined &&
     include.has(lane.target.ownerId)) : document.automation;
   return { document: { ...document, tracks, clips, automation,
-    ...(options.tapBusTrackId ? { mix: { masterGainDb: 0, masterEffects: [] } } : {}),
+    ...(isTap ? { mix: { masterGainDb: 0, masterEffects: [] } } : {}),
     assets: requiredAssets }, selectedTrackIds: [...sourceIds], requiredAssets };
 }
 
