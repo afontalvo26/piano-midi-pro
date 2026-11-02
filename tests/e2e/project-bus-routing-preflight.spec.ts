@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("resampling preflight includes nested sources, excludes destination and blocks sends", async ({ page }) => {
+test("resampling preflight includes nested sources, excludes destination and traces parallel sends", async ({ page }) => {
   page.setDefaultTimeout(20_000);
   await page.goto("/", { waitUntil: "domcontentloaded", timeout: 15_000 });
   const result = await page.evaluate(async () => {
@@ -27,18 +27,28 @@ test("resampling preflight includes nested sources, excludes destination and blo
     const withSend = { ...doc, tracks: tracks.map((track) => track.id === "child"
       ? { ...track, mix: { ...track.mix,
         sends: [{ id: "send", busTrackId: "main", gainDb: -6 }] } } : track) };
-    const blocked = findBusResampleRoutes(withSend, "main", "destination");
+    const routedWithSend = findBusResampleRoutes(withSend, "main", "destination");
+    const sendOnlyTracks = [...tracks, {
+      id: "send-only", name: "Solo auxiliar", kind: "audio" as const,
+      mix: { ...mix, sends: [{ id: "send-direct", busTrackId: "main", gainDb: -9 }] },
+    }];
+    const sendOnly = findBusResampleRoutes({ ...doc, tracks: sendOnlyTracks,
+      trackOrder: sendOnlyTracks.map((track) => track.id) }, "main", "destination");
     return {
       selectedSources: selected.sourceTrackIds,
       routedIds: selected.routedTracks.map((track) => track.id).sort(),
-      hasUnsupportedSends: selected.hasUnsupportedSends,
+      includedSendIds: selected.includedSendIds,
       emptySources: empty.sourceTrackIds,
-      blockedSends: blocked.hasUnsupportedSends,
+      routedSendIds: routedWithSend.includedSendIds,
+      sendOnlySources: sendOnly.sourceTrackIds,
+      sendOnlySendIds: sendOnly.includedSendIds,
     };
   });
   expect(result.selectedSources).toEqual(["source-direct", "source-nested"]);
   expect(result.routedIds).toEqual(["child", "main", "source-direct", "source-nested"]);
-  expect(result.hasUnsupportedSends).toBe(false);
+  expect(result.includedSendIds).toEqual([]);
   expect(result.emptySources).toEqual([]);
-  expect(result.blockedSends).toBe(true);
+  expect(result.routedSendIds).toEqual(["send"]);
+  expect(result.sendOnlySources).toEqual(["source-direct", "source-nested", "send-only"]);
+  expect(result.sendOnlySendIds).toEqual(["send-direct"]);
 });
