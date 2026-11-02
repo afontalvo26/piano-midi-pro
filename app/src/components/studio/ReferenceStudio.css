@@ -883,3 +883,12 @@
  .ref-studio{--ref-track-info-width:150px}
  .ref-track-ruler,.ref-track-row{grid-template-columns:var(--ref-track-info-width) minmax(0,1fr)}
 }
+
+/* Instrument state is derived from the prepared engine, never from a mockup. */
+.ref-project-audio-readiness{display:grid;gap:6px;min-width:0;padding:10px;
+ border-bottom:1px solid #514167;background:#241c31;color:#e9deff}
+.ref-project-audio-readiness span{font-size:10px;line-height:1.4;overflow-wrap:anywhere}
+.ref-project-audio-readiness span[role="alert"]{color:#ffc8db}
+.ref-project-audio-readiness button{border:1px solid #7c5dc3;border-radius:7px;
+ background:#442a71;padding:6px 9px;min-height:32px;color:#fff;font-size:11px}
+@media(max-width:650px){.ref-project-audio-readiness button{min-height:44px}}
