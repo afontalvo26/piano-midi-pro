@@ -576,3 +576,68 @@
   mask-image: linear-gradient(90deg, transparent 0%, #000 21%, #000 100%);
   filter: drop-shadow(0 2px 9px #160626);
 }
+
+/* The instrument catalog is a contextual overlay, not another Studio page. */
+.ref-inspector { position: relative; }
+.ref-instrument-picker {
+  position: absolute;
+  z-index: 9;
+  top: 53px;
+  bottom: 9px;
+  left: 9px;
+  right: 9px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #594083;
+  border-radius: 11px;
+  background: #0e1122;
+  box-shadow: 0 12px 35px #000a, inset 0 1px #ffffff20;
+}
+.ref-instrument-picker-header {
+  padding: 10px 12px;
+  min-height: 44px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex: none;
+  background: linear-gradient(110deg,#302249,#151729);
+  border-bottom: 1px solid #3b3559;
+}
+.ref-instrument-picker-header strong { font-size: 13px; }
+.ref-instrument-picker-header button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #675083;
+  border-radius: 7px;
+  background: #2f2542;
+}
+.ref-instrument-picker > .instrument-browser { min-height: 0; flex: 1; overflow: auto; scrollbar-width: thin; }
+.ref-instrument-picker .instrument-browser__current { padding: 11px 10px 7px; gap: 7px; flex-wrap: wrap; }
+.ref-instrument-picker .instrument-browser__current-copy strong { font-size: 14px; }
+.ref-instrument-picker .instrument-browser__current-copy > span:last-child { font-size: 10px; }
+.ref-instrument-picker .instrument-browser__toggle { min-height: 29px; padding: 5px 9px; font-size: 11px; }
+.ref-instrument-picker .instrument-browser__attribution { padding: 0 10px 9px; }
+.ref-instrument-picker .instrument-browser__catalog {
+  min-height: 0;
+  max-height: none;
+  overflow: visible;
+  padding: 11px 9px;
+}
+.ref-instrument-picker .instrument-browser__filters { grid-template-columns: 1fr; gap: 7px; }
+.ref-instrument-picker .instrument-browser__filters select { min-height: 32px; padding: 5px; font-size: 11px; }
+.ref-instrument-picker .instrument-browser__presets { grid-template-columns: 1fr; gap: 6px; }
+.ref-instrument-picker .instrument-browser__presets li { padding: 7px 9px; }
+.ref-instrument-picker .instrument-browser__presets button { min-height: 45px; }
+.ref-instrument-picker-advanced {
+  flex: none;
+  border: 0;
+  border-top: 1px solid #43385e;
+  background: #1b1731;
+  color: #d6c7f0;
+  min-height: 35px;
+  font-size: 11px;
+}
