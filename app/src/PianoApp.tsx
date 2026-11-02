@@ -2472,6 +2472,7 @@ export default function PianoApp() {
           recording={recording}
           midiConnected={midiListening}
           midiStatus={liveMidiStatus}
+          outputLatencyEstimateMs={engine.outputBufferLatencyEstimateMs()}
           instrumentName={getInstrument(activeInstrumentId)?.engineId === "salamander"
             ? "Piano de concierto" : getInstrument(activeInstrumentId)?.label ?? "Instrumento"}
           instrumentCategory={getInstrument(activeInstrumentId)?.engineId === "salamander"
