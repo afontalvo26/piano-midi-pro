@@ -14,7 +14,8 @@
 - [x] Escribir pruebas para volumen de envío, stems y reversibilidad en PR #1.
 - [ ] Conseguir corrida válida de esas pruebas, TypeScript, lint y build; los jobs Actions actuales fallan antes de entrar en un runner.
 - [ ] Medir y corregir mute/solo en las rutas paralelas y su efecto en el transporte y los stems.
-- [ ] Implementar tap aislado de buses con envíos, sin contribuciones de rutas directas/master.
+- [x] Proponer tap aislado de buses con envíos, sin contribuciones de rutas directas/master, y escribir aserciones antidesbordamiento.
+- [ ] Ejecutar pruebas reales de esos taps, corregir fallos y validar en salida física.
 - [ ] Diseñar y aprobar detector sidechain, control de reducción, lookahead y paridad live/offline.
 - [ ] Implementar y medir sidechain kick→808, A/B y reducción de clics.
 - [ ] Registrar medición de headroom, clipping y estrés de 37+37 en hardware real.
