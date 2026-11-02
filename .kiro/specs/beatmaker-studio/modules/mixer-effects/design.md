@@ -13,3 +13,40 @@ La ruta se calibra con referencias a -dBFS y headroom acordado; los límites se 
 ## Integración
 
 INS y SMP entregan voces al bus de pista; AUD inserta monitor/resample en puntos explícitos; ARR gobierna mute/solo musical; EXP renderiza mezcla y stems con la misma topología.
+
+
+## Corte MIX-01 — rutas post-fader y política segura (propuesta sin aceptación)
+
+La implementación propuesta en `app/src/audio/projectAudioSink.ts` añade a cada
+`TrackSlot` una colección de `Tone.Gain` de envíos. El recorrido de señal
+por pista es `volume → inserts → muteGate → panner → meter`. Tras el
+`meter`, la salida principal va al bus de salida/master y cada envío
+dispone de su propio nivel lineal `10 ** (gainDb / 20)` hacia su bus
+auxiliar. Cada conexión usa el mismo `AudioContext`; el renderer aislado
+crea un grafo con las mismas rutas. Los nodos de envío se destruyen con el slot.
+
+`assertSafeAudioRouting` recorre aristas de salida principal y envíos:
+valida existencia/tipo del bus, ganancia finita y grafo acíclico **antes** de
+crear los nodos. El mezclador excluye destinos que regresarían a la fuente,
+pero la comprobación del motor permanece obligatoria para snapshots externos
+o cambiados por otra pestaña. No se añade un controlador MIDI universal.
+
+Las modificaciones del nivel y de la topología se guardan por
+`onTrackMix` como comandos de proyecto reversibles. Un nuevo render
+recrea el grafo correspondiente a su revisión; no se promete reconfigurar el
+grafo en caliente sin interrupción.
+
+**Aceptación pendiente:** comprobar audio de envío, ausencia de feedback,
+guardar/deshacer/rehacer/reabrir, 320 px y paridad del master/stems en
+Playwright y una revisión de headroom de la mezcla real. El nuevo
+`tests/e2e/project-mixer-sends.spec.ts` es evidencia diseñada, no resultado
+ejecutado. El sidechain MIX-04 y A/B MIX-06 siguen pendientes.
+
+### Limitaciones deliberadas
+
+- El render del tap `post-bus-pre-master` todavía rechaza buses con
+  envíos en sus rutas. Un bus stem con envíos paralelos también se rechaza
+  para no mezclar accidentalmente la ruta directa al master.
+- La semántica de mute/solo cuando una pista utiliza salidas paralelas
+  requiere prueba y cierre explícitos, incluido silencio de colas.
+- No se declara compensación de latencia de plugins ni sidechain implementado.
