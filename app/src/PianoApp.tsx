@@ -2430,6 +2430,7 @@ export default function PianoApp() {
 
       <main className="piano-app__main">
         {screen === "studio" && referenceStudioOpen && <ReferenceStudio
+          key={projectView?.document.id ?? "empty-project"}
           document={projectView?.document ?? null}
           workspace={workspace}
           loopEnabled={studioLoopEnabled}
