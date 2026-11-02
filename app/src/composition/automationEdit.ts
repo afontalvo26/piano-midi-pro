@@ -134,8 +134,12 @@ export function writeAutomationTouchGesture(document: ProjectDocumentV1, laneId:
   if (!orderedSamples.length) throw new RangeError("El gesto Touch no contiene muestras");
   const startTick = orderedSamples[0]![0];
   const endTick = orderedSamples.at(-1)![0];
+  const ownerClip = lane.target.scope === "clip"
+    ? document.clips.find((clip) => clip.id === lane.target.ownerId) : undefined;
+  const maxTick = ownerClip ? Math.max(0, ownerClip.lengthTicks - 1) : Number.MAX_SAFE_INTEGER;
+  if (endTick > maxTick) throw new RangeError("Gesto Touch fuera de la duración del clip");
   // ~15 ms at 120 BPM; intentionally short and deterministic in tick space.
-  const returnTick = Math.min(Number.MAX_SAFE_INTEGER, endTick + 30);
+  const returnTick = Math.min(maxTick, endTick + 30);
   const returnValue = laneValueAt(document, lane, returnTick);
   const preserved = lane.points.filter((point) => point.tick < startTick || point.tick > returnTick);
   const created: ProjectAutomationPoint[] = [];
@@ -146,7 +150,7 @@ export function writeAutomationTouchGesture(document: ProjectDocumentV1, laneId:
   for (const [tick, value] of orderedSamples) {
     created.push({ id: nextId(), tick, value, shape: "linear" });
   }
-  if (!created.some((point) => point.tick === returnTick)) {
+  if (returnTick > endTick && !created.some((point) => point.tick === returnTick)) {
     created.push({ id: nextId(), tick: returnTick, value: returnValue, shape: "linear" });
   }
   return replacePoints(document, lane, [...preserved, ...created], at);
