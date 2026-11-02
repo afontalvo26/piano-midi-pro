@@ -2481,6 +2481,15 @@ export default function PianoApp() {
           }}
           activeTrackId={projectTrack?.id}
           saveStatus={projectView?.status ?? "none"}
+          problem={projectView?.error || projectsError || instrumentError || midiError || undefined}
+          loadingLabel={projectSwitching ? "Abriendo proyecto…" :
+            projectAudioPreparing ? "Preparando audio del proyecto…" :
+            loadingInstrumentId ? "Cargando instrumento…" : undefined}
+          onRetrySave={() => {
+            void projectSessionRef.current?.save().catch((cause:unknown)=>{
+              setProjectsError(cause instanceof Error?cause.message:"No se pudo reintentar el guardado");
+            });
+          }}
           transport={projectTransport}
           tick={projectTick}
           bpm={visibleProjectBpm || String(bpm)}
