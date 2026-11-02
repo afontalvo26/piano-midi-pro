@@ -28,7 +28,7 @@ Las coordenadas anteriores se prueban con `tests/e2e/studio-reference-ui.spec.ts
 - Inspector a derecha: portada del piano tomada de la imagen aprobada, título real del sonido seleccionado, macros en círculos, estado MIDI real y miniteclado.
 - Mixer inferior con faders, pan, mute/solo, medidores y master. El usuario debe poder cambiar el volumen y revertirlo con los comandos del proyecto.
 - No reportar CPU o latencia con números simulados. Cuando no exista medición, indicar `—` o `Sin medir`.
-- Los cuatro macros de la portada son **una maqueta de control** hasta estar vinculados a parámetros de audio, tarea fuera de este corte UI. No confundir la visualización con procesamiento real.
+- Los cuatro macros del instrumento están conectados mediante comandos reversibles a filtro, EQ3, reverb y compresor de la pista seleccionada. Sus valores deben derivarse de los efectos reales, nunca de una simulación local.
 - Mantener todas las funciones anteriores mediante acceso al editor completo mientras se termina la migración visual, sin borrar botones de acción de la app anterior.
 
 ## Código del shell
@@ -49,3 +49,31 @@ Las coordenadas anteriores se prueban con `tests/e2e/studio-reference-ui.spec.ts
 6. Validar navegación por teclado, foco, alto contraste y controles táctiles en navegador real.
 
 **Estado a la fecha de esta propuesta:** JSX/CSS y pruebas **escritos en GitHub**, sin screenshot de aplicación compilada ni corrida de pruebas validada en el entorno actual. El bloqueo de runner Actions del repo permanece en el issue #2. Este documento no equivale a aceptación visual.
+
+
+## Tanda funcional posterior — 2026-11-02
+
+Los siguientes controles ya tienen **implementación de código** en esta rama, todavía sin ejecutar pruebas de navegador:
+
+| Control visible | Acción vinculada | Prueba escrita |
+|---|---|---|
+| Seleccionar y arrastrar clip | Selección de patrón y movimiento con comando reversible; teclado ←/→ desplaza en 1/16 | `studio-reference-ui.spec.ts` |
+| Dibujar clip | Reutiliza patrón existente de la pista y crea clip, sincronizado con documento | `studio-reference-ui.spec.ts` |
+| Cortar clip | Divide patrones o audio con operadores oficiales | `studio-reference-ui.spec.ts` |
+| Cuantizar 1/16 | Reemplaza notas del patrón por comando versionado, con Undo | `referenceArrangementActions.ts` (falta caso de aceptación específico de UI) |
+| Compás/cabezal | Ruler accesible apunta al tick real del transporte | Pendiente integración E2E con audio |
+| Región de bucle 5–12 | Reconfigura scheduler musical y cancela epochs anteriores | `sequencer-transport.spec.ts` |
+| Teclado 37 y octavas | Piano virtual original, note-on/off reales, rango MIDI, tres pedales | `studio-reference-ui.spec.ts` |
+| Brillo, Cuerpo, Reverb, Dinámica | Actualiza filtro, EQ3, reverb y compresor por comandos persistidos | `studio-reference-ui.spec.ts` |
+| Partitura | Staff de solo lectura renderizado desde notas del patrón; botón permite edición en Piano Roll | `studio-reference-ui.spec.ts` |
+| Inspector del clip | Muestra datos reales de la pista y permite silenciar/activar/eliminar clip | `studio-reference-ui.spec.ts` |
+| Mixer y biblioteca | Usa callbacks reales y conserva editores avanzados | `studio-reference-ui.spec.ts` |
+
+### Límites técnicos pendientes
+
+- La UI aún requiere **build y prueba completa en navegador**, incluyendo una comparación real con el screenshot aprobado; el PR continúa en borrador.
+- El selector de biblioteca controla el **instrumento en vivo**. La selección de presets por pista de arreglo necesita correspondencia con el motor de proyectos para los instrumentos WAF; no se asume que cambiar el preset global reescribe pistas.
+- La notación implementada es lectura básica de notas, no grabado profesional ni edición de pentagrama.
+- CPU y latencia física siguen sin estar medidos; no mostrar métricas simuladas.
+- Quedan tareas del producto no reducidas a UI: funciones de automatización e instrumentos, QA de 113 criterios, dispositivos reales, compatibilidad móvil y licencias.
+- Deben ejecutarse las pruebas de `studio-reference-ui.spec.ts` y `sequencer-transport.spec.ts` con el runner funcional. Un archivo de prueba escrito no constituye aceptación.
