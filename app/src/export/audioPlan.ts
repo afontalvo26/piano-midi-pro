@@ -76,8 +76,8 @@ export function planProjectAudioExport(document: ProjectDocumentV1,
   // All three modes use isolated outputs. Bus stems are captured after the
   // selected bus's inserts/pan; direct stems capture only primary master
   // outlets, independently of any send returns.
-  // The offline renderer consumes the same resolver as project playback. This
-  // preflight rejects effect/clip/bezier lanes instead of silently omitting them.
+  // The offline renderer consumes the same resolver as project playback.
+  // Unsupported targets still fail here instead of being silently omitted.
   createBaseAutomationResolver(document,
     new MusicalClock(document.tempoMap, document.meterMap));
   const unsupportedEffect = [...document.mix.masterEffects,
