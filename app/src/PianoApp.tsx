@@ -3149,6 +3149,11 @@ export default function PianoApp() {
                     playMode: event.target.value === "loop" ? "gate" : sampleRegionDraft.playMode })}>
                   <option value="none">Sin loop</option><option value="loop">Repetir región</option>
                 </select></label>
+                <label>Motor de duración<select aria-label="Motor de duración de muestra" value="repitch"
+                  onChange={() => undefined}>
+                  <option value="repitch">Repitch · tono y duración vinculados</option>
+                  <option value="stretch" disabled>Time-stretch · no disponible</option>
+                </select><small>El sampler actual usa repitch explícito. Time-stretch de calidad está deshabilitado en vez de simularse cambiando el tono.</small></label>
                 <label className="piano-app__sample-check"><input type="checkbox" checked={sampleRegionDraft.reverse}
                   onChange={(event) => setSampleRegionDraft({ ...sampleRegionDraft, reverse: event.target.checked })} /> Reversa</label>
               </div>
