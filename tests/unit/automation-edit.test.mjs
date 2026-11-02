@@ -240,4 +240,18 @@ test("clip gain usa ticks locales, Touch queda dentro del clip y la copia conser
   assert(written.document.automation[0].points.every((point) => point.tick < clip.lengthTicks));
   assert.throws(() => writeAutomationTouchGesture(touch.document, "clip-lane",
     [{ tick: 960, value: -6 }]), /duración del clip/);
+  const sourceLane = written.document.automation[0];
+  const duplicated = applyCommand(written.document, {
+    kind: "duplicateClipWithAutomation", clipId: clip.id, expectedClip: clip,
+    expectedLanes: [sourceLane], newClipId: "audio-clip-copy", startTick: 3840,
+    newLaneIds: ["clip-lane-copy"],
+    newPointIds: [sourceLane.points.map((_, index) => `clip-copy-point-${index}`)],
+    at: 4003,
+  });
+  const copiedLane = duplicated.document.automation.find((lane) => lane.id === "clip-lane-copy");
+  assert.equal(copiedLane.target.ownerId, "audio-clip-copy");
+  assert.deepEqual(copiedLane.points.map((point) => [point.tick, point.value]),
+    sourceLane.points.map((point) => [point.tick, point.value]));
+  assert.notDeepEqual(copiedLane.points.map((point) => point.id),
+    sourceLane.points.map((point) => point.id));
 });
