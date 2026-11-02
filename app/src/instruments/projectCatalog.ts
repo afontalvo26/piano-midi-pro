@@ -45,7 +45,7 @@ export const PROJECT_INSTRUMENTS: readonly ProjectInstrumentDescriptor[] = [
     family: "Bajos / percusión afinada",
     engine: "sample-808",
     source: "TR-808 sample source verificada en el manifiesto del proyecto",
-    license: "Ver manifiesto del paquete",
+    license: "CC0-1.0",
     packageState: "installed",
     packageVersion: TR808_FISCHER_VERSION,
     presetId: "core",
