@@ -63,6 +63,7 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
 }
 
 const TRACK_COLORS = ["violet","green","cyan","purple"] as const;
+const DEFAULT_METER_MAP: ProjectDocumentV1["meterMap"] = [{tick:0,numerator:4,denominator:4}];
 const NAV: { id: StudioWorkspace | "library"; label: string; icon: IconName }[] = [
   { id: "performance", label: "Interpretar", icon: "play" },
   { id: "piano-roll", label: "Crear", icon: "edit" },
@@ -173,10 +174,10 @@ export function ReferenceStudio({
       (track): track is ProjectTrack => !!track && track.kind !== "bus");
   }, [document]);
   const bars = 16;
-  const meterMap = document?.meterMap ?? [{tick:0,numerator:4,denominator:4}];
+  const meterMap = document?.meterMap ?? DEFAULT_METER_MAP;
   const meter = [...meterMap].reverse().find((point)=>point.tick<=Math.max(0,tick)) ?? meterMap[0];
   const barTicks = useMemo(() => Array.from({length:bars+1},(_,i)=>
-    studioBarStartTick(meterMap,i+1)),[document?.meterMap]);
+    studioBarStartTick(meterMap,i+1)),[meterMap]);
   const endTick = barTicks[bars]!;
   const ticksPerBar = barTicks[1]! - barTicks[0]!;
   const playheadPercent = Math.min(100, Math.max(0, tick / endTick * 100));
