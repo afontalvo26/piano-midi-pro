@@ -2458,7 +2458,47 @@ export default function PianoApp() {
               loadingProgress={instrumentLoadingProgress} onCancel={cancelInstrumentLoad}
               failedId={failedInstrumentId} error={instrumentError} notice={instrumentNotice}
               onSelect={(id) => { void chooseInstrument(id); }} />}
-          editor={workspace === "mixer" && projectView ? (<ProjectMixer document={projectView.document}
+          editor={workspace === "drums" && drumPattern ? (<DrumMachine pattern={drumPattern} pads={drumPads} document={projectView?.document}
+              track={drumTrack} padStatuses={drumTrack?.drumRack &&
+                preparedProjectDocument === projectView?.document
+                ? engine.projectPadStatus(drumTrack.id) : undefined}
+              sourceOptions={drumSourceOptions} projectName={projectView?.document.name}
+              trackName={drumTrack?.name} meter={projectView?.document.meterMap[0]}
+              saveState={projectView?.status} externalError={projectView?.error ?? undefined}
+              onCommand={(command: ProjectCommand) => {
+                if (!projectSessionRef.current) throw new Error("Abre un proyecto antes de editar batería");
+                projectSessionRef.current.dispatch(command);
+              }}
+              onUndo={() => { projectSessionRef.current?.undo(); }}
+              onRedo={() => { projectSessionRef.current?.redo(); }}
+              canUndo={projectView?.canUndo} canRedo={projectView?.canRedo}
+              onPreviewPad={(pad, ownerId) => {
+                const padNote = pad.midiNote;
+                if (!drumTrack || padNote === null || !projectView) return;
+                const projectId = projectView.document.id;
+                const owner = `preview/${ownerId}`;
+                void (async () => {
+                  if (!(await prepareProjectAudio()) ||
+                      projectSessionRef.current?.getSnapshot().document.id !== projectId) return;
+                  const played = await engine.previewProjectPad(drumTrack.id, padNote, 0.78, owner);
+                  if (played) releaseProjectPreviewLater(owner, 600);
+                  else setProjectAudioStatus("No se pudo escuchar este pad.");
+                })().catch((cause: unknown) => setProjectAudioStatus(cause instanceof Error
+                  ? cause.message : "Falló la preescucha del pad"));
+              }} onPreviewRackPad={(pad, ownerId) => {
+                if (!drumTrack || !projectView) return;
+                const projectId = projectView.document.id;
+                const owner = `preview/${ownerId}`;
+                void (async () => {
+                  if (!(await prepareProjectAudio()) ||
+                      projectSessionRef.current?.getSnapshot().document.id !== projectId) return;
+                  const played = await engine.previewProjectRackPad(drumTrack.id, pad.id, 0.78, owner);
+                  if (played) releaseProjectPreviewLater(owner, 600);
+                  else setProjectAudioStatus("No se pudo escuchar este pad.");
+                })().catch((cause: unknown) => setProjectAudioStatus(cause instanceof Error
+                  ? cause.message : "Falló la preescucha del pad"));
+              }} />) :
+            workspace === "mixer" && projectView ? (<ProjectMixer document={projectView.document}
             meter={trackMeters} masterMeter={visibleProjectMeters?.masterMeter}
             onTrackMix={commitTrackMix} onMasterMix={commitMasterMix}
             onTrackEffects={commitTrackEffects} onMasterEffects={commitMasterEffects}
