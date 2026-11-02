@@ -863,7 +863,7 @@ export class ProjectAudioSink implements SequencerSink {
     readonly ramp: (value: number, time: number) => void;
   } {
     const descriptor = projectAutomationParameter(this.document, target);
-    if (!descriptor || target.scope === "clip") {
+    if (!descriptor) {
       throw new RangeError("Parámetro no automatizable en vivo");
     }
     if (target.scope === "clip" && target.ownerId && !target.effectId &&
