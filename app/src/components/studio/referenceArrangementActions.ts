@@ -71,6 +71,10 @@ export function quantizeStudioClip(document: ProjectDocumentV1,
   }
   const pattern = document.patterns.find((item) => item.id === clip.sourceId);
   if (!pattern) throw new RangeError("El patrón seleccionado ya no existe");
+  const sharedCount = document.clips.filter((item)=>
+    item.kind==="pattern" && item.sourceId===clip.sourceId).length;
+  if(sharedCount>1) throw new RangeError(
+    `Patrón compartido por ${sharedCount} clips. Usa «Hacer único» para no cuantizar otras instancias.`);
   if (!Number.isSafeInteger(quantum) || quantum < 1) {
     throw new RangeError("Cuantización inválida");
   }
