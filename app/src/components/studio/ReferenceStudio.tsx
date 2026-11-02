@@ -82,6 +82,7 @@ export interface ReferenceStudioProps {
   masterLevel?: { peak: number; rms: number; clipped: boolean };
   trackLevels?: Readonly<Record<string, { peak: number; rms: number; clipped: boolean }>>;
   editor: ReactNode;
+  instrumentPicker: ReactNode;
   onWorkspace: (value: StudioWorkspace) => void;
   onLibrary: () => void;
   onProjects: () => void;
@@ -114,12 +115,13 @@ function Meter({ peak, tall = false }: { peak?: number; tall?: boolean }) {
 export function ReferenceStudio({
   document, workspace, activeTrackId, saveStatus, transport, tick, bpm,
   metronome, recording, midiConnected, midiStatus, instrumentName, instrumentCategory,
-  masterLevel, trackLevels, editor, onWorkspace, onLibrary, onProjects, onSettings,
+  masterLevel, trackLevels, editor, instrumentPicker, onWorkspace, onLibrary, onProjects, onSettings,
   onNew, onPlay, onStop, onRecord, onMetronome, onTempoDraft, onTempoCommit,
   onTrackSelect, onOpenPattern, onTrackMix, onMasterGain, onFullEditor, onFullMixer,
 }: ReferenceStudioProps) {
   const [tool, setTool] = useState<"select" | "draw" | "cut">("select");
   const [inspector, setInspector] = useState<"instrument" | "inspect">("instrument");
+  const [instrumentChooserOpen, setInstrumentChooserOpen] = useState(false);
   const [mixerOpen, setMixerOpen] = useState(true);
   const [loopOn, setLoopOn] = useState(false);
   const [macroValues, setMacroValues] = useState([72, 85, 28, 78]);
@@ -222,7 +224,7 @@ export function ReferenceStudio({
         {NAV.map((item) => <button type="button" key={item.id}
           className={workspace === item.id ? "is-current" : ""}
           aria-current={workspace === item.id ? "page" : undefined}
-          onClick={() => item.id === "library" ? onLibrary() : onWorkspace(item.id)}>
+          onClick={() => item.id === "library" ? setInstrumentChooserOpen(true) : onWorkspace(item.id)}>
           <Icon name={item.icon} size={24}/><span>{item.label}</span>
         </button>)}
       </nav>
@@ -367,8 +369,14 @@ export function ReferenceStudio({
           <button type="button" className={inspector==="inspect"?"is-selected":""}
             onClick={()=>setInspector("inspect")}>Inspector</button>
         </div>
-        {inspector==="instrument"?<>
-          <button type="button" className="ref-instrument-card" onClick={onLibrary}
+        {instrumentChooserOpen ? <div className="ref-instrument-picker" aria-label="Biblioteca de instrumentos">
+          <div className="ref-instrument-picker-header"><strong>Biblioteca de instrumentos</strong>
+            <button type="button" onClick={()=>setInstrumentChooserOpen(false)} aria-label="Cerrar biblioteca"><Icon name="close" size={16}/></button>
+          </div>
+          {instrumentPicker}
+          <button type="button" className="ref-instrument-picker-advanced" onClick={onLibrary}>Abrir configuración completa</button>
+        </div> : inspector==="instrument"?<>
+          <button type="button" className="ref-instrument-card" onClick={()=>setInstrumentChooserOpen(true)}
             title="Elegir instrumento">
             <span className="ref-instrument-title">
               <strong>{instrumentName}</strong><small>{instrumentCategory}</small>
