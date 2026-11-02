@@ -16,7 +16,7 @@ $checks = @(
   @{ Label = "sdd-evidence"; Command = "node scripts/verify-beatmaker-acceptance.mjs --check"; Limit = 20; App = $false },
   @{ Label = "midi-fixtures"; Command = "node --test tests/unit/smk37-capture.test.mjs"; Limit = 20; App = $false },
   @{ Label = "studio-tsc"; Command = "npx tsc -b"; Limit = 180; App = $true },
-  @{ Label = "studio-lint"; Command = "npx eslint src/audio/projectAudioSink.ts src/audio/renderProjectBusPcm.ts src/audio/renderProjectPcm.ts src/components/tracks/ProjectMixer.tsx src/components/tracks/ProjectBusResamplePanel.tsx src/project/busResampleRouting.ts src/project/mixRouting.ts"; Limit = 120; App = $true },
+  @{ Label = "studio-lint"; Command = "npx eslint src/audio/projectAudioSink.ts src/audio/offlineRenderRealm.ts src/audio/renderProjectBusPcm.ts src/audio/renderProjectPcm.ts src/components/tracks/ProjectMixer.tsx src/components/tracks/ProjectBusResamplePanel.tsx src/project/busResampleRouting.ts src/project/mixRouting.ts src/project/model.ts src/project/validate.ts src/export/audioPlan.ts src/export/projectWav.ts"; Limit = 120; App = $true },
   @{ Label = "studio-build"; Command = "npx vite build"; Limit = 300; App = $true },
   @{ Label = "studio-dist"; Command = "node scripts/audit-studio-dist.mjs"; Limit = 20; App = $false },
   @{ Label = "studio-focal"; Command = "npx playwright test tests/e2e/project-bus-routing-preflight.spec.ts tests/e2e/project-bus-resample.spec.ts tests/e2e/project-studio-bus-resample.spec.ts tests/e2e/project-mixer-sends.spec.ts tests/e2e/project-four-bar-flow.spec.ts tests/e2e/project-bundle-preview.spec.ts tests/e2e/audio-live-voice.spec.ts --workers=1 --retries=0"; Limit = 540; App = $false }
