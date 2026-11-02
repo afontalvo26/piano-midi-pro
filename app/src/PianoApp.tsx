@@ -2435,6 +2435,8 @@ export default function PianoApp() {
             const range = enabled ? {startTick:barTicks * 4,endTick:barTicks * 12} : null;
             engine.setProjectLoopRange(range);
             setStudioLoopEnabled(enabled);
+            if(enabled) setStudioPendingSeek((current)=>
+              current !== null && current >= barTicks*12 ? barTicks*4 : current);
             setProjectTick(engine.projectTransportTick() ?? projectTick);
           }}
           onSeekTick={(requested) => {
