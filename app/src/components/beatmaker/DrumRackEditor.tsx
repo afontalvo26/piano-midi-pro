@@ -175,6 +175,7 @@ export function DrumRackEditor(props: DrumRackEditorProps) {
         channel: numberField(form, "channel", 1, 16, true) - 1,
         source, gainDb: numberField(form, "gainDb", -120, 24),
         pan: numberField(form, "pan", -1, 1),
+        velocitySensitivity: numberField(form, "velocitySensitivity", 0, 2),
         pitchSemitones: numberField(form, "pitchSemitones", -24, 24),
         startFrame: numberField(form, "startFrame", 0, Number.MAX_SAFE_INTEGER, true),
         ...(endFrame === undefined ? {} : { endFrame }), attackMs: numberField(form, "attackMs", 0, 10000),
@@ -317,6 +318,10 @@ export function DrumRackEditor(props: DrumRackEditorProps) {
           step="any" defaultValue={selectedPad.gainDb} required /></label>
         <label>Pan −1 a 1<input name="pan" type="number" inputMode="decimal" min={-1} max={1}
           step="any" defaultValue={selectedPad.pan} required /></label>
+        <label>Sensibilidad velocity<input name="velocitySensitivity" aria-label="Sensibilidad velocity del pad"
+          type="number" inputMode="decimal" min={0} max={2} step={0.05}
+          defaultValue={selectedPad.velocitySensitivity ?? 1} required />
+          <small>0 = casi fija · 1 = normal · 2 = más dinámica</small></label>
         <label>Tono semitonos<input name="pitchSemitones" type="number" inputMode="decimal"
           min={-24} max={24} step="any" defaultValue={selectedPad.pitchSemitones} required /></label>
         <label>Inicio frame<input name="startFrame" type="number" inputMode="numeric" min={0}
