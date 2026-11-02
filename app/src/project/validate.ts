@@ -431,6 +431,16 @@ function validateTracks(value: unknown, allIds: Set<string>): Map<string, JsonOb
     finite(mix.pan, `${path}.mix.pan`, -1, 1);
     for (const field of ["mute", "solo", "armed"] as const) boolean(mix[field], `${path}.mix.${field}`);
     if (mix.outputBusTrackId !== undefined) id(mix.outputBusTrackId, `${path}.mix.outputBusTrackId`);
+    if (mix.sidechain !== undefined) {
+      if (track.kind === "bus") invalid(`${path}.mix.sidechain`, "un bus no puede ser destino sidechain");
+      const sidechain = object(mix.sidechain, `${path}.mix.sidechain`);
+      id(sidechain.sourceTrackId, `${path}.mix.sidechain.sourceTrackId`);
+      finite(sidechain.thresholdDb, `${path}.mix.sidechain.thresholdDb`, -60, 0);
+      finite(sidechain.ratio, `${path}.mix.sidechain.ratio`, 1, 20);
+      finite(sidechain.attackMs, `${path}.mix.sidechain.attackMs`, 0.1, 250);
+      finite(sidechain.releaseMs, `${path}.mix.sidechain.releaseMs`, 1, 2000);
+      finite(sidechain.maxReductionDb, `${path}.mix.sidechain.maxReductionDb`, 0, 36);
+    }
     array(mix.sends, `${path}.mix.sends`, 128).forEach((sendValue, sendIndex) => {
       const sendPath = `${path}.mix.sends[${sendIndex}]`;
       const send = object(sendValue, sendPath);
@@ -845,6 +855,7 @@ function validateAutomation(value: unknown, tracks: Map<string, JsonObject>, cli
 
 function validateRouting(tracks: Map<string, JsonObject>): void {
   const edges = new Map<string, string[]>();
+  const sidechainEdges = new Map<string, string>();
   for (const [trackId, track] of tracks) {
     const mix = object(track.mix, `tracks.${trackId}.mix`);
     const destinations: string[] = [];
@@ -857,8 +868,32 @@ function validateRouting(tracks: Map<string, JsonObject>): void {
       if (tracks.get(destination)?.kind !== "bus") invalid(`tracks.${trackId}.mix`, "bus destino inexistente");
       if (destination === trackId) invalid(`tracks.${trackId}.mix`, "retroalimentación directa");
     }
+    if (mix.sidechain !== undefined) {
+      const sidechain = object(mix.sidechain, `tracks.${trackId}.mix.sidechain`);
+      const sourceTrackId = sidechain.sourceTrackId as string;
+      const source = tracks.get(sourceTrackId);
+      if (!source || source.kind === "bus") {
+        invalid(`tracks.${trackId}.mix.sidechain.sourceTrackId`, "la fuente sidechain debe ser una pista de audio/MIDI existente");
+      }
+      if (sourceTrackId === trackId) {
+        invalid(`tracks.${trackId}.mix.sidechain.sourceTrackId`, "una pista no puede detectarse a sí misma");
+      }
+      sidechainEdges.set(trackId, sourceTrackId);
+    }
     edges.set(trackId, destinations);
   }
+  const sidechainVisiting = new Set<string>();
+  const sidechainVisited = new Set<string>();
+  const visitSidechain = (trackId: string): void => {
+    if (sidechainVisiting.has(trackId)) invalid("tracks.mix.sidechain", "ciclo de detectores sidechain");
+    if (sidechainVisited.has(trackId)) return;
+    sidechainVisiting.add(trackId);
+    const source = sidechainEdges.get(trackId);
+    if (source) visitSidechain(source);
+    sidechainVisiting.delete(trackId);
+    sidechainVisited.add(trackId);
+  };
+  for (const trackId of tracks.keys()) visitSidechain(trackId);
   const visiting = new Set<string>();
   const visited = new Set<string>();
   const visit = (trackId: string): void => {
