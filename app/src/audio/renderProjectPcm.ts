@@ -4,6 +4,7 @@ import type { TransportSnapshot } from "../sequencer/transportScheduler";
 import { MusicalClock } from "../sequencer/musicalClock";
 import type { UserSampleReader } from "./userSampleAsset";
 import type { ProjectAudioDiagnostics } from "./projectAudioSink";
+import { findBusResampleRoutes } from "../project/busResampleRouting.ts";
 
 export interface RenderProjectOptions {
   readonly startTick: number;
@@ -107,47 +108,37 @@ function selectTracks(document: ProjectDocumentV1, options: RenderProjectOptions
   if (options.tapBusTrackId && tapBus?.kind !== "bus") {
     throw new RangeError("El punto de resampling debe ser una pista bus existente");
   }
-  // A tapped bus receives both primary outputs and parallel sends. Include
-  // only graph paths that can reach that bus; other paths are built as silent
-  // placeholders and never reach the chosen offline output.
+  // Shared route selection keeps the render tap identical to the source
+  // preview and bus-resample install. It includes parallel sends and nested
+  // buses, but only those paths which actually reach the selected tap.
   const include = new Set(sourceIds);
-  const reachesTap = (id: string, seen = new Set<string>()): boolean => {
-    if (id === options.tapBusTrackId) return true;
-    if (seen.has(id)) throw new RangeError("Ciclo de bus en render aislado");
-    const track = byId.get(id);
-    if (!track) throw new RangeError(`Ruta de audio ${id} inexistente`);
-    const nextSeen = new Set(seen);
-    nextSeen.add(id);
-    const destinations = [track.mix.outputBusTrackId,
-      ...track.mix.sends.map((send) => send.busTrackId)]
-      .filter((next): next is string => next !== undefined);
-    return destinations.some((next) => {
-      const bus = byId.get(next);
-      if (bus?.kind !== "bus") throw new RangeError(`Bus ${next} ausente`);
-      return reachesTap(next, nextSeen);
-    });
-  };
-  for (const id of sourceIds) {
-    if (options.tapBusTrackId && !reachesTap(id)) {
-      throw new RangeError(`Pista ${id} no llega al bus de resampling`);
+  if (options.tapBusTrackId) {
+    const routes = findBusResampleRoutes(document, options.tapBusTrackId, "",
+      [...sourceIds]);
+    if (routes.sourceTrackIds.length !== sourceIds.size) {
+      throw new RangeError("Una pista no llega al bus de resampling");
     }
-  }
-  const pending = [...sourceIds];
-  const visited = new Set<string>();
-  while (pending.length) {
-    const id = pending.pop()!;
-    if (visited.has(id)) continue;
-    visited.add(id);
-    const track = byId.get(id)!;
-    const destinations = [track.mix.outputBusTrackId,
-      ...track.mix.sends.map((send) => send.busTrackId)]
-      .filter((next): next is string => next !== undefined);
-    for (const next of destinations) {
-      const bus = byId.get(next);
-      if (bus?.kind !== "bus") throw new RangeError(`Bus ${next} ausente`);
-      if (options.tapBusTrackId && !reachesTap(next)) continue;
-      include.add(next);
-      if (!visited.has(next)) pending.push(next);
+    for (const track of routes.routedTracks) include.add(track.id);
+  } else {
+    // Master, track stems and direct-master stems need the full ancestry
+    // of every selected source, including its auxiliary send returns.
+    const pending = [...sourceIds];
+    const visited = new Set<string>();
+    while (pending.length) {
+      const id = pending.pop()!;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const track = byId.get(id)!;
+      const destinations = [track.mix.outputBusTrackId,
+        ...track.mix.sends.map((send) => send.busTrackId)]
+        .filter((next): next is string => next !== undefined);
+      for (const next of destinations) {
+        if (byId.get(next)?.kind !== "bus") {
+          throw new RangeError(`Bus ${next} ausente`);
+        }
+        include.add(next);
+        if (!visited.has(next)) pending.push(next);
+      }
     }
   }
   const routedTracks = document.tracks.filter((track) => include.has(track.id));
