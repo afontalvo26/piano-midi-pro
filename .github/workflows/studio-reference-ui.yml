@@ -1,0 +1,59 @@
+name: Studio reference visual QA
+
+on:
+  pull_request:
+    branches:
+      - fix/bus-resample-routing-preflight-20261101
+      - feat/reproductor-instrumentos-reales
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reference-ui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reference-visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            app/package-lock.json
+      - name: Install application and visual test dependencies
+        run: |
+          npm ci
+          npm ci --prefix app
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: TypeScript and production bundle
+        run: |
+          cd app
+          npx tsc -b
+          npx vite build
+      - name: UI-focused lint
+        run: |
+          cd app
+          npx eslint src/PianoApp.tsx src/components/studio/ReferenceStudio.tsx src/components/studio/InstrumentBrowser.tsx
+      - name: Verify reference geometry and interactions
+        run: |
+          npx playwright test tests/e2e/studio-reference-ui.spec.ts --workers=1 --retries=0
+        env:
+          CI: 'true'
+      - name: Preserve screenshot evidence, traces and debug output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-reference-visual-evidence
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore
+          retention-days: 14
