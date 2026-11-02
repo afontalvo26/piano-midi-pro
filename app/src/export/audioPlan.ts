@@ -30,10 +30,11 @@ export interface AudioExportPlan {
   readonly stems: readonly PlannedAudioStem[];
   /** Empty, outside-range or muted source tracks do not produce silent WAVs. */
   readonly omittedSourceTrackIds: readonly string[];
-  /** The common project limiter is nonlinear, so stems need not sum to master. */
+  /** Nonlinear/routed processing can make stems non-additive. */
   readonly stemsAdditive: boolean;
   readonly busStemsOverlap: boolean;
-  readonly projectLimiterIncluded: true;
+  /** True only when an enabled limiter is actually present on the project master chain. */
+  readonly projectLimiterIncluded: boolean;
   /** These are piano-live effects, separate from the included project insert chains. */
   readonly excludedStudioChain: readonly ["piano-live-chorus", "piano-live-reverb",
     "piano-live-compressor", "piano-live-master-volume"];
@@ -152,7 +153,8 @@ export function planProjectAudioExport(document: ProjectDocumentV1,
   return { startTick, endTick, durationSeconds, tailSeconds,
     sampleRate: options.sampleRate, stems, omittedSourceTrackIds,
     stemsAdditive: false, busStemsOverlap,
-    projectLimiterIncluded: true,
+    projectLimiterIncluded: document.mix.masterEffects.some((effect) =>
+      effect.enabled && effect.kind === "limiter"),
     excludedStudioChain: ["piano-live-chorus", "piano-live-reverb",
       "piano-live-compressor", "piano-live-master-volume"] };
 }
