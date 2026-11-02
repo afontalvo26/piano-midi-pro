@@ -38,6 +38,11 @@ test("AUT step/linear: proyecto live-like y WAV tienen mismo PCM grabado", async
         fadeInFrames: 0, fadeOutFrames: 0 }],
       assets: [analyzed.ref], mix: { masterGainDb: -1, masterEffects: [] },
       automation: [
+        { id: "clip-gain", target: { scope: "clip" as const, ownerId: "clip",
+          parameterId: "gainDb" }, points: [
+          { id: "cg0", tick: 0, value: -9, shape: "linear" as const },
+          { id: "cg1", tick: 1440, value: 3, shape: "bezier" as const, curve: -0.6 },
+        ] },
         { id: "gain", target: { scope: "track" as const, ownerId: "audio",
           parameterId: "gainDb" }, points: [
           { id: "g0", tick: 0, value: -18, shape: "linear" as const },
