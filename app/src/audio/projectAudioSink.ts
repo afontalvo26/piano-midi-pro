@@ -936,6 +936,9 @@ export class ProjectAudioSink implements SequencerSink {
     const control = this.automationControl(target);
     validMixNumber(returnValue, control.min, control.max, "Retorno de automatización");
     control.cancel(audioTime);
+    // Also works while stopped/paused. If transport is playing, the immediate
+    // automation replan will cancel this short return and schedule the exact curve.
+    control.ramp(returnValue, audioTime + 0.015);
     this.physicalAutomationReturns.add(key);
   }
 
