@@ -11,3 +11,26 @@ SMF writer usa resolución del proyecto o conversión comprobada a PPQ; ordena t
 ## Paquete
 
 Archivo con manifest JSON canónico, revisión, assets por hash y documentos de licencia. La importación se delega a PRJ, que valida rutas, tamaños, hashes, versión y colisiones antes de confirmar. Los paquetes oficiales con CC BY incorporan créditos; material del usuario se incluye por acción explícita.
+
+
+## Corte EXP-02 — matriz de rutas con sends (sin aceptación)
+
+El planificador permite `stems=none` y `stems=tracks` cuando hay envíos:
+el renderer reconstruye todos los buses alcanzables por salida principal
+**y** envíos desde las fuentes seleccionadas. Un stem de pista representa la
+pista con todos sus envíos y retornos; incluye los efectos de buses y master
+que pasan por la salida general. Los stems con buses compartidos no son
+aditivos ni reconstruyen necesariamente la mezcla al sumarlos, en especial
+con procesadores no lineales. La metadata `sendsIncluded` del WAV/ZIP
+refleja la topología real, sin afirmar aditividad.
+
+`stems=buses` con cualquier envío se rechaza expresamente durante preflight.
+Ese tipo de stem requiere una señal capturada en un bus aislado: filtrar sólo
+las pistas que alcanzan el bus NO basta, porque pueden conservar otras rutas
+a master y generar contenido incorrecto. Tampoco se habilita el tap AUD-06
+en rutas con envíos sin aislamiento completo de la señal.
+
+**Pruebas previstas:** `project-mixer-sends.spec.ts` compara energía de
+master seco/con envío, un stem individual, frames WAV y metadatos, y
+comprueba el rechazo específico del bus stem con sends. Sigue pendiente
+ejecutar y pasar el gate completo.
