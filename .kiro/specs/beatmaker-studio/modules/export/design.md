@@ -41,3 +41,14 @@ master seco/con envío, stem de pista, bus aislado y salida directa;
 `project-bus-resample.spec.ts` comprueba resampling de una fuente que
 sólo llega al bus por un send, excluyendo destino y master. Sigue
 pendiente ejecutar y pasar la regresión real.
+
+
+### Selección audible de fuentes
+
+El preflight `audioPlan.sourceCanReachOutput` recorre salida principal
+y envíos, conservando los caminos hacia master que no tienen un bus
+silenciado y pasando por buses solo cuando hay Solo activo. Una fuente
+que alcanza un bus activo por envío no desaparece por estar silenciada
+su otra salida principal. Los tests de MIX/EXP fijan el caso con bus
+principal silenciado y send activo. Esta regla sólo se considera
+aprobada después de ejecutar las pruebas focales y transversales.
