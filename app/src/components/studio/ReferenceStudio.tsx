@@ -563,7 +563,7 @@ export function ReferenceStudio({
                           if(tool==="cut"&&document){
                             const rect=event.currentTarget.getBoundingClientRect();
                             const inside=Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width));
-                            void executeEdit(()=>cutStudioClip(document,clip.id,clip.startTick+inside*clip.lengthTicks));
+                            void executeEdit(()=>cutStudioClip(document,clip.id,visibleFrom+inside*(visibleUntil-visibleFrom)));
                             return;
                           }
                           setPlayingSelection(clip.id);
