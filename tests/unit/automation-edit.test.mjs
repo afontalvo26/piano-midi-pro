@@ -9,6 +9,7 @@ import { addAutomationPoint, copyAutomationPoints, copySelectedAutomationPoints,
   setAutomationWriteMode, writeAutomationTouchGesture } from "../../app/src/composition/automationEdit.ts";
 import { automationLowerBound, automationValueAtTick, hitAutomationPoint,
   visibleAutomationPointRange } from "../../app/src/composition/automationCanvas.ts";
+import { automationBezierFraction } from "../../app/src/composition/automationCurve.ts";
 
 const mix = { gainDb: 0, pan: 0, mute: false, solo: false, armed: false, sends: [], effects: [] };
 const track = { id: "piano", name: "Piano", kind: "instrument", mix };
@@ -198,4 +199,21 @@ test("AUT effect lane usa el rango real, Touch y CAS sin reconstruir el efecto",
   assert.throws(() => createBaseAutomationLane(withSat,
     { scope: "track", ownerId: track.id, effectId: saturation.id,
       parameterId: "drive" }, 3010, "lane-drive"), /no disponible/);
+});
+
+
+test("Bézier comparte una curva monotónica y curve=0 equivale a lineal", () => {
+  assert.equal(automationBezierFraction(0, 1), 0);
+  assert.equal(automationBezierFraction(1, -1), 1);
+  assert.equal(automationBezierFraction(0.5, 0), 0.5);
+  const slow = automationBezierFraction(0.5, -1);
+  const fast = automationBezierFraction(0.5, 1);
+  assert(slow < 0.5);
+  assert(fast > 0.5);
+  const points = [
+    { id: "b0", tick: 0, value: 0, shape: "bezier", curve: 1 },
+    { id: "b1", tick: 960, value: 1, shape: "step" },
+  ];
+  const middle = automationValueAtTick(points, 480, 0);
+  assert(middle > 0.5 && middle < 1);
 });
