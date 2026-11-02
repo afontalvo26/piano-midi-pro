@@ -48,6 +48,14 @@ test("Mezclador guarda, reordena y omite efectos por pista y master en móvil", 
   await expect(master.getByRole("spinbutton", { name: "Limitador Umbral" })).toHaveValue("-1");
   await page.getByRole("button", { name: "Reproducir" }).click();
   await expect(page.getByRole("button", { name: "Pausar" })).toBeVisible();
+  const comparison = mixer.getByRole("region", { name: "Comparación A/B de Piano" });
+  await comparison.getByRole("button", { name: "B · Procesada" }).click();
+  await expect(comparison.getByRole("button", { name: "B · Procesada" })).toHaveAttribute("aria-pressed", "true");
+  await expect(comparison).toContainText("Nunca se amplifica para igualar");
+  await comparison.getByRole("button", { name: "A · Original" }).click();
+  await expect(comparison.getByRole("button", { name: "A · Original" })).toHaveAttribute("aria-pressed", "true");
+  await comparison.getByRole("button", { name: "Salir A/B" }).click();
+  await expect(comparison.getByRole("button", { name: "Salir A/B" })).toBeDisabled();
   await piano.getByRole("button", { name: "Restaurar parámetros" }).first().click();
   await expect(page.getByRole("button", { name: "Reproducir" })).toBeVisible();
   await expect(piano.getByRole("spinbutton", { name: "EQ de 3 bandas Graves" })).toHaveValue("0");
