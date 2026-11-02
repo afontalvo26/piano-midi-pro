@@ -98,3 +98,17 @@ test("reference Studio preserves touch navigation and horizontal channel scroll"
     body:await page.screenshot(),contentType:"image/png",
   });
 });
+
+test("instrument catalog opens inside the new inspector and closes without changing pages", async ({page}) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({width:1586,height:992});
+  await page.goto("/", {waitUntil:"domcontentloaded"});
+  const shell=page.getByTestId("reference-studio");
+  await shell.getByRole("button", {name:"Biblioteca"}).click();
+  await expect(shell.getByLabel("Biblioteca de instrumentos")).toBeVisible();
+  await expect(shell.getByLabel("Familia de instrumentos")).toBeVisible();
+  await expect(shell.getByLabel("Motor de sonido")).toBeVisible();
+  await shell.getByRole("button", {name:"Cerrar biblioteca"}).click();
+  await expect(shell.getByLabel("Biblioteca de instrumentos")).toHaveCount(0);
+  await expect(shell.getByRole("region", {name:"Editor musical"})).toBeVisible();
+});
