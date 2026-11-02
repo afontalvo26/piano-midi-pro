@@ -595,9 +595,12 @@ export class TransportScheduler {
   private validateAutomation(event: TimelineAutomation, start: number, end: number): void {
     const target = event.target;
     const trackTargetValid = target.scope === "track" && !!target.ownerId &&
+      !(target.effectId && target.sendId) &&
       (target.effectId
         ? !!target.parameterId
-        : target.parameterId === "gainDb" || target.parameterId === "pan");
+        : target.sendId
+          ? target.parameterId === "gainDb"
+          : target.parameterId === "gainDb" || target.parameterId === "pan");
     const masterTargetValid = target.scope === "master" &&
       (target.effectId ? !!target.parameterId : target.parameterId === "masterGainDb");
     const clipTargetValid = target.scope === "clip" && !!target.ownerId &&
