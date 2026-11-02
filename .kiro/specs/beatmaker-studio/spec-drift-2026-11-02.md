@@ -24,7 +24,7 @@
 | SDD-08 · Undo/Redo ausentes | PRJ-02, UXP-06 | Los comandos eran reversibles pero no había acción visible en la nueva pantalla. | **Corregido en código:** acciones reales de sesión y estado `canUndo/canRedo`; falta prueba end-to-end de persistencia/revertir. |
 | SDD-09 · Instrumento por pista no satisfecho | INS-01, INS-06 | El navegador integrado selecciona **sonido live global**, no preset de la pista del proyecto; el sink de proyecto no replica toda la librería WAF. | **Pendiente:** resolver selección/versionado/bancos por pista y paridad live/exportación; no declararlo funcional por el control de biblioteca. |
 | SDD-10 · Cuantización rápida parcial | ROL-04 | El botón del arreglo cuantiza destructivamente el patrón fuente (incluidas otras instancias) sin preescucha/fuerza/swing. | **Parcial:** algoritmo reversible añadido; editor ROL original tiene herramientas avanzadas. Se requiere etiqueta explícita de edición compartida y confirmación/alternativa segura. |
-| SDD-11 · Arreglo limitado | ARR-01, ARR-02, ARR-07 | La vista compacta enseña 16 compases y operaciones básicas, sin todos los gestos avanzados ni navegación de proyectos largos. | **Parcial:** editor Arrangement completo sigue accesible. No afirmar integración completa mientras haya fuga a vista antigua. |
+| SDD-11 · Arreglo limitado | ARR-01, ARR-02, ARR-07 | La vista compacta original enseñaba 16 compases y carecía de varios gestos avanzados. | **Parcial corregido en código:** navegación 4/8/16/32, edición de clips y agrupación persistente ya existen entre el Studio compacto y Arrangement completo. Falta ejecutar regresiones, validar proyectos largos y decidir qué capacidades deben permanecer en la vista detallada. |
 | SDD-12 · Deshacer visual no equivale a save | PRJ-01, PRJ-02 | El nuevo shell despacha comandos, pero aún no hay prueba completa crear→editar→save→reload→undo/redo→export tras rediseño. | **Pendiente:** fixture real sin datos inventados; inyección de errores de cuota, bloqueo de IndexedDB y CAS. |
 | SDD-13 · Macro no validado por audio audible | MIX-02, MIX-03 | Los mandos se conectan a procesadores reales y dispatch, pero falta evidencia de PCM/escucha, cambios suaves y equivalencia de render. | **Parcial:** no aceptar por simple test de estructura de efectos. |
 | SDD-14 · Latencia física desconocida | CLK-05, QLT-04 | `baseLatency/outputLatency` dan un estimado del búfer, no MIDI→altavoz p95/p99. CPU real tampoco está medida. | **Pendiente físico:** mantener etiqueta honesta y no certificar SMK-37 Elite/Pro sin loopback y 37+37. |
@@ -88,7 +88,7 @@ Estas intervenciones posteriores **no** cambian el estado de los 113 criterios n
 - **INS-06 / UXP-05:** the instrument card no longer displays an unconditional «✓ Activo». It reads the true `ProjectAudioDiagnostics.tracks` status of the selected project track: **Audio sin preparar**, **Preparando**, **Audio listo** or **Error de banco**, including the concrete error string. «Preparar audio del proyecto» calls the real preparation path.
 - The sound displayed follows the **selected track bank** (Salamander or 808), not the separate global live-instrument picker. The project engine still needs browser validation, integrity verification of installed banks, and audio-loopback tests.
 - Written regression: `tests/e2e/studio-reference-ui.spec.ts` checks an unloaded bank is not falsely labeled ready and that changing the selected project track updates the visible bank.
-- **MIX-04 is still missing:** sidechain audio detector, explicit kick source, attack/release/ratio, live/offline equivalence and reduction meter. The solo/send isolation fix belongs to **MIX-05**, not MIX-04.
+- **Actualización MIX-04/MIX-06:** ambos tienen ahora implementación propuesta. MIX-04 incorpora detector AudioWorklet, fuente explícita, threshold/ratio/attack/release/reducción máxima, medidor y dependencia silenciosa de la key en stems. MIX-06 añade A/B original/procesado con compensación RMS por atenuación. Continúan sin aceptación hasta ejecutar PCM/browser y revisar audio real.
 
 
 ### MID/UXP/MIX-01 — armado y destino de una toma MIDI
@@ -98,3 +98,15 @@ Estas intervenciones posteriores **no** cambian el estado de los 113 criterios n
 - `PianoApp.startRecording` usa esa selección **antes** de empezar la toma, por lo que una selección inválida no dispara el recorder.
 - Pruebas escritas: prioridad del armado, caso multi-armado ambiguo, toma libre sin proyecto y título de destino del botón del Studio. Sin reproducción ni hardware físico comprobados.
 - Este armado controla **tomas MIDI**; la grabación de audio usa `AudioInputSession` y su pipeline de pistas de audio. No presentarlos como una sola modalidad.
+
+
+### AUT/MIX/ARR — cierre de huecos de implementación, no de aceptación
+
+- **AUT Touch:** editor Read/Touch con preview live y un solo comando por gesto; al soltar vuelve a la curva previa mediante un punto de retorno corto.
+- **AUT-06 MIDI Learn:** utiliza el parser/binding existente y aprende únicamente eventos observados. El matcher conserva puerto, canal, banco y controlador; pickup evita saltos. Los modos absoluto y relativos están codificados en la acción para que el comportamiento no cambie al recargar.
+- **MIX-04:** sidechain real en el grafo del proyecto y en el render aislado; la key requerida puede renderizarse como control silencioso.
+- **MIX-06:** A/B temporal no ensucia el documento ni el historial; ambas ramas se miden y se igualan únicamente reduciendo ganancia.
+- **ARR-01:** agrupación persistente y movimiento atómico con protección de crossfades y duplicación segura.
+- **Pruebas:** se escribieron nuevas regresiones unitarias/E2E y se agregaron al workflow. El runner sigue finalizando antes de ejecutar pasos; por tanto, esta sección describe implementación, no evidencia aprobada.
+
+El gate de 113 criterios continúa íntegramente en `pending`.
