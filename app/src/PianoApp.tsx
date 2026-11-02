@@ -5,6 +5,7 @@ import { PROJECT_808_INSTRUMENT, PROJECT_CLAP_INSTRUMENT, PROJECT_DRUM_INSTRUMEN
   PROJECT_PIANO_INSTRUMENT } from "./audio/projectAudioSink";
 import { PianoKeyboard } from "./components/studio/PianoKeyboard";
 import { ReferenceStudio } from "./components/studio/ReferenceStudio";
+import { studioLoopBarRange } from "./components/studio/studioMusicalBars";
 import { StudioScore } from "./components/studio/StudioScore";
 import { applyStudioMacro } from "./components/studio/studioMacros";
 import { LivePerformanceReadout } from "./components/studio/LivePerformanceReadout";
@@ -327,6 +328,8 @@ export default function PianoApp() {
   const [workspace, setWorkspace] = useState<"performance" | "piano-roll" | "drums" | "arrangement" | "sampler" | "audio" | "mixer" | "automation" | "export">("performance");
   const [referenceStudioOpen, setReferenceStudioOpen] = useState(true);
   const [studioLoopEnabled, setStudioLoopEnabled] = useState(false);
+  const [studioLoopStartBar, setStudioLoopStartBar] = useState(5);
+  const [studioLoopEndBar, setStudioLoopEndBar] = useState(12);
   const [studioPendingSeek, setStudioPendingSeek] = useState<number | null>(null);
   const [editorPatternId, setEditorPatternId] = useState<string | null>(null);
   const [editorTrackId, setEditorTrackId] = useState<string | null>(null);
@@ -1344,6 +1347,8 @@ export default function PianoApp() {
         setProjectView(null);
       }
       setStudioLoopEnabled(false);
+      setStudioLoopStartBar(5);
+      setStudioLoopEndBar(12);
       setStudioPendingSeek(null);
       activateProject(await open());
       await refreshProjects();
@@ -2072,11 +2077,9 @@ export default function PianoApp() {
     setProjectAudioPreparing(true);
     setProjectAudioStatus("Cargando muestras grabadas…");
     try {
-      const meterPoint = document.meterMap[0];
-      const barTicks = meterPoint
-        ? 960 * 4 * meterPoint.numerator / meterPoint.denominator : 3840;
       const loopRange = studioLoopEnabled
-        ? { startTick: barTicks * 4, endTick: barTicks * 12 } : undefined;
+        ? studioLoopBarRange(document.meterMap, studioLoopStartBar, studioLoopEndBar)
+        : undefined;
       const playback = await engine.prepareProjectPlayback(document, createArrangementResolver(document),
         loopRange, projectRepository);
       if (request !== projectAudioRequestRef.current || projectSessionRef.current?.getSnapshot().document !== document) {
@@ -2430,23 +2433,34 @@ export default function PianoApp() {
           document={projectView?.document ?? null}
           workspace={workspace}
           loopEnabled={studioLoopEnabled}
+          loopStartBar={studioLoopStartBar}
+          loopEndBar={studioLoopEndBar}
           onLoopChange={(enabled) => {
-            const meterPoint = projectView?.document.meterMap[0];
-            const barTicks = meterPoint
-              ? 960 * 4 * meterPoint.numerator / meterPoint.denominator : 3840;
-            const range = enabled ? {startTick:barTicks * 4,endTick:barTicks * 12} : null;
+            const range = enabled && projectView
+              ? studioLoopBarRange(projectView.document.meterMap, studioLoopStartBar, studioLoopEndBar)
+              : null;
             engine.setProjectLoopRange(range);
             setStudioLoopEnabled(enabled);
-            if(enabled) setStudioPendingSeek((current)=>
-              current !== null && current >= barTicks*12 ? barTicks*4 : current);
+            if(range) setStudioPendingSeek((current)=>
+              current !== null && current >= range.endTick ? range.startTick : current);
+            setProjectTick(engine.projectTransportTick() ?? projectTick);
+          }}
+          onLoopRangeChange={(startBar,endBar)=>{
+            const range = projectView
+              ? studioLoopBarRange(projectView.document.meterMap,startBar,endBar) : null;
+            if(studioLoopEnabled) engine.setProjectLoopRange(range);
+            setStudioLoopStartBar(startBar);
+            setStudioLoopEndBar(endBar);
+            if(range && studioLoopEnabled) setStudioPendingSeek((current)=>
+              current!==null && current>=range.endTick ? range.startTick : current);
             setProjectTick(engine.projectTransportTick() ?? projectTick);
           }}
           onSeekTick={(requested) => {
-            const meterPoint = projectView?.document.meterMap[0];
-            const barTicks = meterPoint
-              ? 960 * 4 * meterPoint.numerator / meterPoint.denominator : 3840;
-            const tick = studioLoopEnabled && requested >= barTicks * 12
-              ? barTicks * 4 : requested;
+            const range = studioLoopEnabled && projectView
+              ? studioLoopBarRange(projectView.document.meterMap,studioLoopStartBar,studioLoopEndBar)
+              : null;
+            const tick = range && requested >= range.endTick
+              ? range.startTick : requested;
             if (engine.projectPlaybackSnapshot()) {
               engine.seekProjectPlayback(tick);
               setStudioPendingSeek(null);
