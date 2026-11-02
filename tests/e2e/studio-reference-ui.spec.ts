@@ -480,3 +480,35 @@ test("moving to next bar uses meter map rather than current time-signature width
   });
   expect(output).toEqual([3840,7680,10560,13440]);
 });
+
+
+test("project browser stays in the new Studio shell and creates a project without legacy navigation",async({page})=>{
+  await page.setViewportSize({width:1586,height:992});
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const studio=page.getByTestId("reference-studio");
+  await studio.locator(".ref-project-select").click();
+  const dialog=studio.getByRole("dialog",{name:"Gestión de proyectos"});
+  await expect(dialog.getByRole("heading",{name:"Tus proyectos"})).toBeVisible();
+  await expect(studio).toBeVisible();
+  await dialog.getByRole("textbox",{name:"Nombre del proyecto"}).fill("Prueba modal propia");
+  await dialog.getByRole("button",{name:"Crear proyecto"}).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(studio.locator(".ref-project-select")).toContainText("Prueba modal propia");
+  await studio.locator(".ref-project-select").click();
+  await expect(dialog.getByText("Prueba modal propia")).toBeVisible();
+  await dialog.getByRole("button",{name:"Cerrar gestión de proyectos"}).click();
+  await expect(dialog).toHaveCount(0);
+});
+
+test("project management modal can be dismissed without mutating the active project",async({page})=>{
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const studio=page.getByTestId("reference-studio");
+  await studio.getByRole("button",{name:"Nueva idea"}).click();
+  const before=await studio.locator(".ref-project-select strong").first().textContent();
+  await studio.locator(".ref-project-select").click();
+  const dialog=studio.getByRole("dialog",{name:"Gestión de proyectos"});
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button",{name:"Cerrar gestión de proyectos"}).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(studio.locator(".ref-project-select strong").first()).toHaveText(before!);
+});
