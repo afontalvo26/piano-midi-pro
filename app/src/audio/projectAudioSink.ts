@@ -71,6 +71,9 @@ export interface ProjectTrackAudioStatus {
   readonly sidechainReductionDb: number;
   readonly sidechainReductionPeakDb: number;
   readonly sidechainError: string | null;
+  readonly effectComparisonMode: "off" | "original" | "processed";
+  readonly effectComparisonOriginalDb: number;
+  readonly effectComparisonProcessedDb: number;
   readonly meter: ProjectMeterSnapshot;
   readonly activeVoices: number;
   readonly allocatedVoices: number;
@@ -121,6 +124,15 @@ interface TrackSlot {
   readonly sidechainGate: Tone.Gain;
   readonly meter: Tone.Analyser;
   readonly meterState: MeterState;
+  readonly originalEffectMeter: Tone.Analyser;
+  readonly originalEffectMeterState: MeterState;
+  readonly processedEffectMeter: Tone.Analyser;
+  readonly processedEffectMeterState: MeterState;
+  readonly originalEffectGain: Tone.Gain;
+  readonly processedEffectGain: Tone.Gain;
+  effectComparisonMode: "off" | "original" | "processed";
+  effectComparisonOriginalDb: number;
+  effectComparisonProcessedDb: number;
   readonly effects: Tone.ToneAudioNode[];
   /** Independent post-fader, post-insert sends to bus inputs. */
   readonly sends: Tone.Gain[];
@@ -323,7 +335,20 @@ export class ProjectAudioSink implements SequencerSink {
     const meter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
     const meterState: MeterState = { lastAt: -Infinity, clippedLastRead: false,
       snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 } };
-    const slot: TrackSlot = { track, volume, panner, muteGate, mainGate, sidechainGate, meter, meterState, effects: [],
+    const originalEffectMeter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
+    const processedEffectMeter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
+    const originalEffectMeterState: MeterState = { lastAt: -Infinity, clippedLastRead: false,
+      snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 } };
+    const processedEffectMeterState: MeterState = { lastAt: -Infinity, clippedLastRead: false,
+      snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 } };
+    const originalEffectGain = new Tone.Gain(0).connect(muteGate);
+    const processedEffectGain = new Tone.Gain(1).connect(muteGate);
+    originalEffectMeter.connect(originalEffectGain);
+    processedEffectMeter.connect(processedEffectGain);
+    const slot: TrackSlot = { track, volume, panner, muteGate, mainGate, sidechainGate, meter, meterState,
+      originalEffectMeter, originalEffectMeterState, processedEffectMeter, processedEffectMeterState,
+      originalEffectGain, processedEffectGain, effectComparisonMode: "off",
+      effectComparisonOriginalDb: 0, effectComparisonProcessedDb: 0, effects: [],
       sends: [], sidechainNode: null, sidechainSource: null, sidechainReductionDb: 0,
       sidechainReductionPeakDb: 0, sidechainError: null, piano: null, drums: null,
       sampler: null, rack: null, audioClips: null, sampleAsset: null,
@@ -417,7 +442,8 @@ export class ProjectAudioSink implements SequencerSink {
     }
     if (slot.status !== "error") {
       try {
-        slot.effects.push(...connectProjectEffects(track.mix.effects, volume, muteGate));
+        volume.connect(originalEffectMeter);
+        slot.effects.push(...connectProjectEffects(track.mix.effects, volume, processedEffectMeter));
       } catch (error) {
         slot.status = "error";
         slot.error = error instanceof Error ? error.message : String(error);
@@ -566,6 +592,50 @@ export class ProjectAudioSink implements SequencerSink {
         slot.error = slot.error ?? `Sidechain: ${slot.sidechainError}`;
       }
     }
+  }
+
+  /** Temporary, non-persistent A/B monitor. Both branches are level-matched by RMS using attenuation only. */
+  setTrackEffectComparison(trackId: string, mode: "off" | "original" | "processed"):
+    { readonly mode: "off" | "original" | "processed";
+      readonly originalCompensationDb: number; readonly processedCompensationDb: number } {
+    const slot = this.slots.get(trackId);
+    if (!slot || slot.disposed) throw new RangeError(`Pista inexistente: ${trackId}`);
+    if (mode !== "off" && !slot.track.mix.effects.some((effect) => effect.enabled)) {
+      throw new Error("La pista no tiene efectos activos para comparar");
+    }
+    const ramp = (gain: Tone.Gain, value: number) => {
+      const now = Tone.immediate();
+      gain.gain.cancelAndHoldAtTime(now);
+      gain.gain.linearRampToValueAtTime(value, now + 0.015);
+    };
+    if (mode === "off") {
+      slot.effectComparisonMode = "off";
+      slot.effectComparisonOriginalDb = 0;
+      slot.effectComparisonProcessedDb = 0;
+      ramp(slot.originalEffectGain, 0);
+      ramp(slot.processedEffectGain, 1);
+      return { mode, originalCompensationDb: 0, processedCompensationDb: 0 };
+    }
+    if (slot.effectComparisonMode === "off") {
+      const original = readMeter(slot.originalEffectMeter, slot.originalEffectMeterState).rms;
+      const processed = readMeter(slot.processedEffectMeter, slot.processedEffectMeterState).rms;
+      const floor = 1e-5;
+      if (original > floor && processed > floor) {
+        const target = Math.min(original, processed);
+        slot.effectComparisonOriginalDb = bounded(20 * Math.log10(target / original), -18, 0);
+        slot.effectComparisonProcessedDb = bounded(20 * Math.log10(target / processed), -18, 0);
+      } else {
+        slot.effectComparisonOriginalDb = 0;
+        slot.effectComparisonProcessedDb = 0;
+      }
+    }
+    slot.effectComparisonMode = mode;
+    const originalGain = 10 ** (slot.effectComparisonOriginalDb / 20);
+    const processedGain = 10 ** (slot.effectComparisonProcessedDb / 20);
+    ramp(slot.originalEffectGain, mode === "original" ? originalGain : 0);
+    ramp(slot.processedEffectGain, mode === "processed" ? processedGain : 0);
+    return { mode, originalCompensationDb: slot.effectComparisonOriginalDb,
+      processedCompensationDb: slot.effectComparisonProcessedDb };
   }
 
   hasAudioOwnership(): boolean { return !this.disposed && !this.masterError && this.ownsAudio(); }
@@ -1166,6 +1236,9 @@ export class ProjectAudioSink implements SequencerSink {
           sidechainReductionDb: slot.sidechainReductionDb,
           sidechainReductionPeakDb: slot.sidechainReductionPeakDb,
           sidechainError: slot.sidechainError,
+          effectComparisonMode: slot.effectComparisonMode,
+          effectComparisonOriginalDb: slot.effectComparisonOriginalDb,
+          effectComparisonProcessedDb: slot.effectComparisonProcessedDb,
           meter: slot.disposed ? slot.meterState.snapshot : readMeter(slot.meter, slot.meterState),
           activeVoices: (piano?.active ?? 0) + (drums?.active ?? 0) + (sample?.active ?? 0) +
             (rack?.active ?? 0) + (audio?.active ?? 0),
@@ -1245,6 +1318,10 @@ export class ProjectAudioSink implements SequencerSink {
       slot.sidechainSource = null;
     }
     slot.volume.dispose();
+    slot.originalEffectMeter.dispose();
+    slot.processedEffectMeter.dispose();
+    slot.originalEffectGain.dispose();
+    slot.processedEffectGain.dispose();
     slot.muteGate.dispose();
     slot.mainGate.dispose();
     slot.sidechainGate.dispose();
