@@ -894,7 +894,8 @@ export default function PianoApp() {
         setMidiError("MIDI Learn de automatización espera un CC, fader, knob o pitch bend observado.");
       } else {
       const bankScoped = !["bank.prev", "bank.next", "recording.toggle", "metronome.toggle"].includes(pending);
-      const learned = learnMidiBinding(event, { id: `${pending}:${Date.now()}`,
+      const learned = learnMidiBinding(event, {
+        id: automationPending ? crypto.randomUUID() : `${pending}:${Date.now()}`,
         action: pending, bank: bankScoped ? String(latestRef.current.bank) : undefined,
         valueMode: automationPending ? automationMidiValueMode(automationPending.takeover) : undefined,
         consumeNote: automationPending ? false : event.kind === "noteOn" });
