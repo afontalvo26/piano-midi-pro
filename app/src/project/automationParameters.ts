@@ -81,3 +81,37 @@ export function projectAutomationBaseValue(document: ProjectDocumentV1,
   const value = effect?.parameters[target.parameterId];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
+
+
+/** Exact continuous targets currently backed by the live/offline mixer graph. */
+export function projectAutomationTargets(document: ProjectDocumentV1):
+readonly ProjectAutomationLane["target"][] {
+  const targets: ProjectAutomationLane["target"][] = [
+    { scope: "master", parameterId: "masterGainDb" },
+  ];
+  for (const effect of document.mix.masterEffects) {
+    if (!effect.enabled) continue;
+    for (const descriptor of projectEffectParameters(effect.kind) ?? []) {
+      if (descriptor.valueType === "number" &&
+          isAutomatableEffectParameter(effect, descriptor.parameterId)) {
+        targets.push({ scope: "master", effectId: effect.id,
+          parameterId: descriptor.parameterId });
+      }
+    }
+  }
+  for (const track of document.tracks) {
+    targets.push({ scope: "track", ownerId: track.id, parameterId: "gainDb" },
+      { scope: "track", ownerId: track.id, parameterId: "pan" });
+    for (const effect of track.mix.effects) {
+      if (!effect.enabled) continue;
+      for (const descriptor of projectEffectParameters(effect.kind) ?? []) {
+        if (descriptor.valueType === "number" &&
+            isAutomatableEffectParameter(effect, descriptor.parameterId)) {
+          targets.push({ scope: "track", ownerId: track.id, effectId: effect.id,
+            parameterId: descriptor.parameterId });
+        }
+      }
+    }
+  }
+  return targets;
+}
