@@ -22,3 +22,11 @@
 
 Marcar `[x]` de arriba confirma **creación de la propuesta o del test**,
 no aceptación del requisito; ningún `MIX-xx` está aprobado por esa sola razón.
+
+
+- [x] Proponer conservación de voces y salida auxiliar al mutear sólo
+  el bus principal, sin abrir rutas circulares.
+- [x] Escribir regresión de mezcla/planificación WAV para la ruta
+  independiente con bus principal silenciado.
+- [ ] Ejecutar esa regresión; comprobar Solo por ruta, sends de buses
+  anidados, colas y reconciliación del estado del transporte.
