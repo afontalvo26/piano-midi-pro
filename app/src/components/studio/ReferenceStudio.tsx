@@ -3,6 +3,7 @@ import type { ProjectDocumentV1, ProjectTrack } from "../../project/model";
 import type { ProjectCommand } from "../../project/commands.ts";
 import { STUDIO_MACROS, readStudioMacro, type StudioMacroId } from "./studioMacros.ts";
 import { studioBarStartTick, studioBarNumberAtTick } from "./studioMusicalBars.ts";
+import { uniqueArrangementClip } from "../../composition/arrangementModel.ts";
 import { drawStudioClip, cutStudioClip, moveStudioClip, quantizeStudioClip,
   snapStudioTick, type ReferenceArrangementTool } from "./referenceArrangementActions.ts";
 import { subscribeLivePerformance, getLivePerformanceSnapshot } from "./livePerformanceStore";
@@ -676,6 +677,12 @@ export function ReferenceStudio({
                 setPlayingSelection(null);
               }}>Eliminar clip</button>
             </div>
+            {selectedClip.kind==="pattern" && document &&
+              document.clips.filter((clip)=>clip.kind==="pattern"&&clip.sourceId===selectedClip.sourceId).length>1
+              && <button type="button" onClick={()=>void executeEdit(()=>
+                uniqueArrangementClip(document,selectedClip.id))}>
+                Hacer único · proteger este clip
+              </button>}
             {selectedClip.kind==="pattern"&&<button type="button"
               onClick={()=>onOpenPattern(selectedClip.trackId,selectedClip.sourceId)}>
               Editar notas del clip
