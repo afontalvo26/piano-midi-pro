@@ -60,12 +60,12 @@ Los siguientes controles ya tienen **implementación de código** en esta rama, 
 | Seleccionar y arrastrar clip | Selección de patrón y movimiento con comando reversible; teclado ←/→ desplaza en 1/16 | `studio-reference-ui.spec.ts` |
 | Dibujar clip | Reutiliza patrón existente de la pista y crea clip, sincronizado con documento | `studio-reference-ui.spec.ts` |
 | Cortar clip | Divide patrones o audio con operadores oficiales | `studio-reference-ui.spec.ts` |
-| Cuantizar 1/16 | Reemplaza notas del patrón por comando versionado, con Undo | `referenceArrangementActions.ts` (falta caso de aceptación específico de UI) |
+| Cuantizar 1/16 | Modifica la fuente del patrón mediante comando reversible; aún carece de control de fuerza y preescucha en el shell | `studio-reference-ui.spec.ts` (prueba escrita, no ejecutada) |
 | Compás/cabezal | Ruler accesible apunta al tick real del transporte | Pendiente integración E2E con audio |
-| Región de bucle 5–12 | Reconfigura scheduler musical y cancela epochs anteriores | `sequencer-transport.spec.ts` |
+| Región de bucle ajustable (valor inicial 5–12) | Inicio y final editables; aplica el meterMap del proyecto y replanifica scheduler por epochs | `studio-reference-ui.spec.ts` y `sequencer-transport.spec.ts` (sin ejecutar) |
 | Teclado 37 y octavas | Piano virtual original, note-on/off reales, rango MIDI, tres pedales | `studio-reference-ui.spec.ts` |
 | Brillo, Cuerpo, Reverb, Dinámica | Actualiza filtro, EQ3, reverb y compresor por comandos persistidos | `studio-reference-ui.spec.ts` |
-| Partitura | Staff de solo lectura renderizado desde notas del patrón; botón permite edición en Piano Roll | `studio-reference-ui.spec.ts` |
+| «Partitura» contextual | Vista de lectura implementada, pero contradice una exclusión del contrato anterior; **no aprobada para release** | Discrepancia SDD-01 en `.kiro/specs/beatmaker-studio/spec-drift-2026-11-02.md` |
 | Inspector del clip | Muestra datos reales de la pista y permite silenciar/activar/eliminar clip | `studio-reference-ui.spec.ts` |
 | Mixer y biblioteca | Usa callbacks reales y conserva editores avanzados | `studio-reference-ui.spec.ts` |
 
@@ -73,7 +73,13 @@ Los siguientes controles ya tienen **implementación de código** en esta rama, 
 
 - La UI aún requiere **build y prueba completa en navegador**, incluyendo una comparación real con el screenshot aprobado; el PR continúa en borrador.
 - El selector de biblioteca controla el **instrumento en vivo**. La selección de presets por pista de arreglo necesita correspondencia con el motor de proyectos para los instrumentos WAF; no se asume que cambiar el preset global reescribe pistas.
-- La notación implementada es lectura básica de notas, no grabado profesional ni edición de pentagrama.
+- La vista de notación es lectura básica y está **en disputa de alcance** respecto del módulo retirado «Partitura». No puede considerarse aprobada hasta resolver SDD-01.
 - CPU y latencia física siguen sin estar medidos; si el navegador ofrece baseLatency/outputLatency, la cabecera puede mostrar una **estimación del búfer de salida**, no un valor de latencia MIDI o loopback.
 - Quedan tareas del producto no reducidas a UI: funciones de automatización e instrumentos, QA de 113 criterios, dispositivos reales, compatibilidad móvil y licencias.
 - Deben ejecutarse las pruebas de `studio-reference-ui.spec.ts` y `sequencer-transport.spec.ts` con el runner funcional. Un archivo de prueba escrito no constituye aceptación.
+
+## Control de cambios Spec-Driven
+
+La [auditoría de desviaciones](../.kiro/specs/beatmaker-studio/spec-drift-2026-11-02.md) prevalece sobre cualquier descripción promocional de avance. Este documento controla apariencia; el contrato `UXP/CLK/ROL/INS/MIX/QLT` controla comportamiento. Corregir JSX y añadir pruebas **no es aceptación** mientras no exista corrida real con build y evidencia asociada al SHA.
+
+El botón «Avanzar» ahora hace seek de un compás, la detección de MIDI ya no inventa un SMK-37, y la cabecera expone Undo/Redo y fallos de proyecto. Los cambios aún necesitan validación visual, funcional y auditiva.
