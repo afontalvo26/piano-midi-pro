@@ -536,6 +536,9 @@ function validateDrumRacks(tracks: Map<string, JsonObject>, assets: Map<string, 
       triggers.add(trigger);
       finite(pad.gainDb, `${padPath}.gainDb`, -120, 24);
       finite(pad.pan, `${padPath}.pan`, -1, 1);
+      if (pad.velocitySensitivity !== undefined) {
+        finite(pad.velocitySensitivity, `${padPath}.velocitySensitivity`, 0, 2);
+      }
       finite(pad.pitchSemitones, `${padPath}.pitchSemitones`, -24, 24);
       const first = integer(pad.startFrame, `${padPath}.startFrame`, 0);
       const last = pad.endFrame === undefined ? undefined :
