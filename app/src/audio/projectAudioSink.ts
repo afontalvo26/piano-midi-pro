@@ -852,6 +852,7 @@ export class ProjectAudioSink implements SequencerSink {
   setAutomationLiveOverride(target: ProjectAutomationLane["target"], value: number,
     audioTime = Tone.immediate()): void {
     const key = this.automationTargetKey(target);
+    this.physicalAutomationReturns.delete(key);
     const isPan = target.parameterId === "pan";
     validMixNumber(value, isPan ? -1 : -120, isPan ? 1 : 24, "Control físico");
     const param = this.automationTargetParameter(target);
