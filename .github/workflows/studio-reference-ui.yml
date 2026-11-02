@@ -33,18 +33,24 @@ jobs:
           npm ci --prefix app
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
+      - name: Spec inventory and acceptance structural integrity
+        run: |
+          node scripts/audit-beatmaker-requirements.mjs
+          node scripts/verify-beatmaker-acceptance.mjs --check
       - name: TypeScript and production bundle
         run: |
           cd app
           npx tsc -b
           npx vite build
-      - name: UI-focused lint
+      - name: Production dist audit
+        run: node scripts/audit-studio-dist.mjs
+      - name: Lint all source files touched by reference Studio
         run: |
           cd app
-          npx eslint src/PianoApp.tsx src/components/studio/ReferenceStudio.tsx src/components/studio/InstrumentBrowser.tsx
+          npx eslint src/PianoApp.tsx src/components/studio/ReferenceStudio.tsx src/components/studio/InstrumentBrowser.tsx src/components/studio/StudioScore.tsx src/components/studio/studioMacros.ts src/components/studio/studioMusicalBars.ts src/components/studio/referenceArrangementActions.ts src/audio/liveStudioEngine.ts src/audio/projectPlayback.ts src/sequencer/transportScheduler.ts
       - name: Verify reference geometry and interactions
         run: |
-          npx playwright test tests/e2e/studio-reference-ui.spec.ts --workers=1 --retries=0
+          npx playwright test tests/e2e/studio-reference-ui.spec.ts tests/e2e/sequencer-transport.spec.ts --workers=1 --retries=0
         env:
           CI: 'true'
       - name: Preserve screenshot evidence, traces and debug output
