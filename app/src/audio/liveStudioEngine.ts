@@ -1198,6 +1198,13 @@ export class LiveStudioEngine {
     this.projectPlayback?.setMasterGainDb(gainDb);
     this.publish();
   }
+  setProjectTrackEffectComparison(trackId: string, mode: "off" | "original" | "processed"):
+    ReturnType<ProjectAudioSink["setTrackEffectComparison"]> | null {
+    if (!this.projectPlayback || this.disposed) return null;
+    const result = this.projectPlayback.sink.setTrackEffectComparison(trackId, mode);
+    this.publish();
+    return result;
+  }
   setProjectRackPadMute(trackId: string, padId: string, muted: boolean): void {
     this.projectPlayback?.setRackPadMute(trackId, padId, muted);
     this.publish();
