@@ -221,3 +221,52 @@ test("the reference inspector performs real reversible clip mute and delete",asy
   await shell.getByRole("button",{name:"Eliminar clip"}).click();
   await expect(shell.locator(".ref-track-row").first().locator(".ref-clip")).toHaveCount(0);
 });
+
+
+test("quick quantize is a real versioned and reversible pattern edit",async({page})=>{
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const result=await page.evaluate(async()=>{
+    const {createProjectDocument}=await import("/src/project/model.ts");
+    const {applyCommand}=await import("/src/project/commands.ts");
+    const {quantizeStudioClip}=await import("/src/components/studio/referenceArrangementActions.ts");
+    const mix={gainDb:0,pan:0,mute:false,solo:false,armed:false,effects:[],sends:[]};
+    const track={id:"quantize-track",name:"Piano",kind:"instrument" as const,
+      instrument:{instrumentId:"salamander",packageVersion:"1",presetId:"natural"},mix};
+    const pattern={id:"quantize-pattern",name:"Patrón",version:1,lengthTicks:3840,
+      notes:[{id:"note",startTick:125,durationTick:312,pitch:60,velocity:99,
+        releaseVelocity:64,channel:0,origin:{kind:"drawn" as const}}],expression:[]};
+    const clip={id:"quantize-clip",kind:"pattern" as const,trackId:track.id,
+      sourceId:pattern.id,sourceVersion:1,startTick:0,lengthTicks:3840,
+      sourceOffsetTick:0,loopMode:"none" as const,tailPolicy:"cut" as const,
+      transpose:0,gainDb:0,muted:false};
+    const doc={...createProjectDocument({id:"quantize-qa",at:1}),
+      tracks:[track],trackOrder:[track.id],patterns:[pattern],clips:[clip]};
+    const command=quantizeStudioClip(doc,clip.id);
+    if(!command)throw new Error("Se esperaba un comando de cuantización");
+    const next=applyCommand(doc,command);
+    const restored=applyCommand(next.document,next.inverse);
+    return {kind:command.kind,before:doc.patterns[0]!.notes[0]!.startTick,
+      after:next.document.patterns[0]!.notes[0]!.startTick,
+      afterDuration:next.document.patterns[0]!.notes[0]!.durationTick,
+      undone:restored.document.patterns[0]!.notes[0]!.startTick};
+  });
+  expect(result).toEqual({kind:"replacePattern",before:125,after:240,
+    afterDuration:240,undone:125});
+});
+
+test("loop UI and ruler are connected to transport state",async({page})=>{
+  await page.setViewportSize({width:1586,height:992});
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const shell=page.getByTestId("reference-studio");
+  await shell.getByRole("button",{name:"Nueva idea"}).click();
+  const loop=shell.getByRole("button",{name:"Región de bucle"});
+  await expect(loop).toHaveAttribute("aria-pressed","false");
+  await loop.click();
+  await expect(loop).toHaveAttribute("aria-pressed","true");
+  const slider=shell.getByRole("slider",{name:"Mover cabezal de reproducción"});
+  await slider.focus();
+  await slider.press("ArrowRight");
+  await expect(slider).toHaveAttribute("aria-valuenow","240");
+  await loop.click();
+  await expect(loop).toHaveAttribute("aria-pressed","false");
+});
