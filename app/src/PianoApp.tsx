@@ -2414,6 +2414,11 @@ export default function PianoApp() {
     [track.trackId, { sourceTrackId: track.sidechainSourceTrackId,
       reductionDb: track.sidechainReductionDb, peakReductionDb: track.sidechainReductionPeakDb,
       error: track.sidechainError }]));
+  const trackEffectComparisons = visibleProjectMeters && Object.fromEntries(
+    visibleProjectMeters.tracks.map((track) => [track.trackId, {
+      mode: track.effectComparisonMode, originalDb: track.effectComparisonOriginalDb,
+      processedDb: track.effectComparisonProcessedDb,
+    }]));
   const automationTargets: readonly BaseAutomationTarget[] = projectView ? [
     { scope: "master", parameterId: "masterGainDb" },
     ...projectView.document.tracks.flatMap((track): BaseAutomationTarget[] => [
@@ -2718,6 +2723,18 @@ export default function PianoApp() {
             workspace === "mixer" && projectView ? (<ProjectMixer document={projectView.document}
             meter={trackMeters} masterMeter={visibleProjectMeters?.masterMeter}
             sidechainStatus={trackSidechains}
+            effectComparisonStatus={trackEffectComparisons}
+            onTrackEffectComparison={(trackId, mode) => {
+              void (async () => {
+                if (!engine.projectPlaybackSnapshot() && !(await prepareProjectAudio())) {
+                  throw new Error("No se pudo preparar el audio para comparar A/B");
+                }
+                const result = engine.setProjectTrackEffectComparison(trackId, mode);
+                if (!result) throw new Error("La comparación A/B no está disponible");
+                setProjectsError("");
+              })().catch((cause: unknown) => setProjectsError(cause instanceof Error
+                ? cause.message : "No se pudo cambiar la comparación A/B"));
+            }}
             onTrackMix={commitTrackMix} onMasterMix={commitMasterMix}
             onTrackEffects={commitTrackEffects} onMasterEffects={commitMasterEffects}
             onCreateBus={createProjectBus} onRemoveBus={removeProjectBus}
@@ -3114,6 +3131,18 @@ export default function PianoApp() {
           {workspace === "mixer" && projectView && <ProjectMixer document={projectView.document}
             meter={trackMeters} masterMeter={visibleProjectMeters?.masterMeter}
             sidechainStatus={trackSidechains}
+            effectComparisonStatus={trackEffectComparisons}
+            onTrackEffectComparison={(trackId, mode) => {
+              void (async () => {
+                if (!engine.projectPlaybackSnapshot() && !(await prepareProjectAudio())) {
+                  throw new Error("No se pudo preparar el audio para comparar A/B");
+                }
+                const result = engine.setProjectTrackEffectComparison(trackId, mode);
+                if (!result) throw new Error("La comparación A/B no está disponible");
+                setProjectsError("");
+              })().catch((cause: unknown) => setProjectsError(cause instanceof Error
+                ? cause.message : "No se pudo cambiar la comparación A/B"));
+            }}
             onTrackMix={commitTrackMix} onMasterMix={commitMasterMix}
             onTrackEffects={commitTrackEffects} onMasterEffects={commitMasterEffects}
             onCreateBus={createProjectBus} onRemoveBus={removeProjectBus}
