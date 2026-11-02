@@ -41,6 +41,19 @@ const MAX_PROJECT_PIANO_SOURCES = 64;
 const MAX_PROJECT_DRUM_SOURCES = 48;
 const MAX_PROJECT_SAMPLE_SOURCES = 32;
 const MAX_PROJECT_AUDIO_CLIP_SOURCES = 24;
+const SIDECHAIN_PROCESSOR_NAME = "pmp-sidechain-detector-v1";
+const sidechainWorkletLoads = new WeakMap<BaseAudioContext, Promise<void>>();
+
+async function loadSidechainWorklet(context: BaseAudioContext): Promise<void> {
+  if (!context.audioWorklet) throw new Error("AudioWorklet no disponible para sidechain");
+  let task = sidechainWorkletLoads.get(context);
+  if (!task) {
+    task = context.audioWorklet.addModule(new URL("./sidechainDetectorProcessor.js", import.meta.url).href);
+    sidechainWorkletLoads.set(context, task);
+  }
+  try { await task; }
+  catch (error) { sidechainWorkletLoads.delete(context); throw error; }
+}
 
 export interface ProjectTrackAudioStatus {
   readonly trackId: string;
@@ -54,6 +67,10 @@ export interface ProjectTrackAudioStatus {
   readonly solo: boolean;
   readonly gainDb: number;
   readonly pan: number;
+  readonly sidechainSourceTrackId: string | null;
+  readonly sidechainReductionDb: number;
+  readonly sidechainReductionPeakDb: number;
+  readonly sidechainError: string | null;
   readonly meter: ProjectMeterSnapshot;
   readonly activeVoices: number;
   readonly allocatedVoices: number;
@@ -100,11 +117,18 @@ interface TrackSlot {
   readonly muteGate: Tone.Gain;
   /** Post-fader main output can be isolated independently from auxiliary sends. */
   readonly mainGate: Tone.Gain;
+  /** Audio-rate gain controlled by the sidechain detector; unity when sidechain is disabled. */
+  readonly sidechainGate: Tone.Gain;
   readonly meter: Tone.Analyser;
   readonly meterState: MeterState;
   readonly effects: Tone.ToneAudioNode[];
   /** Independent post-fader, post-insert sends to bus inputs. */
   readonly sends: Tone.Gain[];
+  sidechainNode: AudioWorkletNode | null;
+  sidechainSource: Tone.Analyser | null;
+  sidechainReductionDb: number;
+  sidechainReductionPeakDb: number;
+  sidechainError: string | null;
   piano: LiveVoiceController | null;
   drums: DrumKitEngine | null;
   sampler: UserSampleEngine | MonoUserSampleEngine | null;
@@ -212,11 +236,17 @@ export class ProjectAudioSink implements SequencerSink {
   constructor(document: ProjectDocumentV1, destination: Tone.ToneAudioNode,
     pianoBank: DecodedPianoSampleBank, ownsAudio: () => boolean,
     assetReader?: UserSampleReader,
-    /** Offline-only, pre-master capture of exactly one bus or direct source outlets. */
-    renderTap?: { readonly busTrackId?: string; readonly directMaster?: boolean }) {
+    /** Offline-only graph hints: isolated taps plus detector-only tracks for sidechain stems. */
+    renderTap?: { readonly busTrackId?: string; readonly directMaster?: boolean;
+      readonly silentTrackIds?: readonly string[] }) {
     if (document.ppq !== 960) throw new RangeError("project audio requires 960 PPQ");
     assertSafeAudioRouting(document);
     const tappedBusId = renderTap?.busTrackId;
+    const silentTrackIds = new Set(renderTap?.silentTrackIds ?? []);
+    if ([...silentTrackIds].some((id) => !document.tracks.some((track) =>
+      track.id === id && track.kind !== "bus"))) {
+      throw new RangeError("Pista silenciosa de detector inválida");
+    }
     if ((tappedBusId && renderTap?.directMaster) ||
         (tappedBusId && !document.tracks.some((track) =>
           track.id === tappedBusId && track.kind === "bus"))) {
@@ -255,12 +285,14 @@ export class ProjectAudioSink implements SequencerSink {
         if (slot.track.mix.outputBusTrackId && (!target || target.track.kind !== "bus")) {
           throw new Error(`Pista ${slot.track.id}: bus de salida inexistente`);
         }
-        slot.panner.connect(slot.meter);
+        slot.panner.connect(slot.sidechainGate);
+        slot.sidechainGate.connect(slot.meter);
         slot.meter.connect(slot.mainGate);
-        slot.mainGate.connect(target?.volume ?? this.master);
-        if (renderTap?.busTrackId === slot.track.id ||
+        const detectorOnly = silentTrackIds.has(slot.track.id);
+        if (!detectorOnly) slot.mainGate.connect(target?.volume ?? this.master);
+        if (!detectorOnly && (renderTap?.busTrackId === slot.track.id ||
             (renderTap?.directMaster && slot.track.kind !== "bus" &&
-              !slot.track.mix.outputBusTrackId)) {
+              !slot.track.mix.outputBusTrackId))) {
           // Direct stem must hear only the actual main outlet, not the sends.
           (renderTap?.directMaster ? slot.mainGate : slot.meter).connect(destination);
         }
@@ -272,7 +304,7 @@ export class ProjectAudioSink implements SequencerSink {
           const sendGain = new Tone.Gain(10 ** (send.gainDb / 20));
           slot.sends.push(sendGain);
           slot.meter.connect(sendGain);
-          sendGain.connect(bus.volume);
+          if (!detectorOnly) sendGain.connect(bus.volume);
         }
       }
       this.refreshMute();
@@ -286,12 +318,14 @@ export class ProjectAudioSink implements SequencerSink {
     const panner = new Tone.Panner(track.mix.pan);
     const muteGate = new Tone.Gain(1).connect(panner);
     const mainGate = new Tone.Gain(1);
+    const sidechainGate = new Tone.Gain(1);
     const volume = new Tone.Volume(track.mix.gainDb);
     const meter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
     const meterState: MeterState = { lastAt: -Infinity, clippedLastRead: false,
       snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 } };
-    const slot: TrackSlot = { track, volume, panner, muteGate, mainGate, meter, meterState, effects: [],
-      sends: [], piano: null, drums: null,
+    const slot: TrackSlot = { track, volume, panner, muteGate, mainGate, sidechainGate, meter, meterState, effects: [],
+      sends: [], sidechainNode: null, sidechainSource: null, sidechainReductionDb: 0,
+      sidechainReductionPeakDb: 0, sidechainError: null, piano: null, drums: null,
       sampler: null, rack: null, audioClips: null, sampleAsset: null,
       status: "loading", error: null, muteOverride: null, soloOverride: null,
       gainOverride: null, panOverride: null,
@@ -461,6 +495,7 @@ export class ProjectAudioSink implements SequencerSink {
         slot.error = error instanceof Error ? error.message : String(error);
       }
     }));
+    await this.prepareSidechains();
     if (options.metronome !== false) {
       try {
         await this.metronomeDrums.load(56);
@@ -470,6 +505,64 @@ export class ProjectAudioSink implements SequencerSink {
       }
     }
     return this.diagnostics();
+  }
+
+  private async prepareSidechains(): Promise<void> {
+    const targets = [...this.slots.values()].filter((slot) => slot.track.mix.sidechain);
+    if (!targets.length || this.disposed) return;
+    const raw = Tone.getContext().rawContext as BaseAudioContext;
+    try {
+      await loadSidechainWorklet(raw);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      for (const slot of targets) {
+        slot.sidechainError = reason;
+        slot.error = slot.error ?? `Sidechain: ${reason}`;
+      }
+      return;
+    }
+    for (const slot of targets) {
+      if (this.disposed || slot.sidechainNode) continue;
+      const config = slot.track.mix.sidechain!;
+      const source = this.slots.get(config.sourceTrackId);
+      if (!source || source === slot || source.track.kind === "bus") {
+        slot.sidechainError = "Fuente sidechain no disponible";
+        slot.error = slot.error ?? `Sidechain: ${slot.sidechainError}`;
+        continue;
+      }
+      if (source.status === "error") {
+        slot.sidechainError = `Fuente sidechain con error: ${source.error ?? source.track.name}`;
+        slot.error = slot.error ?? `Sidechain: ${slot.sidechainError}`;
+        continue;
+      }
+      try {
+        const node = new AudioWorkletNode(raw, SIDECHAIN_PROCESSOR_NAME, {
+          numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
+          channelCount: 2, channelCountMode: "max",
+          processorOptions: { thresholdDb: config.thresholdDb, ratio: config.ratio,
+            attackMs: config.attackMs, releaseMs: config.releaseMs,
+            maxReductionDb: config.maxReductionDb },
+        });
+        node.port.onmessage = (event: MessageEvent<{ reductionDb?: number; peakReductionDb?: number }>) => {
+          const reduction = event.data?.reductionDb;
+          const peak = event.data?.peakReductionDb;
+          if (typeof reduction === "number" && Number.isFinite(reduction)) {
+            slot.sidechainReductionDb = bounded(reduction, 0, config.maxReductionDb);
+          }
+          if (typeof peak === "number" && Number.isFinite(peak)) {
+            slot.sidechainReductionPeakDb = bounded(peak, 0, config.maxReductionDb);
+          }
+        };
+        source.meter.connect(node);
+        Tone.connectSignal(node, slot.sidechainGate.gain);
+        slot.sidechainNode = node;
+        slot.sidechainSource = source.meter;
+        slot.sidechainError = null;
+      } catch (error) {
+        slot.sidechainError = error instanceof Error ? error.message : String(error);
+        slot.error = slot.error ?? `Sidechain: ${slot.sidechainError}`;
+      }
+    }
   }
 
   hasAudioOwnership(): boolean { return !this.disposed && !this.masterError && this.ownsAudio(); }
@@ -1066,6 +1159,10 @@ export class ProjectAudioSink implements SequencerSink {
           solo: slot.soloOverride ?? slot.track.mix.solo,
           gainDb: slot.gainOverride ?? slot.track.mix.gainDb,
           pan: slot.panOverride ?? slot.track.mix.pan,
+          sidechainSourceTrackId: slot.track.mix.sidechain?.sourceTrackId ?? null,
+          sidechainReductionDb: slot.sidechainReductionDb,
+          sidechainReductionPeakDb: slot.sidechainReductionPeakDb,
+          sidechainError: slot.sidechainError,
           meter: slot.disposed ? slot.meterState.snapshot : readMeter(slot.meter, slot.meterState),
           activeVoices: (piano?.active ?? 0) + (drums?.active ?? 0) + (sample?.active ?? 0) +
             (rack?.active ?? 0) + (audio?.active ?? 0),
@@ -1135,9 +1232,18 @@ export class ProjectAudioSink implements SequencerSink {
     slot.audioClips?.dispose();
     for (const effect of slot.effects) effect.dispose();
     for (const send of slot.sends) send.dispose();
+    if (slot.sidechainNode) {
+      try { slot.sidechainSource?.disconnect(slot.sidechainNode); } catch { /* already disconnected */ }
+      slot.sidechainNode.port.onmessage = null;
+      slot.sidechainNode.port.close();
+      slot.sidechainNode.disconnect();
+      slot.sidechainNode = null;
+      slot.sidechainSource = null;
+    }
     slot.volume.dispose();
     slot.muteGate.dispose();
     slot.mainGate.dispose();
+    slot.sidechainGate.dispose();
     slot.panner.dispose();
     slot.meter.dispose();
     this.retired.delete(slot);
