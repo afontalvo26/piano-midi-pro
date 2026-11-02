@@ -16,7 +16,8 @@ export interface ProjectMixerProps {
   canUndo?: boolean;
   canRedo?: boolean;
   meter?: Readonly<Record<string, { peak: number; rms: number; clipped: boolean }>>;
-  masterMeter?: { peak: number; rms: number; clipped: boolean };
+  masterPreMeter?: { peak: number; rms: number; clipped: boolean; clipEvents?: number };
+  masterMeter?: { peak: number; rms: number; clipped: boolean; clipEvents?: number };
   sidechainStatus?: Readonly<Record<string, {
     sourceTrackId: string | null;
     reductionDb: number;
@@ -55,7 +56,7 @@ function reachesTrack(document: ProjectDocumentV1, fromId: string, targetId: str
 
 export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects, onMasterEffects,
   onCreateBus, onRemoveBus,
-  onUndo, onRedo, canUndo, canRedo, meter, masterMeter, sidechainStatus,
+  onUndo, onRedo, canUndo, canRedo, meter, masterPreMeter, masterMeter, sidechainStatus,
   effectComparisonStatus, onTrackEffectComparison }: ProjectMixerProps) {
   const [gainDrafts, setGainDrafts] = useState<Record<string, string>>({});
   const [panDrafts, setPanDrafts] = useState<Record<string, string>>({});
@@ -329,11 +330,21 @@ export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects
           value={masterDraft ?? String(document.mix.masterGainDb)}
           onChange={(event) => setMasterDraft(event.target.value)} onBlur={commitMaster}
           onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /></label>
-        <div className="project-mixer__meter" aria-label="Nivel master"><div>
-          <span>RMS {masterMeter ? meterPercent(masterMeter.rms) : 0}%</span>
-          <span>Pico {masterMeter ? meterPercent(masterMeter.peak) : 0}%</span></div>
-          <meter min="0" max="1" value={masterMeter?.peak ?? 0} />
-          {masterMeter?.clipped && <strong role="alert">Clipping</strong>}
+        <div className="project-mixer__master-meters">
+          <div className="project-mixer__meter" aria-label="Nivel master antes de efectos"><div>
+            <span>Pre FX · RMS {masterPreMeter ? meterPercent(masterPreMeter.rms) : 0}%</span>
+            <span>Pico {masterPreMeter ? meterPercent(masterPreMeter.peak) : 0}%</span></div>
+            <meter min="0" max="1" value={masterPreMeter?.peak ?? 0} />
+            {masterPreMeter?.clipped && <strong role="alert">
+              Entrada master excede 0 dBFS antes del limitador
+            </strong>}
+          </div>
+          <div className="project-mixer__meter" aria-label="Nivel master después de efectos"><div>
+            <span>Post FX · RMS {masterMeter ? meterPercent(masterMeter.rms) : 0}%</span>
+            <span>Pico {masterMeter ? meterPercent(masterMeter.peak) : 0}%</span></div>
+            <meter min="0" max="1" value={masterMeter?.peak ?? 0} />
+            {masterMeter?.clipped && <strong role="alert">Clipping después de efectos</strong>}
+          </div>
         </div>
         {onMasterEffects && <ProjectEffectsPanel label="master" effects={document.mix.masterEffects}
           onChange={onMasterEffects} />}
