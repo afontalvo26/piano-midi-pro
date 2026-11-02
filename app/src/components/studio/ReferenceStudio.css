@@ -892,3 +892,12 @@
 .ref-project-audio-readiness button{border:1px solid #7c5dc3;border-radius:7px;
  background:#442a71;padding:6px 9px;min-height:32px;color:#fff;font-size:11px}
 @media(max-width:650px){.ref-project-audio-readiness button{min-height:44px}}
+
+.ref-track-toggles .ref-track-arm[aria-pressed="true"]{
+ color:#fff;background:#a13b62;border:1px solid #ff648d;box-shadow:0 0 9px #dd346588
+}
+.ref-arm-inspector{display:flex;align-items:center;justify-content:center;
+ margin:0 0 10px;min-height:36px;padding:6px 9px;
+ background:#2d2448;border:1px solid #6e5aa1;border-radius:7px;font-size:11px}
+.ref-arm-inspector[aria-pressed="true"]{background:#672c4d;border-color:#e45b83;color:#ffe3ef}
+@media(max-width:650px){.ref-arm-inspector{min-height:44px}}
