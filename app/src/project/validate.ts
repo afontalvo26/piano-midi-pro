@@ -393,8 +393,17 @@ function validateTracks(value: unknown, allIds: Set<string>): Map<string, JsonOb
         finite(voice.glideMs, `${path}.instrument.sampleVoice.glideMs`, 0, 2000);
         finite(voice.attackMs, `${path}.instrument.sampleVoice.attackMs`, 0, 5000);
         finite(voice.releaseMs, `${path}.instrument.sampleVoice.releaseMs`, 0, 5000);
-        if (voice.mode === "poly" && (voice.retrigger !== "always" || voice.glideMs !== 0)) {
-          invalid(`${path}.instrument.sampleVoice`, "polifonía requiere retrigger always y glide cero");
+        if (voice.saturation !== undefined) {
+          finite(voice.saturation, `${path}.instrument.sampleVoice.saturation`, 0, 1);
+        }
+        if (voice.subGainDb !== undefined) {
+          finite(voice.subGainDb, `${path}.instrument.sampleVoice.subGainDb`, -36, 0);
+        }
+        if (voice.mode === "poly" && (voice.retrigger !== "always" || voice.glideMs !== 0 ||
+            (voice.saturation as number | undefined) !== undefined ||
+            (voice.subGainDb as number | undefined) !== undefined)) {
+          invalid(`${path}.instrument.sampleVoice`,
+            "polifonía requiere retrigger always, glide cero y procesamiento mono desactivado");
         }
         if (voice.retrigger === "legato" && (voice.mode !== "mono" ||
             instrument.sampleRegion === undefined)) {
