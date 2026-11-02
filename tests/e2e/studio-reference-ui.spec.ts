@@ -202,3 +202,22 @@ test("Partitura shows real project notes and returns to editing",async({page})=>
   await expect(shell.getByRole("region",{name:"Partitura de lectura"})).toHaveCount(0);
   await expect(shell.locator(".piano-roll__viewport")).toBeVisible();
 });
+
+
+test("the reference inspector performs real reversible clip mute and delete",async({page})=>{
+  test.setTimeout(90_000);
+  await page.setViewportSize({width:1586,height:992});
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const shell=page.getByTestId("reference-studio");
+  await shell.getByRole("button",{name:"Nueva idea"}).click();
+  const clip=shell.locator(".ref-track-row").first().locator(".ref-clip").first();
+  await clip.click();
+  await shell.getByRole("button",{name:"Inspector",exact:true}).click();
+  await expect(shell.getByText("Clip seleccionado")).toBeVisible();
+  await shell.getByRole("button",{name:"Silenciar clip"}).click();
+  await expect(clip).toHaveClass(/is-muted/);
+  await shell.getByRole("button",{name:"Activar clip"}).click();
+  await expect(clip).not.toHaveClass(/is-muted/);
+  await shell.getByRole("button",{name:"Eliminar clip"}).click();
+  await expect(shell.locator(".ref-track-row").first().locator(".ref-clip")).toHaveCount(0);
+});
