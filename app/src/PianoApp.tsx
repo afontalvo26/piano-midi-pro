@@ -2491,6 +2491,48 @@ export default function PianoApp() {
           }}
           onFullEditor={() => setReferenceStudioOpen(false)}
           onFullMixer={() => { setWorkspace("mixer"); setReferenceStudioOpen(false); }}
+          performancePanel={<div className="ref-performance" aria-label="Teclado interactivo de 37 teclas">
+            <div className="ref-performance-toolbar">
+              <button type="button" onClick={() => {
+                const next = Math.max(MIN_MIDI, rangeStart - 12);
+                latestRef.current.rangeStart = next;
+                setRangeStart(next);
+                engine.setVisibleRangeStart(next);
+              }} aria-label="Octava anterior">− Octava</button>
+              <span>{midiToLabel(visibleNotes[0]!)} – {midiToLabel(visibleNotes[KEY_COUNT-1]!)}</span>
+              <button type="button" onClick={() => {
+                const next = Math.min(MAX_MIDI - KEY_COUNT + 1, rangeStart + 12);
+                latestRef.current.rangeStart = next;
+                setRangeStart(next);
+                engine.setVisibleRangeStart(next);
+              }} aria-label="Octava siguiente">+ Octava</button>
+              <span className="ref-performance-hint">Toca con ratón, pantalla o MIDI</span>
+            </div>
+            <div className="ref-performance-keys" role="group" aria-label="Piano virtual">
+              <PianoKeyboard visibleNotes={visibleNotes}
+                activeNoteVelocitiesRef={activeVelocityRef}
+                showNoteNames={showNoteNames} keyFxColor="#8b5cf6" keyFxGlow={0.55}
+                onKeyMouseDown={(note) => {
+                  if (mouseHeldRef.current.has(note)) return;
+                  mouseHeldRef.current.add(note);
+                  pressVirtual("mouse",note,String(note));
+                }}
+                onKeyMouseUp={(note) => {
+                  if (!mouseHeldRef.current.delete(note)) return;
+                  releaseVirtual("mouse",note,String(note));
+                }} />
+            </div>
+            <div className="ref-performance-pedals" role="group" aria-label="Pedales virtuales">
+              {([["unaCorda","Una corda"],["sostenuto","Sostenuto"],["sustain","Sustain"]] as const)
+                .map(([id,label])=><button key={id} type="button" aria-pressed={pedals[id]}
+                  onPointerDown={()=>setPedal(id,true,"studio")}
+                  onPointerUp={()=>setPedal(id,false,"studio")}
+                  onPointerCancel={()=>setPedal(id,false,"studio")}
+                  onPointerLeave={()=>{if(pedals[id])setPedal(id,false,"studio");}}>
+                  {label}
+                </button>)}
+            </div>
+          </div>}
           instrumentPicker={<InstrumentBrowser initialOpen activeId={activeInstrumentId} loadingId={loadingInstrumentId}
               loadingProgress={instrumentLoadingProgress} onCancel={cancelInstrumentLoad}
               failedId={failedInstrumentId} error={instrumentError} notice={instrumentNotice}
