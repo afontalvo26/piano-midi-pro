@@ -101,6 +101,9 @@ export interface ProjectAudioDiagnostics {
   readonly tracks: readonly ProjectTrackAudioStatus[];
   readonly metronome: { readonly ready: boolean; readonly error: string | null };
   readonly masterGainDb: number;
+  /** Level entering the master insert chain, before a limiter can hide overload. */
+  readonly masterPreMeter: ProjectMeterSnapshot;
+  /** Level leaving the complete master chain. */
   readonly masterMeter: ProjectMeterSnapshot;
   readonly masterError: string | null;
   readonly unsupportedControls: number;
@@ -219,9 +222,14 @@ export class ProjectAudioSink implements SequencerSink {
   readonly projectId: string;
   readonly rootOwnerId: string;
   private readonly master: Tone.Volume;
+  private readonly masterPreMeter: Tone.Analyser;
   private readonly masterMeter: Tone.Analyser;
   private readonly masterEffects: Tone.ToneAudioNode[] = [];
   private readonly masterEffectNodes = new Map<string, Tone.ToneAudioNode>();
+  private readonly masterPreMeterState: MeterState = {
+    lastAt: -Infinity, clippedLastRead: false,
+    snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 },
+  };
   private readonly masterMeterState: MeterState = {
     lastAt: -Infinity, clippedLastRead: false,
     snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 },
@@ -283,7 +291,9 @@ export class ProjectAudioSink implements SequencerSink {
     this.ownsAudio = ownsAudio;
     this.assetReader = assetReader;
     this.master = new Tone.Volume(document.mix.masterGainDb);
+    this.masterPreMeter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
     this.masterMeter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
+    this.master.connect(this.masterPreMeter);
     // In a tapped offline render the master graph is deliberately silent.
     // Connecting a chosen bus's post-fader meter straight to the destination
     // excludes all other parallel paths, parent buses and master processing.
@@ -1319,6 +1329,8 @@ export class ProjectAudioSink implements SequencerSink {
       projectAudioClipSources: this.projectAudioClipSources,
       projectAudioClipSourceLimit: MAX_PROJECT_AUDIO_CLIP_SOURCES,
       masterGainDb: this.masterGainOverride ?? this.document.mix.masterGainDb,
+      masterPreMeter: this.masterDisposed ? this.masterPreMeterState.snapshot
+        : readMeter(this.masterPreMeter, this.masterPreMeterState),
       masterMeter: this.masterDisposed ? this.masterMeterState.snapshot
         : readMeter(this.masterMeter, this.masterMeterState),
       masterError: this.masterError,
@@ -1399,6 +1411,7 @@ export class ProjectAudioSink implements SequencerSink {
   private disposeMaster(): void {
     if (this.masterDisposed) return;
     this.masterDisposed = true;
+    this.masterPreMeter.dispose();
     this.masterMeter.dispose();
     for (const effect of this.masterEffects) effect.dispose();
     this.master.dispose();
