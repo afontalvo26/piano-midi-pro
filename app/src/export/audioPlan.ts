@@ -2,6 +2,7 @@ import type { ProjectDocumentV1, ProjectTrack } from "../project/model.ts";
 import { MusicalClock } from "../sequencer/musicalClock.ts";
 import { projectEffectParameters } from "../project/effectParameters.ts";
 import { createBaseAutomationResolver } from "../sequencer/automationResolver.ts";
+import { findBusResampleRoutes } from "../project/busResampleRouting.ts";
 
 export type AudioStemMode = "none" | "tracks" | "buses";
 
@@ -61,14 +62,9 @@ function routingChain(track: ProjectTrack, byId: ReadonlyMap<string, ProjectTrac
 /** Read-only preflight; unsupported DSP never disappears silently in a WAV. */
 export function planProjectAudioExport(document: ProjectDocumentV1,
   options: AudioExportPlanOptions): AudioExportPlan {
-  // Full mixes and per-track stems can render parallel sends through the
-  // same WebAudio graph as Studio. A bus-specific stem still needs a separate
-  // tapped graph: rendering all source paths would leak their direct/master
-  // signal into the bus file. Reject that mode rather than mislabel a WAV.
-  if (options.stems === "buses" &&
-      document.tracks.some((track) => track.mix.sends.length > 0)) {
-    throw new RangeError("Stems por bus con envíos requieren aislamiento de rutas; usa mezcla completa o stems por pista");
-  }
+  // All three modes use isolated outputs. Bus stems are captured after the
+  // selected bus's inserts/pan; direct stems capture only primary master
+  // outlets, independently of any send returns.
   // The offline renderer consumes the same resolver as project playback. This
   // preflight rejects effect/clip/bezier lanes instead of silently omitting them.
   createBaseAutomationResolver(document,
@@ -127,17 +123,25 @@ export function planProjectAudioExport(document: ProjectDocumentV1,
     stems = sources.map((track): PlannedAudioStem => ({ kind: "track", id: track.id, name: track.name,
       sourceTrackIds: [track.id] }));
   } else if (options.stems === "buses") {
-    const chains = new Map(sources.map((track) => [track.id, routingChain(track, byId)]));
-    const buses = document.trackOrder.map((id) => byId.get(id)!).filter((track) => track.kind === "bus");
-    stems = buses.map((bus): PlannedAudioStem => ({ kind: "bus", id: bus.id, name: bus.name,
-      sourceTrackIds: sources.filter((track) => chains.get(track.id)!.includes(bus.id))
-        .map((track) => track.id) }))
-      .filter((stem) => stem.sourceTrackIds.length > 0);
-    const direct = sources.filter((track) => chains.get(track.id)!.length === 0).map((track) => track.id);
+    const buses = document.trackOrder.map((id) => byId.get(id)!)
+      .filter((track) => track.kind === "bus");
+    stems = buses.map((bus): PlannedAudioStem => ({
+      kind: "bus", id: bus.id, name: bus.name,
+      sourceTrackIds: findBusResampleRoutes(document, bus.id, "")
+        .sourceTrackIds.filter((id) => activeIds.has(id)),
+    })).filter((stem) => stem.sourceTrackIds.length > 0);
+    // A source with no primary bus contributes to master directly even if it
+    // also sends to a bus. Its direct stem must exclude those send returns.
+    const direct = sources.filter((track) => !track.mix.outputBusTrackId)
+      .map((track) => track.id);
     if (direct.length > 0) stems.push({ kind: "direct", id: "master-direct",
       name: "Directo al master", sourceTrackIds: direct });
+    // Multiple bus feeds, nested buses, and shared nonlinear processors make
+    // bus stems non-additive. Report overlap rather than assuming a sum.
     busStemsOverlap = stems.some((stem) => stem.kind === "bus" &&
-      byId.get(stem.id)?.mix.outputBusTrackId !== undefined);
+      (byId.get(stem.id)?.mix.outputBusTrackId !== undefined ||
+      document.tracks.some((track) => track.mix.sends.some((send) =>
+        send.busTrackId === stem.id))));
   }
   return { startTick, endTick, durationSeconds, tailSeconds,
     sampleRate: options.sampleRate, stems, omittedSourceTrackIds,
