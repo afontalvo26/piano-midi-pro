@@ -98,6 +98,8 @@ interface TrackSlot {
   readonly volume: Tone.Volume;
   readonly panner: Tone.Panner;
   readonly muteGate: Tone.Gain;
+  /** Post-fader main output can be isolated independently from auxiliary sends. */
+  readonly mainGate: Tone.Gain;
   readonly meter: Tone.Analyser;
   readonly meterState: MeterState;
   readonly effects: Tone.ToneAudioNode[];
@@ -254,11 +256,13 @@ export class ProjectAudioSink implements SequencerSink {
           throw new Error(`Pista ${slot.track.id}: bus de salida inexistente`);
         }
         slot.panner.connect(slot.meter);
-        slot.meter.connect(target?.volume ?? this.master);
+        slot.meter.connect(slot.mainGate);
+        slot.mainGate.connect(target?.volume ?? this.master);
         if (renderTap?.busTrackId === slot.track.id ||
             (renderTap?.directMaster && slot.track.kind !== "bus" &&
               !slot.track.mix.outputBusTrackId)) {
-          slot.meter.connect(destination);
+          // Direct stem must hear only the actual main outlet, not the sends.
+          (renderTap?.directMaster ? slot.mainGate : slot.meter).connect(destination);
         }
         for (const send of slot.track.mix.sends) {
           const bus = this.slots.get(send.busTrackId);
@@ -281,11 +285,12 @@ export class ProjectAudioSink implements SequencerSink {
   private createSlot(track: ProjectTrack): TrackSlot {
     const panner = new Tone.Panner(track.mix.pan);
     const muteGate = new Tone.Gain(1).connect(panner);
+    const mainGate = new Tone.Gain(1);
     const volume = new Tone.Volume(track.mix.gainDb);
     const meter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
     const meterState: MeterState = { lastAt: -Infinity, clippedLastRead: false,
       snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 } };
-    const slot: TrackSlot = { track, volume, panner, muteGate, meter, meterState, effects: [],
+    const slot: TrackSlot = { track, volume, panner, muteGate, mainGate, meter, meterState, effects: [],
       sends: [], piano: null, drums: null,
       sampler: null, rack: null, audioClips: null, sampleAsset: null,
       status: "loading", error: null, muteOverride: null, soloOverride: null,
@@ -1100,6 +1105,7 @@ export class ProjectAudioSink implements SequencerSink {
     for (const send of slot.sends) send.dispose();
     slot.volume.dispose();
     slot.muteGate.dispose();
+    slot.mainGate.dispose();
     slot.panner.dispose();
     slot.meter.dispose();
     this.retired.delete(slot);
