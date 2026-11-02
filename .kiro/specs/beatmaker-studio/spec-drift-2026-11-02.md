@@ -89,3 +89,12 @@ Estas intervenciones posteriores **no** cambian el estado de los 113 criterios n
 - The sound displayed follows the **selected track bank** (Salamander or 808), not the separate global live-instrument picker. The project engine still needs browser validation, integrity verification of installed banks, and audio-loopback tests.
 - Written regression: `tests/e2e/studio-reference-ui.spec.ts` checks an unloaded bank is not falsely labeled ready and that changing the selected project track updates the visible bank.
 - **MIX-04 is still missing:** sidechain audio detector, explicit kick source, attack/release/ratio, live/offline equivalence and reduction meter. The solo/send isolation fix belongs to **MIX-05**, not MIX-04.
+
+
+### MID/UXP/MIX-01 — armado y destino de una toma MIDI
+
+- `selectMidiRecordingTarget.ts` da prioridad a **una pista MIDI armada** frente a la última abierta en el editor. Si hay varias pistas armadas, requiere que la pista seleccionada sea una de ellas; nunca elige silenciosamente la primera. Sin armado, se conserva el flujo histórico de toma libre con pista MIDI seleccionada.
+- El nuevo Studio dispone de `R` en la fila MIDI y de «Armar/Desarmar pista MIDI» en el inspector accesible para móvil; el botón de grabación informa el destino o la ambigüedad.
+- `PianoApp.startRecording` usa esa selección **antes** de empezar la toma, por lo que una selección inválida no dispara el recorder.
+- Pruebas escritas: prioridad del armado, caso multi-armado ambiguo, toma libre sin proyecto y título de destino del botón del Studio. Sin reproducción ni hardware físico comprobados.
+- Este armado controla **tomas MIDI**; la grabación de audio usa `AudioInputSession` y su pipeline de pistas de audio. No presentarlos como una sola modalidad.
