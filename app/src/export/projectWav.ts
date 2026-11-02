@@ -48,7 +48,8 @@ export interface ProjectWavResult {
   /** The project limiter is nonlinear; stems are aligned but not additive. */
   readonly stemsAdditive: boolean;
   readonly projectLimiterIncluded: true;
-  readonly sendsIncluded: false;
+  /** True when the rendered graph contains post-fader send paths. */
+  readonly sendsIncluded: boolean;
   readonly masterEffectsIncluded: false;
   readonly sidechainIncluded: false;
   readonly studioGlobalChainIncluded: false;
@@ -187,7 +188,8 @@ export async function exportProjectWav(revision: ProjectRevision, assetReader: U
   return { projectId: revision.projectId, projectName: revision.document.name,
     revision: revision.revision,
     revisionHash: revision.hash, format: options.format, seed, plan: finalPlan, files,
-    stemsAdditive: finalPlan.stemsAdditive, projectLimiterIncluded: true, sendsIncluded: false,
+    stemsAdditive: finalPlan.stemsAdditive, projectLimiterIncluded: true,
+    sendsIncluded: revision.document.tracks.some((track) => track.mix.sends.length > 0),
     masterEffectsIncluded: false, sidechainIncluded: false,
     studioGlobalChainIncluded: false, omittedStemIds, officialCredits };
 }
