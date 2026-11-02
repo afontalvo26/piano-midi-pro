@@ -6,7 +6,7 @@ import { addAutomationPoint, copyAutomationPoints, copySelectedAutomationPoints,
   createBaseAutomationLane, deleteAutomationLane, deleteAutomationPoint,
   deleteSelectedAutomationPoints, moveAutomationPoint, moveSelectedAutomationPoints,
   pasteAutomationPoints,
-  setAutomationWriteMode } from "../../app/src/composition/automationEdit.ts";
+  setAutomationWriteMode, writeAutomationTouchGesture } from "../../app/src/composition/automationEdit.ts";
 import { automationLowerBound, automationValueAtTick, hitAutomationPoint,
   visibleAutomationPointRange } from "../../app/src/composition/automationCanvas.ts";
 
@@ -129,4 +129,35 @@ test("canvas indexa 10.000 puntos por rango visible y usa shape saliente", () =>
     { id: "b", tick: 200, value: 0, shape: "step" },
     { id: "c", tick: 300, value: 6, shape: "linear" },
   ], 250, 3), 0);
+});
+
+
+test("Touch reemplaza sólo el tramo tocado, vuelve a read curve y deshace como un gesto", () => {
+  const lane = { id: "touch", target: { scope: "track", ownerId: track.id,
+    parameterId: "gainDb" }, writeMode: "touch", points: [
+    { id: "before", tick: 0, value: -12, shape: "linear" },
+    { id: "after", tick: 960, value: 0, shape: "linear" },
+    { id: "tail", tick: 1920, value: -3, shape: "step" },
+  ] };
+  const document = { ...base, automation: [lane] };
+  let id = 0;
+  const command = writeAutomationTouchGesture(document, lane.id, [
+    { tick: 480, value: -18 },
+    { tick: 500, value: -15 },
+    { tick: 500, value: -14 },
+    { tick: 540, value: -9 },
+  ], 2000, () => `touch-${++id}`);
+  const written = applyCommand(document, command);
+  const points = written.document.automation[0].points;
+  assert(points.some((point) => point.tick === 479));
+  assert.deepEqual(points.filter((point) => point.tick >= 480 && point.tick <= 540)
+    .map((point) => [point.tick, point.value]), [[480, -18], [500, -14], [540, -9]]);
+  const returnPoint = points.find((point) => point.tick === 570);
+  assert(returnPoint);
+  assert(Math.abs(returnPoint.value - (-4.875)) < 1e-9);
+  assert(points.some((point) => point.id === "tail" && point.tick === 1920));
+  assert.deepEqual(applyCommand(written.document, written.inverse).document, document);
+  assert.throws(() => writeAutomationTouchGesture({ ...document,
+    automation: [{ ...lane, writeMode: "read" }] }, lane.id,
+    [{ tick: 480, value: -6 }]), /Activa Touch/);
 });
