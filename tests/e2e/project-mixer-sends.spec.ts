@@ -97,6 +97,10 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
   expect(result.busStemOverlap).toBe(true);
   expect(result.plannedBusCount).toBe(2);
   expect(result.busStemEnergies.every((peak: number) => peak > 0.01)).toBe(true);
+  // No master leak into a bus tap: each isolated outlet is lower than the
+  // full master, which sums the direct + parallel send contributions.
+  expect(result.busStemEnergies[0]).toBeGreaterThan(result.busStemEnergies[1] * 1.3);
+  expect(result.busStemEnergies[0]).toBeGreaterThan(result.busStemEnergies[2] * 1.3);
   expect(result.encodedAudioBytes.every((value: number) => value > 44)).toBe(true);
 });
 
