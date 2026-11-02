@@ -55,7 +55,7 @@ test("AUT step/linear: proyecto live-like y WAV tienen mismo PCM grabado", async
         ] },
         { id: "filter", target: { scope: "track" as const, ownerId: "audio",
           effectId: "fx-filter", parameterId: "cutoffHz" }, points: [
-          { id: "f0", tick: 0, value: 18000, shape: "linear" as const },
+          { id: "f0", tick: 0, value: 18000, shape: "bezier" as const, curve: 0.8 },
           { id: "f1", tick: 1920, value: 350, shape: "step" as const },
         ] },
       ] };
