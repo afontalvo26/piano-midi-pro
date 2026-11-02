@@ -41,3 +41,35 @@ Fecha: 2026-11-01. Este registro no aprueba el producto; identifica lo que ya se
 - SMK-37 Elite físico: `.logs/smk37-elite-physical-20261101.jsonl`; no contiene pedales ni una validación auditiva.
 
 Las mediciones Chromium de escritorio con viewport móvil verifican comportamiento de software y no sustituyen un teléfono físico, el controlador completo ni captura de salida cableada.
+
+
+## Anexo: propuesta de continuación SDD (no fusionada ni aprobada)
+
+La [PR #1](https://github.com/afontalvo26/piano-midi-pro/pull/1) sobre
+`fix/bus-resample-routing-preflight-20261101` añade implementaciones
+**pendientes de ejecutar** para MIX-01, AUD-06 y EXP-02:
+
+- Grafo de sends post-fader con prevención de ciclos, controles en mezclador
+  y preservación de cambios por comandos reversibles.
+- Tap aislado `post-bus-pre-master` después de procesado del bus,
+  captura directa al master separada y exportación de stems con rutas
+  auxiliares sin añadir al bus la señal directa a master.
+- Referencia de los sends incluidos en la procedencia del resampling,
+  exclusión de la pista destino e integridad WAV/ZIP.
+- Pruebas focales nuevas de mezcla, bus tap, edición a 320 px, reabrir,
+  undo/redo y matriz de 113 criterios en formato legible y JSON.
+- Gate estructural `scripts/verify-beatmaker-acceptance.mjs --check`;
+  `--release` se bloquea mientras falten evidencias o ensayos físicos.
+
+**Estado de ejecución:** el workflow de GitHub Actions entra en
+`failure` antes de ejecutar pasos. En el run
+[41364098020](https://github.com/afontalvo26/piano-midi-pro/actions/runs/41364098020),
+los dos jobs tienen `steps=[]`, `runner_id=0` y duración de 2–3 s.
+No son pruebas TypeScript/Playwright realmente ejecutadas. La causa
+operativa precisa no se verificó; no adjudicar el fallo al código sin
+logs. La alternativa local es `scripts/validate-studio.ps1`, todavía
+sin un reporte registrado. Hasta entonces el trabajo queda en PR draft,
+sin merge a la rama de producto.
+
+El corte anterior de Codex y sus logs se conservan como histórico;
+las nuevas propuestas NO heredan sus resultados de aceptación.
