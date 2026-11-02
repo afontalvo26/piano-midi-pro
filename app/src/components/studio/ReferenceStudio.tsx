@@ -442,6 +442,14 @@ export function ReferenceStudio({
                 <Icon name="music" size={16}/> Partitura</button>
             </div>
             <div className="ref-editor-context">
+              <button type="button" className={keyboardOpen && workspace==="performance"?"is-selected":""}
+                aria-pressed={keyboardOpen && workspace==="performance"}
+                onClick={()=>{
+                  if(workspace!=="performance"){onWorkspace("performance");setKeyboardOpen(true);}
+                  else setKeyboardOpen((open)=>!open);
+                }} title="Alternar teclado virtual real de 37 teclas">
+                <Icon name="keyboard" size={15}/> Teclado 37
+              </button>
               <span><Icon name="keyboard" size={15}/>{panelTitle}</span>
               <button type="button" title="Abrir el editor completo" aria-label="Editor completo" onClick={onFullEditor}><Icon name="maximize" size={17}/></button>
             </div>
