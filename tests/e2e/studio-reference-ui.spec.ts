@@ -112,3 +112,78 @@ test("instrument catalog opens inside the new inspector and closes without chang
   await expect(shell.getByRole("dialog", {name:"Biblioteca de instrumentos"})).toHaveCount(0);
   await expect(shell.getByRole("region", {name:"Editor musical"})).toBeVisible();
 });
+
+
+test("approved Studio timeline uses real reversible clip draw and split operations", async ({page}) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({width:1586,height:992});
+  await page.goto("/", {waitUntil:"domcontentloaded"});
+  const shell=page.getByTestId("reference-studio");
+  await shell.getByRole("button", {name:"Nueva idea"}).click();
+  const firstRow=shell.locator(".ref-track-row").first();
+  await expect(firstRow.locator(".ref-clip")).toHaveCount(1);
+  await shell.getByRole("button", {name:"Dibujar"}).click();
+  const lane=firstRow.locator(".ref-track-lane");
+  const bounds=await lane.boundingBox();
+  expect(bounds).not.toBeNull();
+  await lane.click({position:{x:Math.round(bounds!.width*.65),y:24}});
+  await expect(firstRow.locator(".ref-clip")).toHaveCount(2);
+  await shell.getByRole("button", {name:"Cortar"}).click();
+  const firstClip=firstRow.locator(".ref-clip").first();
+  const clipBounds=await firstClip.boundingBox();
+  expect(clipBounds).not.toBeNull();
+  await firstClip.click({position:{x:Math.round(clipBounds!.width*.5),y:15}});
+  await expect(firstRow.locator(".ref-clip")).toHaveCount(3);
+  await shell.getByRole("button", {name:"Seleccionar"}).click();
+  await firstRow.locator(".ref-clip").first().click();
+  await expect(shell.getByRole("button", {name:/Cuantizar/})).toBeVisible();
+});
+
+test("real performance keyboard supports octave movement and three pedals",async ({page})=>{
+  test.setTimeout(90_000);
+  await page.setViewportSize({width:1586,height:992});
+  await page.goto("/", {waitUntil:"domcontentloaded"});
+  const shell=page.getByTestId("reference-studio");
+  await shell.getByRole("navigation",{name:"Flujos de trabajo"})
+    .getByRole("button",{name:"Interpretar"}).click();
+  const keyboard=shell.getByRole("group",{name:"Piano virtual"});
+  await expect(keyboard.locator(".piano-key-element")).toHaveCount(37);
+  const range=await shell.locator(".ref-performance-toolbar>span").first().textContent();
+  await shell.getByRole("button",{name:"Octava siguiente"}).click();
+  await expect(shell.locator(".ref-performance-toolbar>span").first()).not.toHaveText(range!);
+  const pedal=shell.getByRole("group",{name:"Pedales virtuales"}).getByRole("button",{name:"Sustain"});
+  await pedal.dispatchEvent("pointerdown",{pointerId:1,pointerType:"mouse"});
+  await expect(pedal).toHaveAttribute("aria-pressed","true");
+  await pedal.dispatchEvent("pointerup",{pointerId:1,pointerType:"mouse"});
+  await expect(pedal).toHaveAttribute("aria-pressed","false");
+});
+
+test("four instrument macro controls create real persisted validated processors",async ({page})=>{
+  test.setTimeout(90_000);
+  await page.goto("/", {waitUntil:"domcontentloaded"});
+  const result=await page.evaluate(async()=>{
+    const {createProjectDocument}=await import("/src/project/model.ts");
+    const {applyCommand}=await import("/src/project/commands.ts");
+    const {applyStudioMacro,readStudioMacro}=await import("/src/components/studio/studioMacros.ts");
+    const base=createProjectDocument({id:"macro-ui-test",at:1});
+    const mix={gainDb:0,pan:0,mute:false,solo:false,armed:false,
+      effects:[],sends:[]};
+    const track={id:"test-track",name:"Instrumento",kind:"audio" as const,mix};
+    let doc={...base,tracks:[track],trackOrder:[track.id]};
+    for(const [kind,value] of [["brightness",38],["body",75],["reverb",42],["dynamics",60]] as const){
+      const current=doc.tracks[0]!.mix.effects;
+      const next=applyStudioMacro(current,track.id,kind,value);
+      const applied=applyCommand(doc,{kind:"replaceTrackEffects",trackId:track.id,
+        expected:current,effects:next,at:2});
+      doc=applied.document as typeof doc;
+    }
+    const effects=doc.tracks[0]!.mix.effects;
+    return {count:effects.length,ids:effects.map(e=>e.id),
+      values:["brightness","body","reverb","dynamics"].map((kind)=>
+        readStudioMacro(effects,track.id,kind as "brightness"|"body"|"reverb"|"dynamics")),
+      kinds:effects.map(e=>e.kind)};
+  });
+  expect(result.count).toBe(4);
+  expect(result.values).toEqual([38,75,42,60]);
+  expect(result.kinds).toEqual(["filter","eq3","reverb","compressor"]);
+});
