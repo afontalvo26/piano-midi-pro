@@ -738,3 +738,25 @@
  .ref-transport button{min-height:44px;min-width:44px}
  .ref-track-scroll{scrollbar-width:thin}
 }
+
+/* Critical statuses must remain visible when the legacy header is hidden. */
+.ref-global-alert,.ref-global-progress{
+  grid-column:2;grid-row:2;z-index:15;align-self:start;
+  display:flex;align-items:center;gap:9px;
+  margin:9px 12px 0;padding:10px 13px;
+  border:1px solid #9b527b;border-radius:9px;
+  background:#301b36;color:#ffdeee;
+  font-size:12px;box-shadow:0 6px 20px #000b;
+}
+.ref-global-alert span{flex:1;min-width:0;overflow-wrap:anywhere}
+.ref-global-alert button{min-height:34px;border-radius:7px;border:1px solid #b582d0;
+  color:#fff;background:#68408b;padding:5px 10px;flex:none}
+.ref-global-progress{z-index:14;border-color:#50447e;background:#211c3b;color:#ded3fc}
+.ref-global-alert+.ref-global-progress{margin-top:65px}
+@media(max-width:950px){
+ .ref-global-alert,.ref-global-progress{grid-column:2;margin:7px 7px 0}
+}
+@media(max-width:650px){
+ .ref-global-alert,.ref-global-progress{font-size:11px;flex-wrap:wrap}
+ .ref-global-alert button{min-height:44px}
+}
