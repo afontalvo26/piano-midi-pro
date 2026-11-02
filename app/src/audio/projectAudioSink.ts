@@ -227,7 +227,7 @@ export class ProjectAudioSink implements SequencerSink {
   private readonly handles = new Map<OwnedVoiceHandle, TrackSlot>();
   private readonly automatedParameters = new Set<string>();
   /** Parameters temporarily owned by a physical/Touch control; timeline events must not overwrite them. */
-  private readonly liveAutomationOverrides = new Set<string>();
+  private readonly liveAutomationOverrides = new Map<string, number>();
   private automationReplanAt: number | null = null;
   private readonly pendingAutomationReturn = new Set<string>();
   private readonly replannedAutomation = new Set<string>();
@@ -858,8 +858,8 @@ export class ProjectAudioSink implements SequencerSink {
       this.automatedParameters.delete(key);
       this.pendingAutomationReturn.delete(key);
       this.replannedAutomation.delete(key);
-      this.liveAutomationOverrides.add(key);
     }
+    this.liveAutomationOverrides.set(key, value);
     if (isPan) {
       (param as Tone.Param<"audioRange">).linearRampToValueAtTime(value, audioTime + 0.015);
     } else {
@@ -885,6 +885,10 @@ export class ProjectAudioSink implements SequencerSink {
 
   isAutomationLiveOverride(target: ProjectAutomationLane["target"]): boolean {
     return this.liveAutomationOverrides.has(this.automationTargetKey(target));
+  }
+
+  automationLiveOverrideValue(target: ProjectAutomationLane["target"]): number | null {
+    return this.liveAutomationOverrides.get(this.automationTargetKey(target)) ?? null;
   }
 
   automation(event: ScheduledAutomation): void {
