@@ -114,7 +114,7 @@ export type ProjectCommand =
       readonly removeAssetIfUnused: boolean; readonly at: number }
   | { readonly kind: "replaceTrackInstrument"; readonly trackId: string;
       readonly expected: ProjectInstrumentRef | undefined;
-      readonly instrument: ProjectInstrumentRef; readonly at: number }
+      readonly instrument: ProjectInstrumentRef | undefined; readonly at: number }
   | { readonly kind: "replaceTrackMix"; readonly trackId: string;
       readonly expected: ProjectMixChannel; readonly mix: ProjectMixChannel; readonly at: number }
   | { readonly kind: "replaceMasterMix"; readonly expected: ProjectMixState;
@@ -1059,17 +1059,17 @@ function reduceCommand(snapshot: ProjectDocumentV1, command: ProjectCommand, tru
       if (JSON.stringify(track.instrument) !== JSON.stringify(command.expected)) {
         throw new RangeError("Instrumento de pista: revisión desactualizada");
       }
-      if (!command.instrument.instrumentId || !command.instrument.packageVersion ||
-          !command.instrument.presetId) {
+      if (command.instrument && (!command.instrument.instrumentId || !command.instrument.packageVersion ||
+          !command.instrument.presetId)) {
         throw new RangeError("Referencia de instrumento incompleta");
       }
-      const next = structuredClone(command.instrument);
+      const next = command.instrument ? structuredClone(command.instrument) : undefined;
       document = { ...snapshot,
         tracks: snapshot.tracks.map((item)=>item.id===track.id
           ? {...item,instrument:next} : item),
         updatedAt: command.at };
       inverse = {kind:"replaceTrackInstrument",trackId:track.id,
-        expected:next, instrument:structuredClone(track.instrument ?? command.instrument),
+        expected:next, instrument:track.instrument ? structuredClone(track.instrument) : undefined,
         at:snapshot.updatedAt};
       break;
     }
