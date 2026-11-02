@@ -210,6 +210,8 @@ interface ClipBase {
   readonly transpose: number;
   readonly gainDb: number;
   readonly muted: boolean;
+  /** Optional arrangement edit group. Group membership never changes playback authority. */
+  readonly groupId?: string;
 }
 
 export type ProjectClip =
