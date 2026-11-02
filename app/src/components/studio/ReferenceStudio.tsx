@@ -303,7 +303,7 @@ export function ReferenceStudio({
         {NAV.map((item) => <button type="button" key={item.id}
           className={workspace === item.id || (item.id==="library"&&instrumentChooserOpen) ? "is-current" : ""}
           aria-current={workspace === item.id || (item.id==="library"&&instrumentChooserOpen) ? "page" : undefined}
-          onClick={() => { if(item.id==="library"){setInstrumentChooserOpen(true);return;} if(item.id==="performance")setKeyboardOpen(true); setScoreOpen(false); onWorkspace(item.id); }}>
+          onClick={() => { if(item.id==="library"){setTakeInspectorOpen(false);setInstrumentChooserOpen(true);return;} if(item.id==="performance")setKeyboardOpen(true); setScoreOpen(false); onWorkspace(item.id); }}>
           <Icon name={item.icon} size={24}/><span>{item.label}</span>
         </button>)}
       </nav>
@@ -574,6 +574,20 @@ export function ReferenceStudio({
           <button type="button" className={inspector==="inspect"?"is-selected":""}
             onClick={()=>setInspector("inspect")}>Inspector</button>
         </div>
+        {takeInspectorOpen && <div className="ref-takes-overlay" role="dialog"
+          aria-modal={false} aria-label="Tomas MIDI del proyecto">
+          <div className="ref-instrument-picker-header">
+            <strong>Tomas MIDI · proyecto actual</strong>
+            <button type="button" onClick={()=>setTakeInspectorOpen(false)}
+              aria-label="Cerrar tomas MIDI"><Icon name="close" size={17}/></button>
+          </div>
+          {unsavedRecording && <div className="ref-takes-alert" role="alert">
+            La toma no se ha guardado. No cierres la sesión hasta conservarla.
+            <button type="button" onClick={onRetryRecordingSave}>Reintentar guardado</button>
+            <button type="button" onClick={onExportRecording}>Exportar MIDI de emergencia</button>
+          </div>}
+          <div className="ref-takes-body">{recordingPanel}</div>
+        </div>}
         {instrumentChooserOpen ? <div className="ref-instrument-picker" role="dialog" aria-modal={false} aria-label="Biblioteca de instrumentos">
           <div className="ref-instrument-picker-header"><strong>Biblioteca de instrumentos</strong>
             <button type="button" onClick={()=>setInstrumentChooserOpen(false)} aria-label="Cerrar biblioteca"><Icon name="close" size={16}/></button>
@@ -642,7 +656,12 @@ export function ReferenceStudio({
         </div>}
         <div className="ref-midi-panel">
           <div className="ref-midi-title"><span className={"ref-state-dot"+(midiConnected?" is-online":"")}/>
-            <strong>Entrada MIDI</strong><Icon name="chevron" size={16}/></div>
+            <strong>Entrada MIDI</strong>
+            <button type="button" className="ref-takes-opener"
+              aria-label="Ver tomas MIDI y overdub" aria-expanded={takeInspectorOpen}
+              onClick={()=>{setInstrumentChooserOpen(false);setTakeInspectorOpen((open)=>!open);}}>
+              Tomas <Icon name="chevron" size={14}/>
+            </button></div>
           <div className="ref-midi-inner">
             <span className="ref-midi-device-icon"><Icon name="keyboard" size={24}/></span>
             <span><strong>{midiConnected?midiStatus:"Sin entrada MIDI"}</strong><small>{midiConnected?"Notas en tiempo real":"Conecta tu controlador"}</small></span>
