@@ -43,7 +43,8 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
       { ...source, mix: { ...mix,
         sends: [{ id: "send-parallel", busTrackId: bus.id, gainDb: 0 }] } }, bus] };
     const reader = { readAsset: async () => analyzed.data };
-    const options = { startTick: 0, endTick: 480, sampleRate, tailSeconds: 0, seed: "send-e2e" };
+    const options = { startTick: 0, endTick: 480, sampleRate, tailSeconds: 0,
+      seed: "send-e2e" } as const;
     const plan = planProjectAudioExport(wet, { startTick: 0, endTick: 480,
       sampleRate: 48_000, tailSeconds: 0, stems: "tracks" });
     const busPlan = planProjectAudioExport(wet, { startTick: 0, endTick: 480,
@@ -154,7 +155,7 @@ test("routing graph rejects feedback, missing buses and unsafe send levels", asy
     const source = { id: "source", kind: "audio" as const, name: "Source", mix };
     const bus = { id: "bus", kind: "bus" as const, name: "Bus", mix };
     const sound = { tracks: [source, bus] };
-    const accepts = (doc: typeof sound): boolean => {
+    const accepts = (doc: Parameters<typeof assertSafeAudioRouting>[0]): boolean => {
       try { assertSafeAudioRouting(doc); return true; } catch { return false; }
     };
     const send = (busTrackId: string, gainDb = -12) =>
