@@ -62,7 +62,7 @@ export class ProjectPlayback {
   readonly projectId: string;
   private document: ProjectDocumentV1;
   private readonly audio: AudioClockSource;
-  private readonly loop: LoopRange | null;
+  private loop: LoopRange | null;
   private arrangementResolver: TimelineResolver;
   private automationResolver: ReturnType<typeof createBaseAutomationResolver>;
   private intervals: SceneInterval[] = [];
@@ -503,6 +503,10 @@ export class ProjectPlayback {
   }
   positionAtAudioTime(audioTime: number): ReturnType<TransportScheduler["positionAtAudioTime"]> {
     return this.scheduler.positionAtAudioTime(audioTime);
+  }
+  setLoopRange(range: LoopRange | null): void {
+    this.scheduler.setLoopRange(range);
+    this.loop = range;
   }
   setMetronomeEnabled(enabled: boolean): void { this.scheduler.setMetronomeEnabled(enabled); }
   setTrackMute(trackId: string, muted: boolean): void { this.sink.setTrackMute(trackId, muted); }
