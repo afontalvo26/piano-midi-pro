@@ -28,7 +28,7 @@ const PHYSICAL_REQUIRED = new Set([
   "QLT-01","QLT-02","QLT-03","QLT-04","QLT-05","QLT-08",
   "UXP-02","UXP-04",
 ]);
-const LICENSE_REQUIRED = new Set(["INS-03","INS-05","INS-08","DRM-03","SMP-06","QLT-09"]);
+const LICENSE_REQUIRED = new Set(["INS-03","INS-05","INS-08","DRM-03","SMP-07","QLT-09"]);
 function validProof(proof) {
   if(!proof || proof.result!=="pass" || !ACCEPTABLE_PROOFS.has(proof.kind) ||
      typeof proof.commit!=="string" || !/^[a-f0-9]{40}$/.test(proof.commit) ||
