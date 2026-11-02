@@ -9,6 +9,7 @@ import { drawStudioClip, cutStudioClip, moveStudioClip, duplicateStudioClip,
   resizeStudioPatternClip, quantizeStudioClip,
   snapStudioTick, type ReferenceArrangementTool } from "./referenceArrangementActions.ts";
 import { subscribeLivePerformance, getLivePerformanceSnapshot } from "./livePerformanceStore";
+import { PROJECT_INSTRUMENTS, getProjectInstrument } from "../../instruments/projectCatalog.ts";
 import referenceGrandPiano from "./reference-grand-piano.svg";
 import "./ReferenceStudio.css";
 
@@ -215,10 +216,10 @@ export function ReferenceStudio({
   const clockPosition = studioBarNumberAtTick(meterMap,Math.max(0,tick));
   const selectedTrack = tracks.find((track) => track.id === activeTrackId) ?? tracks[0];
   const selectedTrackAudio = projectAudioTracks?.find((entry)=>entry.trackId===selectedTrack?.id);
+  const selectedProjectInstrument = selectedTrack?.kind==="instrument" && selectedTrack.instrument
+    ? getProjectInstrument(selectedTrack.instrument.instrumentId) : undefined;
   const trackInstrumentLabel = selectedTrack?.kind==="instrument"
-    ? selectedTrack.instrument?.instrumentId==="salamander-grand" ? "Piano Salamander · pista"
-      : selectedTrack.instrument?.instrumentId==="tr808-fischer-core" ? "Bajo 808 Fischer · pista"
-      : selectedTrack.instrument?.instrumentId ?? "Sin banco asignado"
+    ? selectedProjectInstrument?.label ?? selectedTrack.instrument?.instrumentId ?? "Sin banco asignado"
     : selectedTrack?.name ?? instrumentName;
   const panelTitle = selectedTrack?.name ?? instrumentName;
   const armedMidiTracks = tracks.filter((track)=>
@@ -690,21 +691,25 @@ export function ReferenceStudio({
           {selectedTrack?.kind==="instrument" && <div className="ref-project-instrument">
             <label htmlFor="ref-project-instrument-id">Banco de la pista: {selectedTrack.name}</label>
             <select id="ref-project-instrument-id" aria-label="Banco sonoro de pista"
-              value={["salamander-grand","tr808-fischer-core"].includes(
-                selectedTrack.instrument?.instrumentId??"")
-                ? selectedTrack.instrument!.instrumentId : "other"}
+              value={getProjectInstrument(selectedTrack.instrument?.instrumentId??"")?.id ?? "other"}
               onChange={(event)=>{
                 try { onTrackInstrumentChange(selectedTrack.id,event.target.value);setEditError(""); }
                 catch(error){setEditError(error instanceof Error?error.message:"No se pudo cambiar el banco");}
               }}>
               {selectedTrack.instrument?.instrumentId &&
-                !["salamander-grand","tr808-fischer-core"].includes(selectedTrack.instrument.instrumentId)
-                && <option value="other" disabled>{selectedTrack.instrument.instrumentId} · banco externo</option>}
+                !getProjectInstrument(selectedTrack.instrument.instrumentId)
+                && <option value="other" disabled>{selectedTrack.instrument.instrumentId} · banco externo/no instalado</option>}
               {!selectedTrack.instrument && <option value="other" disabled>Sin instrumento asignado</option>}
-              <option value="salamander-grand">Piano Salamander · grabación local</option>
-              <option value="tr808-fischer-core">Bajo 808 Fischer · grabación local</option>
+              {PROJECT_INSTRUMENTS.map((bank)=><option key={bank.id} value={bank.id}>
+                {bank.label} · {bank.packageState==="installed"?"instalado":"no instalado"}
+              </option>)}
             </select>
-            <small>Este selector guarda el banco de esta pista. El catálogo inferior cambia sólo el sonido de interpretación en vivo.</small>
+            {selectedProjectInstrument && <small>
+              {selectedProjectInstrument.family} · {selectedProjectInstrument.engine} ·
+              versión {selectedProjectInstrument.packageVersion} · preset {selectedProjectInstrument.presetId} ·
+              {selectedProjectInstrument.sizeLabel} · {selectedProjectInstrument.license}.
+            </small>}
+            <small>Este selector guarda sólo bancos locales soportados por live y exportación. El catálogo inferior puede incluir sonidos live/remotos y no los presenta como instalados.</small>
           </div>}
           {instrumentPicker}
           <button type="button" className="ref-instrument-picker-advanced" onClick={onLibrary}>Abrir configuración completa</button>
