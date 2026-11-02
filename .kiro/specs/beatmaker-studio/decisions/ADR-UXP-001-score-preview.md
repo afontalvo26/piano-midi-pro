@@ -1,7 +1,7 @@
 # ADR-UXP-001 — Lectura de notas propia dentro del Studio aprobado
 
 **Fecha:** 2026-11-02  
-**Estado:** interpretación implementada; aceptación del release pendiente de QA y revisión de producto  
+**Estado:** decisión de producto fijada; implementación pendiente de QA de release  
 **Ámbito:** UXP-01 y ROL-05; no crea un requisito nuevo ni cambia los 113 IDs.
 
 ## Contexto
@@ -28,4 +28,4 @@ Ocultar el conflicto o modificar silenciosamente los requisitos fue un error. La
 5. Probar ausencia de notas, 10 000 notas, cambios de compás, zoom 200%, navegador real y pantalla de 390 px; documentar limitaciones de legibilidad.
 6. Obtener comparación visual aprobada con el mockup a 1586×992.
 
-**No es un permiso de merge.** El criterio UXP-01 y el SDD-01 de la auditoría permanecen pendientes hasta que se apruebe expresamente la distinción y sus pruebas. Si el propietario del producto exige exclusión literal de toda partitura, retirar esta pestaña antes del lanzamiento sin traer de vuelta la app antigua.
+**Decisión fijada:** se conserva la pestaña contextual «Partitura» porque forma parte del Studio visual aprobado, pero queda expresamente fuera de alcance cualquier pantalla/ruta/catálogo heredado de Partitura. Esto resuelve el conflicto de alcance de SDD-01; **no** aprueba UXP-01 ni autoriza merge/release sin sus pruebas.
