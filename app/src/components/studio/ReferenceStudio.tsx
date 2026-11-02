@@ -96,6 +96,10 @@ export interface ReferenceStudioProps {
   editor: ReactNode;
   instrumentPicker: ReactNode;
   performancePanel: ReactNode;
+  recordingPanel: ReactNode;
+  unsavedRecording: boolean;
+  onRetryRecordingSave: () => void;
+  onExportRecording: () => void;
   notationPanel: ReactNode;
   loopEnabled: boolean;
   loopStartBar: number;
@@ -141,7 +145,9 @@ function Meter({ peak, tall = false }: { peak?: number; tall?: boolean }) {
 export function ReferenceStudio({
   document, workspace, activeTrackId, saveStatus, problem, loadingLabel, onRetrySave, transport, tick, bpm,
   metronome, recording, midiConnected, midiStatus, outputLatencyEstimateMs, instrumentName, instrumentCategory,
-  masterLevel, trackLevels, editor, instrumentPicker, performancePanel, notationPanel, loopEnabled,
+  masterLevel, trackLevels, editor, instrumentPicker, performancePanel,
+  recordingPanel, unsavedRecording, onRetryRecordingSave, onExportRecording,
+  notationPanel, loopEnabled,
   loopStartBar, loopEndBar, onLoopRangeChange, onLoopChange,
   onSeekTick, onArrangementCommand, onMacroChange, onWorkspace, onLibrary, onProjects, onSettings,
   onNew, onPlay, onStop, onRecord, onMetronome, onTempoDraft, onTempoCommit,
@@ -151,6 +157,7 @@ export function ReferenceStudio({
   const [tool, setTool] = useState<ReferenceArrangementTool>("select");
   const [inspector, setInspector] = useState<"instrument" | "inspect">("instrument");
   const [instrumentChooserOpen, setInstrumentChooserOpen] = useState(false);
+  const [takeInspectorOpen, setTakeInspectorOpen] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [scoreOpen, setScoreOpen] = useState(false);
   const [mixerOpen, setMixerOpen] = useState(true);
@@ -267,7 +274,7 @@ export function ReferenceStudio({
         <button type="button" aria-label="Avanzar un compás" title="Avanzar un compás" onClick={()=>onSeekTick(Math.round((Math.floor(tick/ticksPerBar)+1)*ticksPerBar))} disabled={!document}><Icon name="forward" size={18}/></button>
         <button type="button" className={"ref-record" + (recording ? " is-active" : "")}
           aria-label={recording ? "Detener grabación MIDI" : "Grabar MIDI"} aria-pressed={recording}
-          onClick={onRecord}><Icon name="record" size={19}/></button>
+          onClick={()=>{setTakeInspectorOpen(true);onRecord();}}><Icon name="record" size={19}/></button>
       </div>
       <label className="ref-tempo">Tempo
         <input type="number" min={30} max={300} aria-label="Tempo del proyecto" value={bpm || "120"}
@@ -302,7 +309,7 @@ export function ReferenceStudio({
       </nav>
       <div className="ref-quick-links">
         <p>ACCESO RÁPIDO</p>
-        <button type="button" className="ref-quick-record" onClick={onRecord} aria-pressed={recording}>
+        <button type="button" className="ref-quick-record" onClick={()=>{setTakeInspectorOpen(true);onRecord();}} aria-pressed={recording}>
           <span className="ref-record-dot"/> <span><strong>{recording ? "Detener toma" : "Grabar toma"}</strong>
           <small>Captura tu interpretación</small></span><Icon name="chevron" size={17}/>
         </button>
