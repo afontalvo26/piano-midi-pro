@@ -2,20 +2,25 @@ import type { ProjectAutomationLane, ProjectAutomationPoint,
   ProjectDocumentV1 } from "../project/model.ts";
 import type { ProjectCommand } from "../project/commands.ts";
 import { projectAutomationBaseValue, projectAutomationParameter } from "../project/automationParameters.ts";
+import { automationInterpolatedValue } from "./automationCurve.ts";
 
 export type BaseAutomationTarget =
   | { readonly scope: "track"; readonly ownerId: string; readonly parameterId: "gainDb" | "pan";
-      readonly effectId?: undefined }
-  | { readonly scope: "master"; readonly parameterId: "masterGainDb"; readonly effectId?: undefined }
+      readonly effectId?: undefined; readonly sendId?: undefined }
+  | { readonly scope: "master"; readonly parameterId: "masterGainDb";
+      readonly effectId?: undefined; readonly sendId?: undefined }
   | { readonly scope: "clip"; readonly ownerId: string; readonly parameterId: "gainDb";
-      readonly effectId?: undefined }
+      readonly effectId?: undefined; readonly sendId?: undefined }
+  | { readonly scope: "track"; readonly ownerId: string; readonly sendId: string;
+      readonly parameterId: "gainDb"; readonly effectId?: undefined }
   | { readonly scope: "track"; readonly ownerId: string; readonly effectId: string;
-      readonly parameterId: string }
-  | { readonly scope: "master"; readonly effectId: string; readonly parameterId: string };
+      readonly parameterId: string; readonly sendId?: undefined }
+  | { readonly scope: "master"; readonly effectId: string; readonly parameterId: string;
+      readonly sendId?: undefined };
 
 export function automationTargetKey(target: ProjectAutomationLane["target"]): string {
   return JSON.stringify([target.scope, target.ownerId ?? null, target.effectId ?? null,
-    target.parameterId]);
+    target.sendId ?? null, target.parameterId]);
 }
 
 export interface AutomationPointCopy {
@@ -111,7 +116,8 @@ function laneValueAt(document: ProjectDocumentV1, lane: ProjectAutomationLane, t
   const next = lane.points[index + 1];
   if (!next || point.shape === "step") return point.value;
   const fraction = (tick - point.tick) / (next.tick - point.tick);
-  return point.value + (next.value - point.value) * fraction;
+  return automationInterpolatedValue(point.value, next.value,
+    point.shape, point.curve, fraction);
 }
 
 /** One touch gesture becomes one reversible command. The release returns to the prior read curve. */
