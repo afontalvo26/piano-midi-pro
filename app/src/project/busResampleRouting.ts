@@ -13,7 +13,9 @@ export interface BusResampleRouteSelection {
  * Destination audio track is never a source, preventing feedback on install.
  */
 export function findBusResampleRoutes(document: ProjectDocumentV1,
-  sourceBusTrackId: string, destinationTrackId: string): BusResampleRouteSelection {
+  sourceBusTrackId: string, destinationTrackId: string,
+  /** Offline stems may restrict the tap to one immutable set of source tracks. */
+  selectedSourceIds?: readonly string[]): BusResampleRouteSelection {
   const byId = new Map(document.tracks.map((track) => [track.id, track]));
   const empty: BusResampleRouteSelection = { sourceTrackIds: [], routedTracks: [],
     includedSendIds: [] };
@@ -39,11 +41,12 @@ export function findBusResampleRoutes(document: ProjectDocumentV1,
   };
 
   const sourceTrackIds: string[] = [];
+  const selected = selectedSourceIds ? new Set(selectedSourceIds) : null;
   const routed = new Set<string>([sourceBusTrackId]);
   const includedSendIds = new Set<string>();
   for (const source of document.tracks) {
     if (source.kind === "bus" || source.id === destinationTrackId ||
-        !reachesTap(source.id)) continue;
+        (selected && !selected.has(source.id)) || !reachesTap(source.id)) continue;
     sourceTrackIds.push(source.id);
     const queue = [source.id];
     const visited = new Set<string>();
