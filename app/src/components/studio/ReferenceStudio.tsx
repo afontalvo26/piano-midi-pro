@@ -221,6 +221,15 @@ export function ReferenceStudio({
       : selectedTrack.instrument?.instrumentId ?? "Sin banco asignado"
     : selectedTrack?.name ?? instrumentName;
   const panelTitle = selectedTrack?.name ?? instrumentName;
+  const armedMidiTracks = tracks.filter((track)=>
+    (track.kind==="instrument"||track.kind==="drum")&&track.mix.armed);
+  const recordingTargetLabel = armedMidiTracks.length===1
+    ? "Pista MIDI armada: "+armedMidiTracks[0]!.name
+    : armedMidiTracks.length>1
+      ? "Varias pistas armadas: selecciona una antes de grabar"
+      : selectedTrack && (selectedTrack.kind==="instrument"||selectedTrack.kind==="drum")
+        ? "Sin pistas armadas; captura en "+selectedTrack.name
+        : "Toma MIDI libre (sin pista armada)";
   const selectedClip = document?.clips.find((clip)=>clip.id===playingSelection);
   const isPlaying = transport === "playing";
   async function executeEdit(factory: () => ProjectCommand | null): Promise<void> {
@@ -308,7 +317,7 @@ export function ReferenceStudio({
         <button type="button" aria-label="Avanzar un compás" title="Avanzar un compás" onClick={()=>onSeekTick(studioBarStartTick(meterMap,studioBarNumberAtTick(meterMap,Math.max(0,tick))+1))} disabled={!document}><Icon name="forward" size={18}/></button>
         <button type="button" className={"ref-record" + (recording ? " is-active" : "")}
           aria-label={recording ? "Detener grabación MIDI" : "Grabar MIDI"} aria-pressed={recording}
-          onClick={()=>{setTakeInspectorOpen(true);onRecord();}}><Icon name="record" size={19}/></button>
+          title={recordingTargetLabel} onClick={()=>{setTakeInspectorOpen(true);onRecord();}}><Icon name="record" size={19}/></button>
       </div>
       <label className="ref-tempo">Tempo
         <input type="number" min={30} max={300} aria-label="Tempo del proyecto" value={bpm || "120"}
@@ -522,6 +531,11 @@ export function ReferenceStudio({
                         onClick={(event)=>{event.stopPropagation();onTrackMix(track.id,{...track.mix,mute:!track.mix.mute});}}>M</button>
                       <button type="button" aria-pressed={track.mix.solo} title="Pista en solo"
                         onClick={(event)=>{event.stopPropagation();onTrackMix(track.id,{...track.mix,solo:!track.mix.solo});}}>S</button>
+                      {(track.kind==="instrument"||track.kind==="drum") &&
+                        <button type="button" className="ref-track-arm" aria-pressed={track.mix.armed}
+                          aria-label={"Armar MIDI de "+track.name} title="Armar esta pista para una toma MIDI"
+                          onClick={(event)=>{event.stopPropagation();
+                            onTrackMix(track.id,{...track.mix,armed:!track.mix.armed});}}>R</button>}
                     </span>
                   </div>
                   <div className="ref-track-lane" onClick={(event)=>{
@@ -742,6 +756,13 @@ export function ReferenceStudio({
           </div>
         </>:<div className="ref-inspection-content">
           <h3>Inspector · {panelTitle}</h3>
+          {(selectedTrack?.kind==="instrument"||selectedTrack?.kind==="drum") &&
+            <button type="button" className="ref-arm-inspector"
+              aria-pressed={selectedTrack.mix.armed}
+              onClick={()=>onTrackMix(selectedTrack.id,
+                {...selectedTrack.mix,armed:!selectedTrack.mix.armed})}>
+              {selectedTrack.mix.armed?"Desarmar pista MIDI":"Armar pista MIDI"}
+            </button>}
           <div className="ref-inspector-details">
             <div><span>Tipo de pista</span><strong>{selectedTrack?.kind ?? "Sin pista"}</strong></div>
             <div><span>Ganancia</span><strong>{selectedTrack?.mix.gainDb.toFixed(1) ?? "—"} dB</strong></div>
