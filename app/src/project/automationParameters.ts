@@ -1,5 +1,5 @@
 import type { ProjectAutomationLane, ProjectDocumentV1, ProjectEffect } from "./model.ts";
-import { numericProjectEffectParameter } from "./effectParameters.ts";
+import { numericProjectEffectParameter, projectEffectParameters } from "./effectParameters.ts";
 
 export interface AutomationParameterDescriptor {
   readonly typeId: "base-mix" | "effect";
