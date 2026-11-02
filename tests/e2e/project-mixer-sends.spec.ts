@@ -251,3 +251,64 @@ test("routing graph rejects feedback, missing buses and unsafe send levels", asy
   expect(checks).toEqual({ clean: true, goodSend: true, selfSend: false,
     missing: false, cycle: false, dangerousLevel: false });
 });
+
+
+test("soloing an auxiliary bus silences direct-master leakage without muting its send",async({page})=>{
+  test.setTimeout(150_000);
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const energy=await page.evaluate(async()=>{
+    const {analyzeUserSample}=await import("/src/audio/userSampleAsset.ts");
+    const {renderProjectPcm}=await import("/src/audio/renderProjectPcm.ts");
+    const {createProjectDocument}=await import("/src/project/model.ts");
+    const frames=12000,rate=48000;
+    const buffer=new ArrayBuffer(44+frames*2);
+    const view=new DataView(buffer);
+    const ascii=(offset:number,chars:string)=>{for(let i=0;i<chars.length;i++)
+      view.setUint8(offset+i,chars.charCodeAt(i));};
+    ascii(0,"RIFF");view.setUint32(4,buffer.byteLength-8,true);ascii(8,"WAVE");
+    ascii(12,"fmt ");view.setUint32(16,16,true);view.setUint16(20,1,true);
+    view.setUint16(22,1,true);view.setUint32(24,rate,true);
+    view.setUint32(28,rate*2,true);view.setUint16(32,2,true);
+    view.setUint16(34,16,true);ascii(36,"data");view.setUint32(40,frames*2,true);
+    for(let n=0;n<frames;n++)view.setInt16(44+n*2,Math.round(Math.sin(n*.06)*5000),true);
+    const sample=await analyzeUserSample(new Blob([buffer],{type:"audio/wav"}),
+      "solo-send-test",new OfflineAudioContext(1,1,rate));
+    const mix={gainDb:0,pan:0,mute:false,solo:false,armed:false,
+      effects:[],sends:[]};
+    const solo={id:"solo-aux",name:"Solo aux",kind:"bus" as const,
+      mix:{...mix,solo:true}};
+    const source={id:"solo-source",name:"Source",kind:"audio" as const,mix};
+    const clip={id:"clip",trackId:source.id,kind:"audio" as const,
+      sourceId:sample.ref.id,startTick:0,lengthTicks:480,
+      sourceOffsetTick:0,sourceStartFrame:0,sourceEndFrame:frames,
+      fadeInFrames:0,fadeOutFrames:0,gainDb:0,muted:false,transpose:0,
+      loopMode:"none" as const,tailPolicy:"cut" as const};
+    const base=createProjectDocument({id:"solo-postfader",at:1});
+    const directPlusSend={...base,trackOrder:[source.id,solo.id],
+      assets:[sample.ref],clips:[clip],tracks:[
+        {...source,mix:{...mix,sends:[{id:"send-solo",busTrackId:solo.id,gainDb:0}]}},solo]};
+    const auxOnly={...directPlusSend,tracks:[
+      {...source,mix:{...mix,outputBusTrackId:solo.id}},solo]};
+    const noSolo={...directPlusSend,tracks:[
+      directPlusSend.tracks[0]!,{...solo,mix:{...mix,solo:false}}]};
+    const read={readAsset:async()=>sample.data};
+    const options={startTick:0,endTick:480,sampleRate:rate,tailSeconds:0,
+      seed:"solo-send-test"} as const;
+    const [selected,baseline,mixed,direct]=await Promise.all([
+      renderProjectPcm(directPlusSend,options,read),
+      renderProjectPcm(auxOnly,options,read),
+      renderProjectPcm(noSolo,options,read),
+      renderProjectPcm(directPlusSend,{...options,tapDirectMaster:true},read),
+    ]);
+    const e=(samples:Float32Array)=>samples.reduce((sum,n)=>sum+n*n,0);
+    return {selected:e(selected.left),baseline:e(baseline.left),
+      mixed:e(mixed.left),direct:e(direct.left),
+      missing:selected.report.audio.missingAttacks};
+  });
+  expect(energy.baseline).toBeGreaterThan(0.02);
+  expect(energy.selected/energy.baseline).toBeGreaterThan(.88);
+  expect(energy.selected/energy.baseline).toBeLessThan(1.12);
+  expect(energy.mixed).toBeGreaterThan(energy.selected*2.7);
+  expect(energy.direct).toBeLessThan(energy.selected*.03);
+  expect(energy.missing).toBe(0);
+});
