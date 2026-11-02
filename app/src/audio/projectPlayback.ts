@@ -516,8 +516,29 @@ export class ProjectPlayback {
     this.sink.setTrackMix(trackId, patch);
   }
   setMasterGainDb(gainDb: number): void { this.sink.setMasterGainDb(gainDb); }
+
+  /** A physical/Touch gesture temporarily outranks read automation for one lane only. */
+  setAutomationLiveOverride(laneId: string, value: number): void {
+    const lane = this.document.automation.find((item) => item.id === laneId);
+    if (!lane) throw new RangeError(`Curva de automatización inexistente: ${laneId}`);
+    this.sink.setAutomationLiveOverride(lane.target, value);
+  }
+
+  /** Return a released physical control to the current read/base value and re-arm timeline lookahead. */
+  releaseAutomationLiveOverride(laneId: string): void {
+    const lane = this.document.automation.find((item) => item.id === laneId);
+    if (!lane) throw new RangeError(`Curva de automatización inexistente: ${laneId}`);
+    const tick = this.scheduler.snapshot().tick;
+    const snapshot = this.automationResolver.snapshot(tick).find((item) => item.laneId === laneId);
+    if (!snapshot) throw new RangeError(`Curva no reproducible: ${laneId}`);
+    this.sink.releaseAutomationLiveOverride(lane.target, snapshot.value);
+    this.scheduler.replanAutomation();
+  }
+
   automationSnapshot(): readonly AutomationValueSnapshot[] {
-    return this.automationResolver.snapshot(this.scheduler.snapshot().tick);
+    return this.automationResolver.snapshot(this.scheduler.snapshot().tick).map((snapshot) =>
+      this.sink.isAutomationLiveOverride(snapshot.target)
+        ? { ...snapshot, owner: "physical" as const } : snapshot);
   }
   setRackPadMute(trackId: string, padId: string, muted: boolean): void {
     this.sink.setRackPadMute(trackId, padId, muted);
