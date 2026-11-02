@@ -871,3 +871,7 @@
  .ref-project-modal-content{padding:5px}
  .ref-project-modal-title button{min-width:44px;min-height:44px}
 }
+
+.ref-project-library{display:grid;gap:18px;min-width:0}
+.ref-project-library .recorded-tracks{min-width:0}
+.ref-project-library > section{min-width:0}
