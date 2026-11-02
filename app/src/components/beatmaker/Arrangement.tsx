@@ -292,11 +292,13 @@ function ArrangementEditor({ document, playheadTick = 0, readPlayheadTick, saveS
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const raw = (event.clientX - drag.startX) / pxPerTick;
-    const minimum = drag.mode === "move" ? -drag.clip.startTick : 1 - drag.clip.lengthTicks;
+    const groupId = drag.clip.groupId;
+    const members = groupId ? document.clips.filter((clip) => clip.groupId === groupId) : [drag.clip];
+    const minimum = drag.mode === "move"
+      ? -Math.min(...members.map((clip) => clip.startTick))
+      : 1 - drag.clip.lengthTicks;
     drag.deltaTick = Math.max(minimum, snapTick(raw, snap));
     if (drag.mode === "move") {
-      const groupId = drag.clip.groupId;
-      const members = groupId ? document.clips.filter((clip) => clip.groupId === groupId) : [drag.clip];
       for (const member of members) {
         const element = globalThis.document.querySelector<HTMLElement>(`[data-arrangement-clip-id="${CSS.escape(member.id)}"]`);
         if (element) element.style.transform = `translateX(${drag.deltaTick * pxPerTick}px)`;
