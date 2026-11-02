@@ -185,9 +185,9 @@ export function ReferenceStudio({
       document.tracks.find((track) => track.id === id)).filter(
       (track): track is ProjectTrack => !!track && track.kind !== "bus");
   }, [document]);
-  const meter = document?.meterMap[0];
   const bars = 16;
   const meterMap = document?.meterMap ?? [{tick:0,numerator:4,denominator:4}];
+  const meter = [...meterMap].reverse().find((point)=>point.tick<=Math.max(0,tick)) ?? meterMap[0];
   const barTicks = useMemo(() => Array.from({length:bars+1},(_,i)=>
     studioBarStartTick(meterMap,i+1)),[document?.meterMap]);
   const endTick = barTicks[bars]!;
@@ -420,6 +420,9 @@ export function ReferenceStudio({
                 }}>
                 {barTicks.slice(0,bars).map((barTick,index)=>
                   <span key={index} style={{left: (barTick/endTick*100)+"%",position:"absolute"}}>{index+1}</span>)}
+                {barTicks.slice(1,bars).map((barTick,index)=>
+                  <i className="ref-bar-guide" aria-hidden="true" key={index}
+                    style={{left: (barTick/endTick*100)+"%"}} />)}
                 {loopEnabled && <div className="ref-loop-marker"
                   style={{left: Math.min(100,studioBarStartTick(meterMap,loopStartBar)/endTick*100)+"%",
                     width: Math.max(0,Math.min(endTick,studioBarStartTick(meterMap,loopEndBar+1))-
@@ -457,6 +460,9 @@ export function ReferenceStudio({
                       void executeEdit(()=>drawStudioClip(document,track.id,at));
                     }
                   }}>
+                    {barTicks.slice(1,bars).map((barTick,index)=>
+                      <i key={index} className="ref-lane-guide" aria-hidden="true"
+                        style={{left: (barTick/endTick*100)+"%"}} />)}
                     {clipList.map(clip=>{
                       const pattern=clip.kind==="pattern"?document?.patterns.find(p=>p.id===clip.sourceId):null;
                       const left=Math.max(0,clip.startTick/endTick*100);
