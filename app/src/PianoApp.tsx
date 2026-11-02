@@ -2454,6 +2454,10 @@ export default function PianoApp() {
           }}
           onFullEditor={() => setReferenceStudioOpen(false)}
           onFullMixer={() => { setWorkspace("mixer"); setReferenceStudioOpen(false); }}
+          instrumentPicker={<InstrumentBrowser activeId={activeInstrumentId} loadingId={loadingInstrumentId}
+              loadingProgress={instrumentLoadingProgress} onCancel={cancelInstrumentLoad}
+              failedId={failedInstrumentId} error={instrumentError} notice={instrumentNotice}
+              onSelect={(id) => { void chooseInstrument(id); }} />}
           editor={projectView ? (<PianoRoll pattern={projectPattern} projectName={projectView?.document.name}
             trackName={projectTrack?.name} meter={projectView?.document.meterMap[0]}
             ghostPatterns={rollVisuals.ghostPatterns} allowedPadTriggers={rollVisuals.padTriggers}
