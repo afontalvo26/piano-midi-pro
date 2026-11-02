@@ -54,7 +54,13 @@ ProjectEffect | undefined {
 export function projectAutomationParameter(document: ProjectDocumentV1,
   target: ProjectAutomationLane["target"]): AutomationParameterDescriptor | undefined {
   const base = baseAutomationParameter(target);
-  if (base) return base;
+  if (base) {
+    if (target.scope === "clip") {
+      const clip = document.clips.find((item) => item.id === target.ownerId);
+      return clip?.kind === "audio" && (clip.timeMode ?? "beat") === "beat" ? base : undefined;
+    }
+    return base;
+  }
   const effect = effectForTarget(document, target);
   if (!effect || !isAutomatableEffectParameter(effect, target.parameterId)) return undefined;
   const descriptor = numericProjectEffectParameter(effect.kind, target.parameterId);
@@ -97,6 +103,11 @@ readonly ProjectAutomationLane["target"][] {
         targets.push({ scope: "master", effectId: effect.id,
           parameterId: descriptor.parameterId });
       }
+    }
+  }
+  for (const clip of document.clips) {
+    if (clip.kind === "audio" && (clip.timeMode ?? "beat") === "beat") {
+      targets.push({ scope: "clip", ownerId: clip.id, parameterId: "gainDb" });
     }
   }
   for (const track of document.tracks) {
