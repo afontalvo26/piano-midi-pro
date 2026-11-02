@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { ProjectDocumentV1, ProjectTrack } from "../../project/model";
 import type { ProjectCommand } from "../../project/commands.ts";
+import { STUDIO_MACROS, readStudioMacro, type StudioMacroId } from "./studioMacros.ts";
 import { drawStudioClip, cutStudioClip, moveStudioClip, quantizeStudioClip,
   snapStudioTick, type ReferenceArrangementTool } from "./referenceArrangementActions.ts";
 import { subscribeLivePerformance, getLivePerformanceSnapshot } from "./livePerformanceStore";
@@ -91,6 +92,7 @@ export interface ReferenceStudioProps {
   onLoopChange: (enabled: boolean) => void;
   onSeekTick: (tick: number) => void;
   onArrangementCommand: (command: ProjectCommand) => void | Promise<void>;
+  onMacroChange: (trackId: string, macro: StudioMacroId, value: number) => void;
   onWorkspace: (value: StudioWorkspace) => void;
   onLibrary: () => void;
   onProjects: () => void;
@@ -124,7 +126,7 @@ export function ReferenceStudio({
   document, workspace, activeTrackId, saveStatus, transport, tick, bpm,
   metronome, recording, midiConnected, midiStatus, instrumentName, instrumentCategory,
   masterLevel, trackLevels, editor, instrumentPicker, performancePanel, loopEnabled, onLoopChange,
-  onSeekTick, onArrangementCommand, onWorkspace, onLibrary, onProjects, onSettings,
+  onSeekTick, onArrangementCommand, onMacroChange, onWorkspace, onLibrary, onProjects, onSettings,
   onNew, onPlay, onStop, onRecord, onMetronome, onTempoDraft, onTempoCommit,
   onTrackSelect, onOpenPattern, onTrackMix, onMasterGain, onFullEditor, onFullMixer,
 }: ReferenceStudioProps) {
@@ -134,7 +136,7 @@ export function ReferenceStudio({
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [mixerOpen, setMixerOpen] = useState(true);
   const [editError, setEditError] = useState("");
-  const [macroValues, setMacroValues] = useState([72, 85, 28, 78]);
+  const [macroDrafts, setMacroDrafts] = useState<Partial<Record<StudioMacroId,number>>>({});
   const [channelDrafts, setChannelDrafts] = useState<Record<string, {pan?: number; gainDb?: number}>>({});
   const [masterDraft, setMasterDraft] = useState<number | null>(null);
   const [playingSelection, setPlayingSelection] = useState<string | null>(null);
@@ -166,6 +168,19 @@ export function ReferenceStudio({
       setEditError("");
     } catch (error) {
       setEditError(error instanceof Error ? error.message : "No se pudo completar la edición.");
+    }
+  }
+  function commitMacro(kind: StudioMacroId): void {
+    const value = macroDrafts[kind];
+    if (value === undefined || !selectedTrack) return;
+    setMacroDrafts((previous)=>{const next={...previous};delete next[kind];return next;});
+    try {
+      if(value !== readStudioMacro(selectedTrack.mix.effects, selectedTrack.id,kind)) {
+        onMacroChange(selectedTrack.id,kind,value);
+      }
+      setEditError("");
+    } catch(error) {
+      setEditError(error instanceof Error ? error.message : "No se pudo ajustar el instrumento");
     }
   }
   function rulerTick(clientX: number, left: number, width: number): number {
