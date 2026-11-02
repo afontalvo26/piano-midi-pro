@@ -2454,7 +2454,7 @@ export default function PianoApp() {
           }}
           onFullEditor={() => setReferenceStudioOpen(false)}
           onFullMixer={() => { setWorkspace("mixer"); setReferenceStudioOpen(false); }}
-          instrumentPicker={<InstrumentBrowser activeId={activeInstrumentId} loadingId={loadingInstrumentId}
+          instrumentPicker={<InstrumentBrowser initialOpen activeId={activeInstrumentId} loadingId={loadingInstrumentId}
               loadingProgress={instrumentLoadingProgress} onCancel={cancelInstrumentLoad}
               failedId={failedInstrumentId} error={instrumentError} notice={instrumentNotice}
               onSelect={(id) => { void chooseInstrument(id); }} />}
