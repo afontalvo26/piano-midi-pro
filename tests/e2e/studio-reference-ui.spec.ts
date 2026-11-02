@@ -149,6 +149,15 @@ test("real performance keyboard supports octave movement and three pedals",async
     .getByRole("button",{name:"Interpretar"}).click();
   const keyboard=shell.getByRole("group",{name:"Piano virtual"});
   await expect(keyboard.locator(".piano-key-element")).toHaveCount(37);
+  const firstKey=keyboard.locator(".piano-key-element.white").first();
+  await firstKey.dispatchEvent("pointerdown",{pointerId:12,pointerType:"mouse"});
+  const lastStrike=await page.evaluate(async()=>{
+    const {getLivePerformanceSnapshot}=await import("/src/components/studio/livePerformanceStore.ts");
+    return getLivePerformanceSnapshot().lastStrike;
+  });
+  expect(lastStrike?.source).toBe("mouse");
+  expect(lastStrike?.playedNote).toBeGreaterThanOrEqual(21);
+  await firstKey.dispatchEvent("pointerup",{pointerId:12,pointerType:"mouse"});
   const range=await shell.locator(".ref-performance-toolbar>span").first().textContent();
   await shell.getByRole("button",{name:"Octava siguiente"}).click();
   await expect(shell.locator(".ref-performance-toolbar>span").first()).not.toHaveText(range!);
