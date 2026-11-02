@@ -63,7 +63,7 @@ Los siguientes controles ya tienen **implementación de código** en esta rama, 
 | Cuantizar 1/16 | Modifica la fuente del patrón mediante comando reversible; aún carece de control de fuerza y preescucha en el shell | `studio-reference-ui.spec.ts` (prueba escrita, no ejecutada) |
 | Compás/cabezal | Ruler accesible apunta al tick real del transporte | Pendiente integración E2E con audio |
 | Región de bucle ajustable (valor inicial 5–12) | Inicio y final editables; aplica el meterMap del proyecto y replanifica scheduler por epochs | `studio-reference-ui.spec.ts` y `sequencer-transport.spec.ts` (sin ejecutar) |
-| Teclado 37 y octavas | Piano virtual original, note-on/off reales, rango MIDI, tres pedales | `studio-reference-ui.spec.ts` |
+| Teclado 37 y octavas | Piano virtual original, note-on/off, rango MIDI, tres pedales | `studio-reference-ui.spec.ts` |
 | Brillo, Cuerpo, Reverb, Dinámica | Actualiza filtro, EQ3, reverb y compresor por comandos persistidos | `studio-reference-ui.spec.ts` |
 | «Partitura» contextual | Vista de lectura implementada, pero contradice una exclusión del contrato anterior; **no aprobada para release** | Discrepancia SDD-01 en `.kiro/specs/beatmaker-studio/spec-drift-2026-11-02.md` |
 | Inspector del clip | Muestra datos reales de la pista y permite silenciar/activar/eliminar clip | `studio-reference-ui.spec.ts` |
@@ -72,8 +72,8 @@ Los siguientes controles ya tienen **implementación de código** en esta rama, 
 ### Límites técnicos pendientes
 
 - La UI aún requiere **build y prueba completa en navegador**, incluyendo una comparación real con el screenshot aprobado; el PR continúa en borrador.
-- El selector de biblioteca controla el **instrumento en vivo**. La selección de presets por pista de arreglo necesita correspondencia con el motor de proyectos para los instrumentos WAF; no se asume que cambiar el preset global reescribe pistas.
-- La vista de notación es lectura básica y está **en disputa de alcance** respecto del módulo retirado «Partitura». No puede considerarse aprobada hasta resolver SDD-01.
+- El navegador WebAudioFont cambia el **instrumento en vivo**; el selector añadido en la misma biblioteca asigna **por pista** sólo los bancos locales que el motor de proyecto ya admite: piano Salamander y bajo 808 Fischer. Otros instrumentos/procesadores de pistas requieren ingeniería separada; el selector global no los asigna silenciosamente.
+- La vista de notación es lectura básica de **patrones propios** y se separa explícitamente de la antigua app «Partitura» por [ADR-UXP-001](../.kiro/specs/beatmaker-studio/decisions/ADR-UXP-001-score-preview.md). Aún requiere aprobación de producto y QA.
 - CPU y latencia física siguen sin estar medidos; si el navegador ofrece baseLatency/outputLatency, la cabecera puede mostrar una **estimación del búfer de salida**, no un valor de latencia MIDI o loopback.
 - Quedan tareas del producto no reducidas a UI: funciones de automatización e instrumentos, QA de 113 criterios, dispositivos reales, compatibilidad móvil y licencias.
 - Deben ejecutarse las pruebas de `studio-reference-ui.spec.ts` y `sequencer-transport.spec.ts` con el runner funcional. Un archivo de prueba escrito no constituye aceptación.
@@ -83,3 +83,12 @@ Los siguientes controles ya tienen **implementación de código** en esta rama, 
 La [auditoría de desviaciones](../.kiro/specs/beatmaker-studio/spec-drift-2026-11-02.md) prevalece sobre cualquier descripción promocional de avance. Este documento controla apariencia; el contrato `UXP/CLK/ROL/INS/MIX/QLT` controla comportamiento. Corregir JSX y añadir pruebas **no es aceptación** mientras no exista corrida real con build y evidencia asociada al SHA.
 
 El botón «Avanzar» ahora hace seek de un compás, la detección de MIDI ya no inventa un SMK-37, y la cabecera expone Undo/Redo y fallos de proyecto. Los cambios aún necesitan validación visual, funcional y auditiva.
+
+
+## Rutas funcionales añadidas posteriormente
+
+- `Grabar toma` y el botón Rec del transporte abren el inspector de **tomas MIDI**. Desde «Tomas» también se puede previsualizar y confirmar un overdub en un patrón sin destruir el archivo histórico, o recuperar una toma que no se guardó mediante exportación de emergencia.
+- La biblioteca de instrumentos distingue **sonido para tocar live** de **banco de una pista del proyecto**. Los dos bancos de pista visibles están respaldados por paquetes locales/versionados del motor del proyecto. Cambiar un banco obliga a reevaluar la preparación de audio; no se hace intercambio silencioso durante la reproducción.
+- «Hacer único» se exige para cuantizar rápidamente un clip cuyo patrón está compartido. Editar la fuente compartida sin aviso viola ARR-02.
+- Las acciones Undo/Redo y los cambios de FX/ganancia se muestran en el nuevo shell y deben devolver errores recuperables si la sesión rechaza una edición.
+- El gate SDD de liberación demanda pruebas de código y producción para todo requisito; física y licencias cuando corresponda. Las pruebas están escritas, **no ejecutadas ni certificadas en este entorno**.
