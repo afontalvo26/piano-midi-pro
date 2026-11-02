@@ -47,8 +47,10 @@ test("absoluto y relativo respetan el rango del parámetro", () => {
   assert.equal(scaleAutomationMidiValue(0, "absolute", -10, descriptor), -60);
   assert.equal(scaleAutomationMidiValue(127, "absolute", -10, descriptor), 12);
   const up = scaleAutomationMidiValue(1, "relative-twos-complement", -10, descriptor);
+  const down = scaleAutomationMidiValue(-1, "relative-twos-complement", -10, descriptor);
   assert(up > -10 && up < -9);
-  assert.equal(scaleAutomationMidiValue(127, "relative-twos-complement", 11.9, descriptor), 12);
+  assert(down < -10 && down > -11);
+  assert.equal(scaleAutomationMidiValue(1, "relative-twos-complement", 12, descriptor), 12);
 });
 
 test("CC11 sigue siendo expresión y no crea binding de mixer por sí solo", () => {
