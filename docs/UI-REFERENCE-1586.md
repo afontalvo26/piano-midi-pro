@@ -92,3 +92,12 @@ El botón «Avanzar» ahora hace seek de un compás, la detección de MIDI ya no
 - «Hacer único» se exige para cuantizar rápidamente un clip cuyo patrón está compartido. Editar la fuente compartida sin aviso viola ARR-02.
 - Las acciones Undo/Redo y los cambios de FX/ganancia se muestran en el nuevo shell y deben devolver errores recuperables si la sesión rechaza una edición.
 - El gate SDD de liberación demanda pruebas de código y producción para todo requisito; física y licencias cuando corresponda. Las pruebas están escritas, **no ejecutadas ni certificadas en este entorno**.
+
+
+## Navegación del proyecto completa en el Studio (sin cambios al mockup estático)
+
+- La cabecera de proyecto abre un **modal integrado** que contiene el navegador real `ProjectBrowser` y las tomas reales `RecordedTracks`. El usuario puede crear/abrir/exportar/restaurar proyectos sin volver a la interfaz heredada. Se mantienen el formato `.pmp`, hashes, drafts y recuperación de la implementación original.
+- La regla de 16 compases del mockup corresponde al **viewport inicial**, no a una limitación de la música. La regla ahora permite ver y editar cualquier tramo posterior por páginas y zoom de 4, 8, 16 o 32 compases, manteniendo color, geometría general y comportamiento de clips.
+- La forma de un clip cortado por los extremos de la vista debe representar exclusivamente su parte audible en la ventana. El playhead, la regla y los carriles comparten coordenadas relativas (a 320 px la cabecera es de 150 px; en escritorio 295 px).
+- El mezclador aplica gates de salida principal por separado de los sends para aislar un bus solo en PCM; los puntos de captura de stem directo usan esa ruta efectiva.
+- [Trazabilidad de correcciones y QA pendiente](../.kiro/specs/beatmaker-studio/spec-drift-2026-11-02.md). No se ha ejecutado la captura comparativa ni el pipeline de pruebas para este último SHA.
