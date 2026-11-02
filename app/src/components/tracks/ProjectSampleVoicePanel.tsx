@@ -45,7 +45,8 @@ export function ProjectSampleVoicePanel({ value, region, busy, onSave }: Project
       const saturationAmount = draft.mode === "poly" ? 0 : parseRange(saturation, 0, 1);
       const subGainDb = draft.mode === "poly" || !subEnabled ? null : parseRange(subGain, -36, 0);
       if (attackMs === null || releaseMs === null || glideMs === null ||
-          saturationAmount === null || (subEnabled && subGainDb === null)) {
+          saturationAmount === null ||
+          (draft.mode === "mono" && subEnabled && subGainDb === null)) {
         setError("Ataque/release: 0–5000 ms; glide: 0–2000 ms; saturación: 0–1; subgrave: −36–0 dB.");
         return;
       }
