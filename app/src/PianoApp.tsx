@@ -2782,6 +2782,17 @@ export default function PianoApp() {
               sourceOptions={drumSourceOptions} projectName={projectView?.document.name}
               trackName={drumTrack?.name} meter={projectView?.document.meterMap[0]}
               saveState={projectView?.status} externalError={projectView?.error ?? undefined}
+              midiLearnAction={learnAction}
+              onMidiLearnPad={(padId) => {
+                const action = drumPadMidiAction(padId);
+                latestRef.current.learnAction = action;
+                setLearnAction(action);
+                setMidiError("");
+              }}
+              onCancelMidiLearn={() => {
+                latestRef.current.learnAction = null;
+                setLearnAction(null);
+              }}
               onCommand={(command: ProjectCommand) => {
                 if (!projectSessionRef.current) throw new Error("Abre un proyecto antes de editar batería");
                 projectSessionRef.current.dispatch(command);
@@ -3095,6 +3106,17 @@ export default function PianoApp() {
               sourceOptions={drumSourceOptions} projectName={projectView?.document.name}
               trackName={drumTrack?.name} meter={projectView?.document.meterMap[0]}
               saveState={projectView?.status} externalError={projectView?.error ?? undefined}
+              midiLearnAction={learnAction}
+              onMidiLearnPad={(padId) => {
+                const action = drumPadMidiAction(padId);
+                latestRef.current.learnAction = action;
+                setLearnAction(action);
+                setMidiError("");
+              }}
+              onCancelMidiLearn={() => {
+                latestRef.current.learnAction = null;
+                setLearnAction(null);
+              }}
               onCommand={(command: ProjectCommand) => {
                 if (!projectSessionRef.current) throw new Error("Abre un proyecto antes de editar batería");
                 projectSessionRef.current.dispatch(command);
