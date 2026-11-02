@@ -600,12 +600,14 @@ export class TransportScheduler {
         : target.parameterId === "gainDb" || target.parameterId === "pan");
     const masterTargetValid = target.scope === "master" &&
       (target.effectId ? !!target.parameterId : target.parameterId === "masterGainDb");
+    const clipTargetValid = target.scope === "clip" && !!target.ownerId &&
+      !target.effectId && target.parameterId === "gainDb";
     if (!event.laneId || !Number.isSafeInteger(event.tick) || event.tick < start ||
         !Number.isSafeInteger(event.endTick) || event.endTick <= event.tick ||
         event.endTick > end || !Number.isSafeInteger(event.sequence) || event.sequence < 0 ||
         !Number.isFinite(event.startValue) || !Number.isFinite(event.endValue) ||
         (event.shape !== "step" && event.shape !== "linear") ||
-        (!trackTargetValid && !masterTargetValid)) {
+        (!trackTargetValid && !masterTargetValid && !clipTargetValid)) {
       throw new RangeError("Evento de automatización inválido");
     }
   }
