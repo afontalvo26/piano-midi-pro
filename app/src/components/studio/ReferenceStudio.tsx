@@ -81,6 +81,7 @@ export interface ReferenceStudioProps {
   recording: boolean;
   midiConnected: boolean;
   midiStatus: string;
+  outputLatencyEstimateMs?: number | null;
   instrumentName: string;
   instrumentCategory: string;
   masterLevel?: { peak: number; rms: number; clipped: boolean };
@@ -125,7 +126,7 @@ function Meter({ peak, tall = false }: { peak?: number; tall?: boolean }) {
 
 export function ReferenceStudio({
   document, workspace, activeTrackId, saveStatus, transport, tick, bpm,
-  metronome, recording, midiConnected, midiStatus, instrumentName, instrumentCategory,
+  metronome, recording, midiConnected, midiStatus, outputLatencyEstimateMs, instrumentName, instrumentCategory,
   masterLevel, trackLevels, editor, instrumentPicker, performancePanel, notationPanel, loopEnabled, onLoopChange,
   onSeekTick, onArrangementCommand, onMacroChange, onWorkspace, onLibrary, onProjects, onSettings,
   onNew, onPlay, onStop, onRecord, onMetronome, onTempoDraft, onTempoCommit,
@@ -257,7 +258,10 @@ export function ReferenceStudio({
       </button>
       <div className="ref-signature"><small>Compás</small><strong>{meter?.numerator ?? 4} / {meter?.denominator ?? 4}</strong></div>
       <div className="ref-system-status"><small>CPU</small><strong>—</strong></div>
-      <div className="ref-system-status"><span className="ref-state-dot"/><small>Latencia</small><strong>Sin medir</strong></div>
+      <div className="ref-system-status" title="Estimación del búfer de salida del navegador; no mide latencia MIDI ni física">
+        <span className="ref-state-dot"/><small>Latencia</small>
+        <strong>{outputLatencyEstimateMs == null ? "Sin medir" : `≈${outputLatencyEstimateMs} ms`}</strong>
+      </div>
       <button className="ref-midi-summary" type="button" onClick={onSettings} title={midiStatus}>
         <span className={"ref-state-dot" + (midiConnected ? " is-online" : "")}/>
         <span>MIDI<small>{midiConnected ? midiStatus : "Sin conectar"}</small></span>
