@@ -40,7 +40,7 @@ jobs:
           node --test tests/unit/beatmaker-acceptance-gate.test.mjs
       - name: Focused unit regressions for new Studio capabilities
         run: |
-          node --test tests/unit/automation-edit.test.mjs tests/unit/automation-midi.test.mjs tests/unit/arrangement-model.test.mjs
+          node --test tests/unit/automation-edit.test.mjs tests/unit/automation-midi.test.mjs tests/unit/arrangement-model.test.mjs tests/unit/instrument-catalog.test.ts
       - name: TypeScript and production bundle
         run: |
           cd app
@@ -51,7 +51,7 @@ jobs:
       - name: Lint all source files touched by reference Studio
         run: |
           cd app
-          npx eslint src/PianoApp.tsx src/components/studio/ReferenceStudio.tsx src/components/studio/InstrumentBrowser.tsx src/components/studio/StudioScore.tsx src/components/studio/studioMacros.ts src/components/studio/studioMusicalBars.ts src/components/studio/referenceArrangementActions.ts src/components/tracks/ProjectMixer.tsx src/components/beatmaker/AutomationEditor.tsx src/components/beatmaker/Arrangement.tsx src/audio/liveStudioEngine.ts src/audio/projectPlayback.ts src/audio/projectAudioSink.ts src/audio/renderProjectPcm.ts src/audio/offlineRenderRealm.ts src/project/commands.ts src/project/model.ts src/project/validate.ts src/project/midiRecordingTarget.ts src/composition/automationEdit.ts src/composition/arrangementModel.ts src/midi/automationMidi.ts src/sequencer/transportScheduler.ts
+          npx eslint src/PianoApp.tsx src/components/studio/ReferenceStudio.tsx src/components/studio/InstrumentBrowser.tsx src/components/studio/StudioScore.tsx src/components/studio/studioMacros.ts src/components/studio/studioMusicalBars.ts src/components/studio/referenceArrangementActions.ts src/components/tracks/ProjectMixer.tsx src/components/beatmaker/AutomationEditor.tsx src/components/beatmaker/Arrangement.tsx src/audio/liveStudioEngine.ts src/audio/projectPlayback.ts src/audio/projectAudioSink.ts src/audio/renderProjectPcm.ts src/audio/offlineRenderRealm.ts src/project/commands.ts src/project/model.ts src/project/validate.ts src/project/midiRecordingTarget.ts src/composition/automationEdit.ts src/composition/arrangementModel.ts src/midi/automationMidi.ts src/instruments/catalog.ts src/instruments/projectCatalog.ts src/sequencer/transportScheduler.ts
       - name: Verify reference geometry and interactions
         run: |
           npx playwright test tests/e2e/studio-reference-ui.spec.ts tests/e2e/sequencer-transport.spec.ts tests/e2e/project-mixer-sends.spec.ts tests/e2e/project-mixer-effects-ui.spec.ts tests/e2e/project-sidechain.spec.ts tests/e2e/project-studio-automation-flow.spec.ts --workers=1 --retries=0
