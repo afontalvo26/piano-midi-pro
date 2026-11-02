@@ -252,7 +252,7 @@ export function ReferenceStudio({
         {NAV.map((item) => <button type="button" key={item.id}
           className={workspace === item.id ? "is-current" : ""}
           aria-current={workspace === item.id ? "page" : undefined}
-          onClick={() => item.id === "library" ? setInstrumentChooserOpen(true) : onWorkspace(item.id)}>
+          onClick={() => { if(item.id==="library"){setInstrumentChooserOpen(true);return;} if(item.id==="performance")setKeyboardOpen(true); onWorkspace(item.id); }}>
           <Icon name={item.icon} size={24}/><span>{item.label}</span>
         </button>)}
       </nav>
