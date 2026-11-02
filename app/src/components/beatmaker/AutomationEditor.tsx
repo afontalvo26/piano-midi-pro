@@ -122,6 +122,11 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
   const [touchValue, setTouchValue] = useState(0);
   const targetKeys = useMemo(() => new Set(availableTargets.map(automationTargetKey)), [availableTargets]);
   const lane = document.automation.find((item) => item.id === selectedLaneId) ?? document.automation[0] ?? null;
+  const laneClip = lane?.target.scope === "clip"
+    ? document.clips.find((clip) => clip.id === lane.target.ownerId) : undefined;
+  const laneTick = (globalTick: number): number => laneClip
+    ? Math.max(0, Math.min(Math.max(0, laneClip.lengthTicks - 1), globalTick - laneClip.startTick))
+    : Math.max(0, globalTick);
   const descriptor = lane ? projectAutomationParameter(document, lane.target) : undefined;
   const editable = !!lane && !!descriptor && targetKeys.has(automationTargetKey(lane.target));
   const selectedPoints = useMemo(() => lane?.points.filter((point) => selectedIds.has(point.id)) ?? [],
@@ -140,7 +145,7 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
     automationTargetKey(item.target) === automationTargetKey(target)));
   const chosenTarget = missingTargets.find((target) => automationTargetKey(target) === targetChoice) ??
     missingTargets[0];
-  const maxTick = Math.max(3840 * 8, playheadTick + 3840,
+  const maxTick = laneClip ? laneClip.lengthTicks : Math.max(3840 * 8, playheadTick + 3840,
     document.clips.reduce((end, clip) => Math.max(end, clip.startTick + clip.lengthTicks), 0),
     document.sections.reduce((end, section) => Math.max(end, section.startTick + section.lengthTicks), 0),
     lane?.points.at(-1)?.tick ? lane.points.at(-1)!.tick + 3840 : 0);
@@ -183,14 +188,15 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
         const view = viewport();
         if (view) {
           const context = configureCanvas(canvas, view.width);
-          if (context) drawAutomationPlayhead(context, view, readPlayheadTick?.() ?? playheadTick);
+          if (context) drawAutomationPlayhead(context, view,
+            laneTick(readPlayheadTick?.() ?? playheadTick));
         }
       }
       frame = requestAnimationFrame(paint);
     };
     frame = requestAnimationFrame(paint);
     return () => { cancelAnimationFrame(frame); observer.disconnect(); };
-  }, [lane, viewport, readPlayheadTick, playheadTick]);
+  }, [lane, laneClip, viewport, readPlayheadTick, playheadTick]);
 
   async function commit(factory: () => ProjectCommand): Promise<void> {
     if (busy) return;
@@ -207,7 +213,7 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
     if (!lane || !descriptor || !touchSamplesRef.current) return;
     const nextValue = Math.max(descriptor.min, Math.min(descriptor.max,
       preciseValue(value, valueStep)));
-    const tick = Math.max(0, Math.round(readPlayheadTick?.() ?? playheadTick));
+    const tick = Math.round(laneTick(readPlayheadTick?.() ?? playheadTick));
     const samples = touchSamplesRef.current;
     const last = samples.at(-1);
     if (last?.tick === tick) samples[samples.length - 1] = { tick, value: nextValue };
@@ -548,7 +554,8 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
         <form className="automation-editor__form" onSubmit={createPoint}>
           <strong>Añadir punto exacto</strong>
           <label>Tick<input name="tick" type="number" inputMode="numeric" min={0} step={1}
-            defaultValue={Math.max(0, Math.round(playheadTick))} required /></label>
+            defaultValue={Math.round(laneTick(playheadTick))}
+            max={laneClip ? Math.max(0, laneClip.lengthTicks - 1) : undefined} required /></label>
           <label>Valor · {descriptor?.unit}<input name="value" type="number" inputMode="decimal"
             min={descriptor?.min} max={descriptor?.max} step="any" defaultValue={baseValue(document, lane)} required /></label>
           <label>Tramo saliente<select name="shape" defaultValue="linear">
