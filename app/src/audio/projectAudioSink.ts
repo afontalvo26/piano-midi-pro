@@ -269,17 +269,21 @@ export class ProjectAudioSink implements SequencerSink {
     pianoBank: DecodedPianoSampleBank, ownsAudio: () => boolean,
     assetReader?: UserSampleReader,
     /** Offline-only graph hints: isolated taps plus detector-only tracks for sidechain stems. */
-    renderTap?: { readonly busTrackId?: string; readonly directMaster?: boolean;
-      readonly silentTrackIds?: readonly string[] }) {
+    renderTap?: { readonly trackId?: string; readonly busTrackId?: string;
+      readonly directMaster?: boolean; readonly silentTrackIds?: readonly string[] }) {
     if (document.ppq !== 960) throw new RangeError("project audio requires 960 PPQ");
     assertSafeAudioRouting(document);
+    const tappedTrackId = renderTap?.trackId;
     const tappedBusId = renderTap?.busTrackId;
     const silentTrackIds = new Set(renderTap?.silentTrackIds ?? []);
     if ([...silentTrackIds].some((id) => !document.tracks.some((track) =>
       track.id === id && track.kind !== "bus"))) {
       throw new RangeError("Pista silenciosa de detector inválida");
     }
-    if ((tappedBusId && renderTap?.directMaster) ||
+    if ([tappedTrackId, tappedBusId, renderTap?.directMaster ? "direct" : undefined]
+        .filter(Boolean).length > 1 ||
+        (tappedTrackId && !document.tracks.some((track) =>
+          track.id === tappedTrackId && track.kind !== "bus")) ||
         (tappedBusId && !document.tracks.some((track) =>
           track.id === tappedBusId && track.kind === "bus"))) {
       throw new RangeError("Punto de captura de audio inválido");
@@ -297,7 +301,7 @@ export class ProjectAudioSink implements SequencerSink {
     // In a tapped offline render the master graph is deliberately silent.
     // Connecting a chosen bus's post-fader meter straight to the destination
     // excludes all other parallel paths, parent buses and master processing.
-    if (!renderTap?.busTrackId && !renderTap?.directMaster) {
+    if (!renderTap?.trackId && !renderTap?.busTrackId && !renderTap?.directMaster) {
       this.masterMeter.connect(destination);
     }
     let masterError: string | null = null;
@@ -330,10 +334,12 @@ export class ProjectAudioSink implements SequencerSink {
         slot.meter.connect(slot.mainGate);
         const detectorOnly = silentTrackIds.has(slot.track.id);
         if (!detectorOnly) slot.mainGate.connect(target?.volume ?? this.master);
-        if (!detectorOnly && (renderTap?.busTrackId === slot.track.id ||
+        if (!detectorOnly && (renderTap?.trackId === slot.track.id ||
+            renderTap?.busTrackId === slot.track.id ||
             (renderTap?.directMaster && slot.track.kind !== "bus" &&
               !slot.track.mix.outputBusTrackId))) {
-          // Direct stem must hear only the actual main outlet, not the sends.
+          // Track/bus taps hear exactly one post-channel outlet. Direct-master
+          // tap keeps the main gate so route mute/solo semantics remain intact.
           (renderTap?.directMaster ? slot.mainGate : slot.meter).connect(destination);
         }
         for (const send of slot.track.mix.sends) {
