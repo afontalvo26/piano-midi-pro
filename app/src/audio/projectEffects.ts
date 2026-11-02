@@ -1,5 +1,6 @@
 import * as Tone from "tone";
 import type { ProjectEffect } from "../project/model";
+import { numericProjectEffectParameter } from "../project/effectParameters";
 
 type Parameters = ProjectEffect["parameters"];
 
@@ -91,4 +92,52 @@ export function connectProjectEffects(effects: readonly ProjectEffect[],
     for (const node of nodes) node.dispose();
     throw error;
   }
+}
+
+
+export interface ProjectEffectAutomationParam {
+  readonly param: {
+    cancelAndHoldAtTime(time: number): unknown;
+    setValueAtTime(value: number, time: number): unknown;
+    linearRampToValueAtTime(value: number, time: number): unknown;
+  };
+  /** Persisted units stay human-readable; Tone uses seconds for selected time parameters. */
+  readonly toAudioValue: (value: number) => number;
+}
+
+const EFFECT_AUTOMATION_PROPERTIES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  eq3: { lowDb: "low", midDb: "mid", highDb: "high",
+    lowHz: "lowFrequency", highHz: "highFrequency" },
+  filter: { cutoffHz: "frequency", q: "Q" },
+  compressor: { thresholdDb: "threshold", ratio: "ratio", attackMs: "attack",
+    releaseMs: "release", kneeDb: "knee" },
+  saturation: { wet: "wet" },
+  reverb: { roomSize: "roomSize", dampeningHz: "dampening", wet: "wet" },
+  delay: { timeMs: "delayTime", feedback: "feedback", wet: "wet" },
+  limiter: { thresholdDb: "threshold" },
+};
+
+function automatableParamCandidate(value: unknown): value is ProjectEffectAutomationParam["param"] {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<ProjectEffectAutomationParam["param"]>;
+  return typeof candidate.cancelAndHoldAtTime === "function" &&
+    typeof candidate.setValueAtTime === "function" &&
+    typeof candidate.linearRampToValueAtTime === "function";
+}
+
+/** Resolve only parameters that can move without rebuilding the DSP node. */
+export function projectEffectAutomationParam(effect: ProjectEffect, node: Tone.ToneAudioNode,
+  parameterId: string): ProjectEffectAutomationParam | undefined {
+  if (!effect.enabled || (effect.kind === "saturation" && parameterId === "drive")) return undefined;
+  if (!numericProjectEffectParameter(effect.kind, parameterId)) return undefined;
+  const property = EFFECT_AUTOMATION_PROPERTIES[effect.kind]?.[parameterId];
+  if (!property) return undefined;
+  const candidate = (node as unknown as Record<string, unknown>)[property];
+  if (!automatableParamCandidate(candidate)) {
+    throw new Error(`Efecto ${effect.id} (${effect.kind}): ${parameterId} no expone AudioParam continuo`);
+  }
+  const inMilliseconds = (effect.kind === "compressor" &&
+      (parameterId === "attackMs" || parameterId === "releaseMs")) ||
+    (effect.kind === "delay" && parameterId === "timeMs");
+  return { param: candidate, toAudioValue: inMilliseconds ? (value) => value / 1000 : (value) => value };
 }
