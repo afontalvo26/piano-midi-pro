@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { ProjectDocumentV1, ProjectTrack } from "../../project/model";
 import type { ProjectCommand } from "../../project/commands.ts";
 import { drawStudioClip, cutStudioClip, moveStudioClip, quantizeStudioClip,
@@ -136,6 +136,8 @@ export function ReferenceStudio({
   const [channelDrafts, setChannelDrafts] = useState<Record<string, {pan?: number; gainDb?: number}>>({});
   const [masterDraft, setMasterDraft] = useState<number | null>(null);
   const [playingSelection, setPlayingSelection] = useState<string | null>(null);
+  const dragRef = useRef<{ clipId: string; x: number; laneWidth: number } | null>(null);
+  const suppressClickRef = useRef<string | null>(null);
   const liveNotes = useSyncExternalStore(subscribeLivePerformance,
     getLivePerformanceSnapshot, getLivePerformanceSnapshot);
   const highlightedNote = liveNotes.lastStrike?.playedNote;
@@ -364,8 +366,37 @@ export function ReferenceStudio({
                         className={"ref-clip is-"+color+(clip.muted?" is-muted":"")}
                         style={{left:left+"%",width:width+"%"}}
                         title={pattern?.name??"Clip de audio"}
+                        onPointerDown={(event)=>{
+                          if(tool!=="select" || event.button!==0) return;
+                          dragRef.current={clipId:clip.id,x:event.clientX,
+                            laneWidth:event.currentTarget.parentElement?.getBoundingClientRect().width??1};
+                          event.currentTarget.setPointerCapture(event.pointerId);
+                        }}
+                        onPointerUp={(event)=>{
+                          const gesture=dragRef.current;
+                          dragRef.current=null;
+                          if(!gesture || gesture.clipId!==clip.id || !document) return;
+                          const deltaX=event.clientX-gesture.x;
+                          if(Math.abs(deltaX)<=6) return;
+                          suppressClickRef.current=clip.id;
+                          void executeEdit(()=>moveStudioClip(document,clip.id,
+                            deltaX/gesture.laneWidth*endTick));
+                        }}
+                        onPointerCancel={()=>{dragRef.current=null;}}
+                        onKeyDown={(event)=>{
+                          if(!document || tool!=="select")return;
+                          if(event.key==="ArrowRight"||event.key==="ArrowLeft"){
+                            event.preventDefault();
+                            void executeEdit(()=>moveStudioClip(document,clip.id,
+                              event.key==="ArrowRight"?240:-240));
+                          }
+                        }}
                         onClick={(event)=>{
                           event.stopPropagation();
+                          if(suppressClickRef.current===clip.id){
+                            suppressClickRef.current=null;
+                            return;
+                          }
                           onTrackSelect(track);
                           if(tool==="cut"&&document){
                             const rect=event.currentTarget.getBoundingClientRect();
