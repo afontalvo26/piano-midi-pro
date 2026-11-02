@@ -34,6 +34,24 @@ test("new Studio uses reference layout with actual project data and a live piano
   expect(areas.arrangement.y).toBeLessThan(areas.editor.y);
   expect(areas.editor.y).toBeLessThan(areas.mixer.y);
   expect(areas.mixer.width).toBeGreaterThan(areas.editor.width);
+  // Lock the 1586×992 composition from the approved mockup. These are real
+  // DOM geometry assertions; the screenshot attachment is reviewed separately.
+  const target = {
+    header: {x:0,y:0,width:1586,height:64},
+    sidebar:{x:0,y:64,width:238},
+    arrangement:{x:244,y:70,width:1013,height:287},
+    editor:{x:244,y:362,width:1013,height:315},
+    inspector:{x:1262,y:70,width:318,height:607},
+    mixer:{x:244,y:682,width:1336,height:183},
+  };
+  for (const name of Object.keys(target) as (keyof typeof target)[]) {
+    const rect=areas[name];
+    const expected=target[name];
+    for (const key of Object.keys(expected) as (keyof typeof rect)[]) {
+      const value=expected[key as keyof typeof expected];
+      expect(Math.abs(rect[key]-Number(value)), name+"."+key).toBeLessThanOrEqual(3);
+    }
+  }
   await testInfo.attach("studio-reference-desktop.png", {
     body:await page.screenshot(),contentType:"image/png",
   });
