@@ -105,10 +105,10 @@ test("instrument catalog opens inside the new inspector and closes without chang
   await page.goto("/", {waitUntil:"domcontentloaded"});
   const shell=page.getByTestId("reference-studio");
   await shell.getByRole("button", {name:"Biblioteca"}).click();
-  await expect(shell.getByLabel("Biblioteca de instrumentos")).toBeVisible();
+  await expect(shell.getByRole("dialog", {name:"Biblioteca de instrumentos"})).toBeVisible();
   await expect(shell.getByLabel("Familia de instrumentos")).toBeVisible();
   await expect(shell.getByLabel("Motor de sonido")).toBeVisible();
   await shell.getByRole("button", {name:"Cerrar biblioteca"}).click();
-  await expect(shell.getByLabel("Biblioteca de instrumentos")).toHaveCount(0);
+  await expect(shell.getByRole("dialog", {name:"Biblioteca de instrumentos"})).toHaveCount(0);
   await expect(shell.getByRole("region", {name:"Editor musical"})).toBeVisible();
 });
