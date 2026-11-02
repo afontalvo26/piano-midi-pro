@@ -168,9 +168,9 @@ test("routing graph rejects feedback, missing buses and unsafe send levels", asy
         sends: send(bus.id) } }] }),
       missing: accepts({ tracks: [{ ...source, mix: { ...mix,
         sends: send("absent") } }, bus] }),
-      cycle: accepts({ tracks: [{ ...source, mix: { ...mix,
-        sends: send("bus") } }, { ...bus, mix: { ...mix,
-        outputBusTrackId: "source" } }] }),
+      cycle: accepts({ tracks: [source, { ...bus, mix: { ...mix,
+        sends: send("bus2") } }, { ...bus, id: "bus2", mix: { ...mix,
+        outputBusTrackId: "bus" } }] }),
       dangerousLevel: accepts({ tracks: [{ ...source, mix: { ...mix,
         sends: send("bus", Number.POSITIVE_INFINITY) } }, bus] }),
     };
