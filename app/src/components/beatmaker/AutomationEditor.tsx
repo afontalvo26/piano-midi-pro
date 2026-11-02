@@ -211,9 +211,15 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
 
   function sampleTouch(value: number): void {
     if (!lane || !descriptor || !touchSamplesRef.current) return;
+    const globalTick = readPlayheadTick?.() ?? playheadTick;
+    if (laneClip && (globalTick < laneClip.startTick ||
+        globalTick >= laneClip.startTick + laneClip.lengthTicks)) {
+      setError("Mueve el playhead dentro del clip para escribir su gain.");
+      return;
+    }
     const nextValue = Math.max(descriptor.min, Math.min(descriptor.max,
       preciseValue(value, valueStep)));
-    const tick = Math.round(laneTick(readPlayheadTick?.() ?? playheadTick));
+    const tick = Math.round(laneTick(globalTick));
     const samples = touchSamplesRef.current;
     const last = samples.at(-1);
     if (last?.tick === tick) samples[samples.length - 1] = { tick, value: nextValue };
@@ -431,7 +437,9 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
         <label>Fader Touch · {descriptor?.unit}
           <input type="range" aria-label="Fader Touch de automatización"
             min={descriptor?.min} max={descriptor?.max} step={valueStep} value={touchValue}
-            disabled={!editable || lane.writeMode !== "touch" || busy}
+            disabled={!editable || lane.writeMode !== "touch" || busy ||
+              !!laneClip && (playheadTick < laneClip.startTick ||
+                playheadTick >= laneClip.startTick + laneClip.lengthTicks)}
             onPointerDown={(event) => {
               touchSamplesRef.current = [];
               event.currentTarget.setPointerCapture(event.pointerId);
