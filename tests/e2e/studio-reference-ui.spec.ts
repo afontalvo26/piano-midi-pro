@@ -513,3 +513,21 @@ test("project management modal can be dismissed without mutating the active proj
   await expect(dialog).toHaveCount(0);
   await expect(studio.locator(".ref-project-select strong").first()).toHaveText(before!);
 });
+
+
+test("playhead aligns with track lanes at 320/390/1586 viewport widths",async({page})=>{
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const studio=page.getByTestId("reference-studio");
+  await studio.getByRole("button",{name:"Nueva idea"}).click();
+  for(const width of [320,390,1586]){
+    await page.setViewportSize({width,height:992});
+    const lane=studio.locator(".ref-track-row").first().locator(".ref-track-lane");
+    const head=studio.locator(".ref-arrangement-playhead");
+    await expect(lane).toBeVisible();
+    await expect(head).toBeVisible();
+    const bounds=await Promise.all([lane.boundingBox(),head.boundingBox()]);
+    expect(bounds[0]).not.toBeNull();
+    expect(bounds[1]).not.toBeNull();
+    expect(Math.abs(bounds[0]!.x-(bounds[1]!.x+bounds[1]!.width/2))).toBeLessThan(5);
+  }
+});
