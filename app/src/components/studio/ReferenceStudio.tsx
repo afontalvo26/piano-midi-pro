@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { ProjectDocumentV1, ProjectTrack } from "../../project/model";
 import "./ReferenceStudio.css";
 
@@ -383,7 +383,7 @@ export function ReferenceStudio({
                 <label className="ref-macro" key={name} title="Control de interfaz: conexión al motor pendiente">
                   <input type="range" min={0} max={100} value={macroValues[index]} aria-label={name}
                     onChange={(event)=>setMacroValues(values=>values.map((v,i)=>i===index?Number(event.target.value):v))}/>
-                  <span className="ref-knob" style={{"--dial-progress":(macroValues[index]/100*280)+"deg"} as React.CSSProperties}/>
+                  <span className="ref-knob" style={{"--dial-progress":(macroValues[index]/100*280)+"deg"} as CSSProperties}/>
                   <strong>{name}</strong><small>{macroValues[index]}%</small>
                 </label>)}
             </div>
