@@ -48,6 +48,15 @@ function bounded(value: number, low: number, high: number): number {
   return Number.isFinite(value) ? Math.max(low, Math.min(high, value)) : low;
 }
 
+export function shapeDrumPadVelocity(velocity: number, sensitivity = 1): number {
+  if (!Number.isSafeInteger(velocity) || velocity < 1 || velocity > 127 ||
+      !Number.isFinite(sensitivity) || sensitivity < 0 || sensitivity > 2) {
+    throw new RangeError("Velocity o sensibilidad de pad inválida");
+  }
+  const normalized = velocity / 127;
+  return bounded(0.75 + (normalized - 0.75) * sensitivity, 0.01, 1);
+}
+
 function sourceLabel(pad: ProjectDrumPad): string {
   if (!pad.source) return "Sin muestra asignada";
   if (pad.source.kind === "asset") return `Muestra propia · ${pad.source.assetId}`;
@@ -234,9 +243,8 @@ export class DrumRackEngine {
       if (oldest) this.registry.releaseHandle(oldest, audioTime, 0.008);
     }
     if (this.voices.size >= MAX_ALLOCATED_VOICES) { this.dropped++; return null; }
-    const sensitivity = bounded(pad.definition.velocitySensitivity ?? 1, 0, 2);
-    const normalizedVelocity = velocity / 127;
-    const shapedVelocity = bounded(0.75 + (normalizedVelocity - 0.75) * sensitivity, 0.01, 1);
+    const shapedVelocity = shapeDrumPadVelocity(velocity,
+      pad.definition.velocitySensitivity ?? 1);
     const layers = [...pad.layers.keys()].sort((a, b) => a - b);
     const layer = layers[Math.max(0, Math.ceil(shapedVelocity * layers.length) - 1)]!;
     const variants = pad.layers.get(layer)!;
