@@ -217,3 +217,27 @@ test("Bézier comparte una curva monotónica y curve=0 equivale a lineal", () =>
   const middle = automationValueAtTick(points, 480, 0);
   assert(middle > 0.5 && middle < 1);
 });
+
+
+test("clip gain usa ticks locales, Touch queda dentro del clip y la copia conserva curva independiente", () => {
+  const audioTrack = { id: "audio-track", name: "Audio", kind: "audio", mix };
+  const clip = { id: "audio-clip", trackId: audioTrack.id, kind: "audio",
+    sourceId: "asset", startTick: 1920, lengthTicks: 960, sourceOffsetTick: 0,
+    loopMode: "none", tailPolicy: "cut", transpose: 0, gainDb: -3, muted: false,
+    sourceStartFrame: 0, sourceEndFrame: 48000, fadeInFrames: 0, fadeOutFrames: 0 };
+  const asset = { id: "asset", sha256: "b".repeat(64), byteLength: 96000,
+    mimeType: "audio/wav", sourceKind: "user", license: "user-owned",
+    frameCount: 48000, sampleRate: 48000, channelCount: 1 };
+  const document = { ...base, tracks: [track, audioTrack],
+    trackOrder: [track.id, audioTrack.id], clips: [clip], assets: [asset] };
+  const created = applyCommand(document, createBaseAutomationLane(document,
+    { scope: "clip", ownerId: clip.id, parameterId: "gainDb" }, 4000, "clip-lane"));
+  const touch = applyCommand(created.document,
+    setAutomationWriteMode(created.document, "clip-lane", "touch", 4001));
+  const written = applyCommand(touch.document, writeAutomationTouchGesture(touch.document,
+    "clip-lane", [{ tick: 120, value: -12 }, { tick: 930, value: -6 }],
+    4002, (() => { let id = 0; return () => `clip-touch-${++id}`; })()));
+  assert(written.document.automation[0].points.every((point) => point.tick < clip.lengthTicks));
+  assert.throws(() => writeAutomationTouchGesture(touch.document, "clip-lane",
+    [{ tick: 960, value: -6 }]), /duración del clip/);
+});
