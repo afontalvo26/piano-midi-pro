@@ -50,7 +50,8 @@ export interface ProjectWavResult {
   readonly projectLimiterIncluded: true;
   /** True when the rendered graph contains post-fader send paths. */
   readonly sendsIncluded: boolean;
-  readonly masterEffectsIncluded: false;
+  /** Master WAV includes the document master insert chain; isolated stems intentionally do not. */
+  readonly masterEffectsIncluded: boolean;
   readonly sidechainIncluded: boolean;
   readonly studioGlobalChainIncluded: false;
   /** A source can resolve to silence after probability, trim or a silent sample. */
@@ -192,7 +193,7 @@ export async function exportProjectWav(revision: ProjectRevision, assetReader: U
     revisionHash: revision.hash, format: options.format, seed, plan: finalPlan, files,
     stemsAdditive: finalPlan.stemsAdditive, projectLimiterIncluded: true,
     sendsIncluded: revision.document.tracks.some((track) => track.mix.sends.length > 0),
-    masterEffectsIncluded: false,
+    masterEffectsIncluded: revision.document.mix.masterEffects.some((effect) => effect.enabled),
     sidechainIncluded: revision.document.tracks.some((track) => track.mix.sidechain !== undefined),
     studioGlobalChainIncluded: false, omittedStemIds, officialCredits };
 }
