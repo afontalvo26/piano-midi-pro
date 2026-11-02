@@ -112,6 +112,9 @@ export type ProjectCommand =
       readonly asset: ProjectAssetRef; readonly slices: readonly { readonly padId: string;
         readonly startFrame: number; readonly endFrame: number }[];
       readonly removeAssetIfUnused: boolean; readonly at: number }
+  | { readonly kind: "replaceTrackInstrument"; readonly trackId: string;
+      readonly expected: ProjectInstrumentRef | undefined;
+      readonly instrument: ProjectInstrumentRef; readonly at: number }
   | { readonly kind: "replaceTrackMix"; readonly trackId: string;
       readonly expected: ProjectMixChannel; readonly mix: ProjectMixChannel; readonly at: number }
   | { readonly kind: "replaceMasterMix"; readonly expected: ProjectMixState;
@@ -1046,6 +1049,28 @@ function reduceCommand(snapshot: ProjectDocumentV1, command: ProjectCommand, tru
       inverse = { kind: "installSampleSlices", trackId: track.id,
         expectedRack: structuredClone(command.rack), asset: structuredClone(asset),
         slices: structuredClone(command.slices), at: snapshot.updatedAt };
+      break;
+    }
+    case "replaceTrackInstrument": {
+      const track = snapshot.tracks.find((item)=>item.id===command.trackId);
+      if (!track || track.kind !== "instrument") {
+        throw new RangeError("Sólo las pistas de instrumento pueden cambiar de banco");
+      }
+      if (JSON.stringify(track.instrument) !== JSON.stringify(command.expected)) {
+        throw new RangeError("Instrumento de pista: revisión desactualizada");
+      }
+      if (!command.instrument.instrumentId || !command.instrument.packageVersion ||
+          !command.instrument.presetId) {
+        throw new RangeError("Referencia de instrumento incompleta");
+      }
+      const next = structuredClone(command.instrument);
+      document = { ...snapshot,
+        tracks: snapshot.tracks.map((item)=>item.id===track.id
+          ? {...item,instrument:next} : item),
+        updatedAt: command.at };
+      inverse = {kind:"replaceTrackInstrument",trackId:track.id,
+        expected:next, instrument:structuredClone(track.instrument ?? command.instrument),
+        at:snapshot.updatedAt};
       break;
     }
     case "replaceTrackMix": {
