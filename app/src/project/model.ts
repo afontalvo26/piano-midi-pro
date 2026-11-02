@@ -101,6 +101,10 @@ export interface ProjectInstrumentRef {
     readonly glideMs: number;
     readonly attackMs: number;
     readonly releaseMs: number;
+    /** 0..1 soft saturation amount; optional for backwards-compatible projects. */
+    readonly saturation?: number;
+    /** Parallel low-passed reinforcement in dB; absent disables the subgrave path. */
+    readonly subGainDb?: number;
   };
   /** Optional non-destructive region for a user/recorded sample; frames refer to original decoded audio. */
   readonly sampleRegion?: {
