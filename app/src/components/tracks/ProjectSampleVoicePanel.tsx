@@ -54,7 +54,9 @@ export function ProjectSampleVoicePanel({ value, region, busy, onSave }: Project
         return;
       }
       setError("");
-      onSave({ ...draft, attackMs, releaseMs,
+      const { saturation: _oldSaturation, subGainDb: _oldSubGainDb, ...voiceBase } = draft;
+      void _oldSaturation; void _oldSubGainDb;
+      onSave({ ...voiceBase, attackMs, releaseMs,
         glideMs: draft.mode === "poly" ? 0 : glideMs,
         retrigger: draft.mode === "poly" ? "always" : draft.retrigger,
         ...(draft.mode === "mono" && saturationAmount > 0 ? { saturation: saturationAmount } : {}),
