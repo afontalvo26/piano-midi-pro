@@ -58,7 +58,9 @@ function checkOptions(document: ProjectDocumentV1, options: RenderProjectOptions
       (options.seed !== undefined && (typeof options.seed !== "string" || options.seed.length > 128)) ||
       (options.trackId !== undefined && options.trackIds !== undefined) ||
       (options.tapBusTrackId !== undefined &&
-        (options.trackId !== undefined || options.trackIds === undefined)) ||
+        (typeof options.tapBusTrackId !== "string" ||
+          options.tapBusTrackId.length === 0 ||
+          options.trackId !== undefined || options.trackIds === undefined)) ||
       (options.tapDirectMaster !== undefined && typeof options.tapDirectMaster !== "boolean") ||
       (options.tapDirectMaster === true &&
         (options.tapBusTrackId !== undefined ||
