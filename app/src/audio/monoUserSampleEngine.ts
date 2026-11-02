@@ -65,7 +65,6 @@ export class MonoUserSampleEngine {
   private readonly regionBuffer: AudioBuffer;
   private readonly region: SampleRegion;
   private readonly settings: MonoSampleVoiceSettings;
-  private readonly destination: Tone.ToneAudioNode;
   private readonly voiceBus: Tone.Gain;
   private readonly saturation: Tone.Distortion | null;
   private readonly subFilter: Tone.Filter | null;
@@ -83,7 +82,6 @@ export class MonoUserSampleEngine {
     this.regionBuffer = renderUserSampleRegion(sample.buffer, region, Tone.getContext().rawContext);
     this.region = region;
     this.settings = settings;
-    this.destination = destination;
     this.voiceBus = new Tone.Gain(1);
     this.saturation = (settings.saturation ?? 0) > 0
       ? new Tone.Distortion({ distortion: settings.saturation!, wet: 1, oversample: "4x" })
