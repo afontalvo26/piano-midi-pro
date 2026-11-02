@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("post-fader send contributes to live-like offline WAV and one-track stem", async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   page.setDefaultTimeout(20_000);
   await page.goto("/", { waitUntil: "domcontentloaded", timeout: 15_000 });
   const result = await page.evaluate(async () => {
@@ -46,13 +46,15 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
     const options = { startTick: 0, endTick: 480, sampleRate, tailSeconds: 0, seed: "send-e2e" };
     const plan = planProjectAudioExport(wet, { startTick: 0, endTick: 480,
       sampleRate: 48_000, tailSeconds: 0, stems: "tracks" });
-    let busStemError = "";
-    try { planProjectAudioExport(wet, { startTick: 0, endTick: 480,
-      sampleRate: 48_000, tailSeconds: 0, stems: "buses" }); }
-    catch (error) { busStemError = String(error); }
-    const wav = await exportProjectWav({ projectId: wet.id, revision: 2,
-      hash: "a".repeat(64), committedAt: 2, document: wet }, reader, {
+    const busPlan = planProjectAudioExport(wet, { startTick: 0, endTick: 480,
+      sampleRate: 48_000, tailSeconds: 0, stems: "buses" });
+    const revision = { projectId: wet.id, revision: 2, hash: "a".repeat(64),
+      committedAt: 2, document: wet };
+    const wav = await exportProjectWav(revision, reader, {
       ...options, stems: "tracks", format: "pcm16", dither: false,
+    });
+    const busWav = await exportProjectWav(revision, reader, {
+      ...options, stems: "buses", format: "pcm16", dither: false,
     });
     const dryPcm = await renderProjectPcm(dry, options, reader);
     const wetPcm = await renderProjectPcm(wet, options, reader);
@@ -69,7 +71,12 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
       renderedSendsIncluded: wav.sendsIncluded,
       wavKinds: wav.files.map((file) => file.kind),
       wavFrames: wav.files.map((file) => file.pcm.frames),
-      busStemRejected: /[Ss]tems por bus/.test(busStemError),
+      busStemKinds: busWav.files.map((file) => file.kind),
+      busStemIds: busWav.files.map((file) => file.id),
+      busStemFrames: busWav.files.map((file) => file.pcm.frames),
+      busStemOverlap: busWav.plan.busStemsOverlap,
+      busStemEnergies: busWav.files.map((file) => file.pcm.outputPeak),
+      plannedBusCount: busPlan.stems.length,
       encodedAudioBytes: wav.files.map((file) => file.bytes.byteLength),
     };
   });
@@ -84,7 +91,12 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
   expect(result.renderedSendsIncluded).toBe(true);
   expect(result.wavKinds).toEqual(["master", "track"]);
   expect(result.wavFrames).toEqual([12_000, 12_000]);
-  expect(result.busStemRejected).toBe(true);
+  expect(result.busStemKinds).toEqual(["master", "bus", "direct"]);
+  expect(result.busStemIds).toEqual(["master", "parallel", "master-direct"]);
+  expect(result.busStemFrames).toEqual([12_000, 12_000, 12_000]);
+  expect(result.busStemOverlap).toBe(true);
+  expect(result.plannedBusCount).toBe(2);
+  expect(result.busStemEnergies.every((peak: number) => peak > 0.01)).toBe(true);
   expect(result.encodedAudioBytes.every((value: number) => value > 44)).toBe(true);
 });
 
