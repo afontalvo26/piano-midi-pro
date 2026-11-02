@@ -51,7 +51,7 @@ jobs:
           npx eslint src/PianoApp.tsx src/components/studio/ReferenceStudio.tsx src/components/studio/InstrumentBrowser.tsx src/components/studio/StudioScore.tsx src/components/studio/studioMacros.ts src/components/studio/studioMusicalBars.ts src/components/studio/referenceArrangementActions.ts src/audio/liveStudioEngine.ts src/audio/projectPlayback.ts src/sequencer/transportScheduler.ts
       - name: Verify reference geometry and interactions
         run: |
-          npx playwright test tests/e2e/studio-reference-ui.spec.ts tests/e2e/sequencer-transport.spec.ts --workers=1 --retries=0
+          npx playwright test tests/e2e/studio-reference-ui.spec.ts tests/e2e/sequencer-transport.spec.ts tests/e2e/project-mixer-sends.spec.ts --workers=1 --retries=0
         env:
           CI: 'true'
       - name: Preserve screenshot evidence, traces and debug output
