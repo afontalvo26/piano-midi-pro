@@ -536,9 +536,11 @@ export class ProjectPlayback {
   }
 
   automationSnapshot(): readonly AutomationValueSnapshot[] {
-    return this.automationResolver.snapshot(this.scheduler.snapshot().tick).map((snapshot) =>
-      this.sink.isAutomationLiveOverride(snapshot.target)
-        ? { ...snapshot, owner: "physical" as const } : snapshot);
+    return this.automationResolver.snapshot(this.scheduler.snapshot().tick).map((snapshot) => {
+      const physical = this.sink.automationLiveOverrideValue(snapshot.target);
+      return physical === null ? snapshot
+        : { ...snapshot, value: physical, owner: "physical" as const };
+    });
   }
   setRackPadMute(trackId: string, padId: string, muted: boolean): void {
     this.sink.setRackPadMute(trackId, padId, muted);
