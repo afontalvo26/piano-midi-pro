@@ -159,6 +159,8 @@ export function ReferenceStudio({
   onMasterGain, onFullEditor, onFullMixer,
 }: ReferenceStudioProps) {
   const [tool, setTool] = useState<ReferenceArrangementTool>("select");
+  const [timelineStartBar, setTimelineStartBar] = useState(1);
+  const [timelineBars, setTimelineBars] = useState<4 | 8 | 16 | 32>(16);
   const [inspector, setInspector] = useState<"instrument" | "inspect">("instrument");
   const [instrumentChooserOpen, setInstrumentChooserOpen] = useState(false);
   const [takeInspectorOpen, setTakeInspectorOpen] = useState(false);
@@ -188,14 +190,16 @@ export function ReferenceStudio({
       document.tracks.find((track) => track.id === id)).filter(
       (track): track is ProjectTrack => !!track && track.kind !== "bus");
   }, [document]);
-  const bars = 16;
+  const bars = timelineBars;
   const meterMap = document?.meterMap ?? DEFAULT_METER_MAP;
   const meter = [...meterMap].reverse().find((point)=>point.tick<=Math.max(0,tick)) ?? meterMap[0];
   const barTicks = useMemo(() => Array.from({length:bars+1},(_,i)=>
-    studioBarStartTick(meterMap,i+1)),[meterMap]);
+    studioBarStartTick(meterMap,timelineStartBar+i)),[meterMap,timelineStartBar,bars]);
+  const startTick = barTicks[0]!;
   const endTick = barTicks[bars]!;
-  const ticksPerBar = barTicks[1]! - barTicks[0]!;
-  const playheadPercent = Math.min(100, Math.max(0, tick / endTick * 100));
+  const viewportTicks = endTick-startTick;
+  const playheadVisible = tick>=startTick && tick<=endTick;
+  const playheadPercent = Math.min(100, Math.max(0, (tick-startTick)/viewportTicks * 100));
   const clockPosition = studioBarNumberAtTick(meterMap,Math.max(0,tick));
   const selectedTrack = tracks.find((track) => track.id === activeTrackId) ?? tracks[0];
   const panelTitle = selectedTrack?.name ?? instrumentName;
@@ -228,7 +232,7 @@ export function ReferenceStudio({
   function rulerTick(clientX: number, left: number, width: number): number {
     if (width <= 0) return 0;
     const percent = Math.max(0, Math.min(1, (clientX - left) / width));
-    return snapStudioTick(percent * endTick);
+    return snapStudioTick(startTick + percent * viewportTicks);
   }
 
   const saveLabel = saveStatus === "clean" ? "Guardado" :
@@ -282,7 +286,7 @@ export function ReferenceStudio({
         <button type="button" aria-label="Detener" onClick={onStop}><Icon name="stop" size={17}/></button>
         <button type="button" className={isPlaying ? "ref-playing" : "ref-play"} aria-label={isPlaying ? "Pausar" : "Reproducir"}
           onClick={onPlay} disabled={!document}><Icon name={isPlaying ? "pause" : "play"} size={20}/></button>
-        <button type="button" aria-label="Avanzar un compás" title="Avanzar un compás" onClick={()=>onSeekTick(Math.round((Math.floor(tick/ticksPerBar)+1)*ticksPerBar))} disabled={!document}><Icon name="forward" size={18}/></button>
+        <button type="button" aria-label="Avanzar un compás" title="Avanzar un compás" onClick={()=>onSeekTick(studioBarStartTick(meterMap,studioBarNumberAtTick(meterMap,Math.max(0,tick))+1))} disabled={!document}><Icon name="forward" size={18}/></button>
         <button type="button" className={"ref-record" + (recording ? " is-active" : "")}
           aria-label={recording ? "Detener grabación MIDI" : "Grabar MIDI"} aria-pressed={recording}
           onClick={()=>{setTakeInspectorOpen(true);onRecord();}}><Icon name="record" size={19}/></button>
@@ -413,27 +417,27 @@ export function ReferenceStudio({
             <div className="ref-track-ruler">
               <div className="ref-ruler-label"/>
               <div className="ref-ruler-numbers" role="slider"
-                aria-label="Mover cabezal de reproducción" aria-valuemin={0}
-                aria-valuemax={endTick} aria-valuenow={Math.max(0,Math.min(endTick,tick))}
+                aria-label="Mover cabezal de reproducción" aria-valuemin={startTick}
+                aria-valuemax={endTick} aria-valuenow={Math.max(startTick,Math.min(endTick,tick))}
                 tabIndex={0} onClick={(event)=>{
                   const rect=event.currentTarget.getBoundingClientRect();
                   onSeekTick(rulerTick(event.clientX, rect.left, rect.width));
                 }} onKeyDown={(event)=>{
                   if(event.key==="ArrowRight"||event.key==="ArrowLeft"){
                     event.preventDefault();
-                    onSeekTick(Math.max(0,Math.min(endTick,tick+(event.key==="ArrowRight"?240:-240))));
+                    onSeekTick(Math.max(startTick,Math.min(endTick,tick+(event.key==="ArrowRight"?240:-240))));
                   }
                 }}>
                 {barTicks.slice(0,bars).map((barTick,index)=>
-                  <span key={index} style={{left: (barTick/endTick*100)+"%",position:"absolute"}}>{index+1}</span>)}
+                  <span key={index} style={{left: ((barTick-startTick)/viewportTicks*100)+"%",position:"absolute"}}>{timelineStartBar+index}</span>)}
                 {barTicks.slice(1,bars).map((barTick,index)=>
                   <i className="ref-bar-guide" aria-hidden="true" key={index}
-                    style={{left: (barTick/endTick*100)+"%"}} />)}
+                    style={{left: ((barTick-startTick)/viewportTicks*100)+"%"}} />)}
                 {loopEnabled && <div className="ref-loop-marker"
                   style={{left: Math.min(100,studioBarStartTick(meterMap,loopStartBar)/endTick*100)+"%",
                     width: Math.max(0,Math.min(endTick,studioBarStartTick(meterMap,loopEndBar+1))-
                       studioBarStartTick(meterMap,loopStartBar))/endTick*100)+"%"}} />}
-                <div className="ref-playhead-triangle" style={{left:playheadPercent+"%"}}/>
+                {playheadVisible && <div className="ref-playhead-triangle" style={{left:playheadPercent+"%"}}/>}
               </div>
             </div>
             <div className="ref-track-scroll">
@@ -471,8 +475,10 @@ export function ReferenceStudio({
                         style={{left: (barTick/endTick*100)+"%"}} />)}
                     {clipList.map(clip=>{
                       const pattern=clip.kind==="pattern"?document?.patterns.find(p=>p.id===clip.sourceId):null;
-                      const left=Math.max(0,clip.startTick/endTick*100);
-                      const width=Math.min(100-left,clip.lengthTicks/endTick*100);
+                      const visibleFrom=Math.max(startTick,clip.startTick);
+                      const visibleUntil=Math.min(endTick,clip.startTick+clip.lengthTicks);
+                      const left=(visibleFrom-startTick)/viewportTicks*100;
+                      const width=(visibleUntil-visibleFrom)/viewportTicks*100;
                       if(width<=0)return null;
                       const notes=pattern?.notes.slice(0,75)??[];
                       return <button type="button" key={clip.id}
@@ -502,7 +508,7 @@ export function ReferenceStudio({
                           if(Math.abs(deltaX)<=6) return;
                           suppressClickRef.current=clip.id;
                           void executeEdit(()=>moveStudioClip(document,clip.id,
-                            deltaX/gesture.laneWidth*endTick));
+                            deltaX/gesture.laneWidth*viewportTicks));
                         }}
                         onPointerCancel={(event)=>{event.currentTarget.style.transform="";dragRef.current=null;}}
                         onKeyDown={(event)=>{
@@ -547,7 +553,7 @@ export function ReferenceStudio({
                   </div>
                 </div>;
               })}
-              <div className="ref-arrangement-playhead" style={{left:"calc(295px + (100% - 295px) * "+(playheadPercent/100)+")"}} aria-hidden="true"/>
+              {playheadVisible && <div className="ref-arrangement-playhead" style={{left:"calc(295px + (100% - 295px) * "+(playheadPercent/100)+")"}} aria-hidden="true"/>}
             </div>
           </div>
         </section>
