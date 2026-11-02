@@ -324,3 +324,27 @@ test("audio capture anchor keeps song microseconds across loop and Seek", () => 
   expect(resumed.projectTick).toBe(clock.secondsToTick(0.1025));
   scheduler.stop();
 });
+
+
+test("reference Studio loop switch replans epoch without duplicate events",()=>{
+  const audio={currentTime:1,state:"running" as AudioClockSource["state"]};
+  const canceled:number[]=[];
+  const sink:SequencerSink={hasAudioOwnership:()=>true,noteOn:()=>null,
+    noteOff(){},control(){},cancelEpoch(_root,epoch){canceled.push(epoch);}};
+  const transport=new TransportScheduler({rootOwnerId:"transport/reference-loop",
+    clock,audio,sink,autoPump:false,resolve:()=>[]});
+  expect(transport.start(0)).toBe(true);
+  expect(transport.epoch).toBe(1);
+  transport.setLoopRange({startTick:960,endTick:1920});
+  expect(transport.snapshot().state).toBe("playing");
+  expect(transport.epoch).toBe(2);
+  expect(canceled).toEqual([1]);
+  audio.currentTime=1.3;
+  transport.pump();
+  expect(transport.snapshot().tick).toBeGreaterThan(0);
+  transport.setLoopRange(null);
+  expect(transport.epoch).toBe(3);
+  expect(canceled).toEqual([1,2]);
+  transport.stop();
+  expect(canceled).toEqual([1,2,3]);
+});
