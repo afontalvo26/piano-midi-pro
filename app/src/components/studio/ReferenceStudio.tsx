@@ -226,7 +226,9 @@ export function ReferenceStudio({
   const recordingTargetLabel = armedMidiTracks.length===1
     ? "Pista MIDI armada: "+armedMidiTracks[0]!.name
     : armedMidiTracks.length>1
-      ? "Varias pistas armadas: selecciona una antes de grabar"
+      ? armedMidiTracks.some((track)=>track.id===selectedTrack?.id)
+        ? "Varias pistas armadas: destino "+selectedTrack!.name
+        : "Varias pistas armadas: selecciona una antes de grabar"
       : selectedTrack && (selectedTrack.kind==="instrument"||selectedTrack.kind==="drum")
         ? "Sin pistas armadas; captura en "+selectedTrack.name
         : "Toma MIDI libre (sin pista armada)";
