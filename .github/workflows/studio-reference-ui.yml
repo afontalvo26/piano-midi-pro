@@ -37,6 +37,7 @@ jobs:
         run: |
           node scripts/audit-beatmaker-requirements.mjs
           node scripts/verify-beatmaker-acceptance.mjs --check
+          node --test tests/unit/beatmaker-acceptance-gate.test.mjs
       - name: TypeScript and production bundle
         run: |
           cd app
