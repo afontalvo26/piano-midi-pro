@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSPro
 import type { ProjectDocumentV1, ProjectTrack } from "../../project/model";
 import type { ProjectCommand } from "../../project/commands.ts";
 import { STUDIO_MACROS, readStudioMacro, type StudioMacroId } from "./studioMacros.ts";
+import { studioBarStartTick, studioBarNumberAtTick } from "./studioMusicalBars.ts";
 import { drawStudioClip, cutStudioClip, moveStudioClip, quantizeStudioClip,
   snapStudioTick, type ReferenceArrangementTool } from "./referenceArrangementActions.ts";
 import { subscribeLivePerformance, getLivePerformanceSnapshot } from "./livePerformanceStore";
@@ -93,6 +94,9 @@ export interface ReferenceStudioProps {
   performancePanel: ReactNode;
   notationPanel: ReactNode;
   loopEnabled: boolean;
+  loopStartBar: number;
+  loopEndBar: number;
+  onLoopRangeChange: (startBar: number, endBar: number) => void;
   onLoopChange: (enabled: boolean) => void;
   onSeekTick: (tick: number) => void;
   onArrangementCommand: (command: ProjectCommand) => void | Promise<void>;
@@ -133,7 +137,8 @@ function Meter({ peak, tall = false }: { peak?: number; tall?: boolean }) {
 export function ReferenceStudio({
   document, workspace, activeTrackId, saveStatus, transport, tick, bpm,
   metronome, recording, midiConnected, midiStatus, outputLatencyEstimateMs, instrumentName, instrumentCategory,
-  masterLevel, trackLevels, editor, instrumentPicker, performancePanel, notationPanel, loopEnabled, onLoopChange,
+  masterLevel, trackLevels, editor, instrumentPicker, performancePanel, notationPanel, loopEnabled,
+  loopStartBar, loopEndBar, onLoopRangeChange, onLoopChange,
   onSeekTick, onArrangementCommand, onMacroChange, onWorkspace, onLibrary, onProjects, onSettings,
   onNew, onPlay, onStop, onRecord, onMetronome, onTempoDraft, onTempoCommit,
   onTrackSelect, onOpenPattern, onTrackMix, onUndo, onRedo, canUndo, canRedo,
@@ -145,11 +150,18 @@ export function ReferenceStudio({
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [scoreOpen, setScoreOpen] = useState(false);
   const [mixerOpen, setMixerOpen] = useState(true);
+  const [loopEditorOpen, setLoopEditorOpen] = useState(false);
+  const [draftLoopStart, setDraftLoopStart] = useState(String(loopStartBar));
+  const [draftLoopEnd, setDraftLoopEnd] = useState(String(loopEndBar));
   const [editError, setEditError] = useState("");
   const [macroDrafts, setMacroDrafts] = useState<Partial<Record<StudioMacroId,number>>>({});
   const [channelDrafts, setChannelDrafts] = useState<Record<string, {pan?: number; gainDb?: number}>>({});
   const [masterDraft, setMasterDraft] = useState<number | null>(null);
   const [playingSelection, setPlayingSelection] = useState<string | null>(null);
+  useEffect(()=>{
+    setDraftLoopStart(String(loopStartBar));
+    setDraftLoopEnd(String(loopEndBar));
+  },[loopStartBar,loopEndBar]);
   const dragRef = useRef<{ clipId: string; x: number; laneWidth: number } | null>(null);
   const suppressClickRef = useRef<string | null>(null);
   useEffect(()=>{
@@ -157,6 +169,7 @@ export function ReferenceStudio({
     setEditError("");
     setMacroDrafts({});
     setScoreOpen(false);
+    setLoopEditorOpen(false);
     dragRef.current=null;
     suppressClickRef.current=null;
   },[document?.id]);
