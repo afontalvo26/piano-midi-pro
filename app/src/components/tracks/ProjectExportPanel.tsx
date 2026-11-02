@@ -50,7 +50,7 @@ export function ProjectExportPanel({ busy, progress, notice, onExport,
       <label><input type="checkbox" checked={dither} disabled={busy || format !== "pcm16"}
         onChange={(event) => setDither(event.target.checked)} /> Dither al cuantizar a 16 bits</label>
     </div>
-    <p className="project-export__detail">Los stems comparten el mismo origen temporal e incluyen la ruta soportada de mezcla, inserts, sends, automatización base, sidechain y limitador cuando corresponda. Por rutas paralelas y procesadores no lineales no siempre suman exactamente el master. Las curvas de clip, efecto o Bézier no se omiten en silencio: el preflight bloquea el WAV hasta que exista soporte.</p>
+    <p className="project-export__detail">Los stems comparten el mismo origen temporal e incluyen la ruta soportada de mezcla, inserts, sends, automatización de pista/master, gain de clip, parámetros continuos de efectos, curvas lineales/step/Bézier y sidechain. Por rutas paralelas y procesadores no lineales no siempre suman exactamente el master. Un target o DSP sin soporte bloquea el preflight en vez de desaparecer del WAV.</p>
     <div className="project-export__actions">
       <button type="button" className="project-export__start" disabled={busy || !Number.isFinite(tailSeconds) || tailSeconds < 0 || tailSeconds > 5}
         onClick={() => onExport({ sampleRate, format, stems, tailSeconds,
