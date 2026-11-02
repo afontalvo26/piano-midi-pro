@@ -72,6 +72,7 @@ import {
 import { advancePickup, automationBaseValue, automationMidiAction, automationMidiValueMode,
   parseAutomationMidiAction, scaleAutomationMidiValue,
   type PickupState } from "./midi/automationMidi";
+import { drumPadMidiAction, parseDrumPadMidiAction } from "./midi/drumPadMidi";
 import { projectAutomationParameter, projectAutomationTargets } from "./project/automationParameters";
 import { MidiRecorder, type MidiRecorderSnapshot } from "./midi/recorder";
 import { RecordingLibrary, type RecordedTakeSummary, type SaveRecordingOptions } from "./midi/recordingLibrary";
@@ -113,7 +114,8 @@ const ACTIVE_MIDI_ACTIONS = new Set([
 ]);
 
 function isActiveMidiAction(action: string): boolean {
-  return ACTIVE_MIDI_ACTIONS.has(action) || parseAutomationMidiAction(action) !== null;
+  return ACTIVE_MIDI_ACTIONS.has(action) || parseAutomationMidiAction(action) !== null ||
+    parseDrumPadMidiAction(action) !== null;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -432,6 +434,9 @@ export default function PianoApp() {
   const mouseHeldRef = useRef(new Set<number>());
   const activeVelocityRef = useRef(new Map<number, number>());
   const consumedNotesRef = useRef(new Map<string, number>());
+  const consumedPadVoicesRef = useRef(new Map<string, {
+    ownerId: string; playedNote: number; playedChannel: number; releaseOnNoteOff: boolean;
+  }[]>());
   const pedalSourcesRef = useRef(new Map<string, boolean>());
   const lastTriggerRef = useRef(new Map<string, number>());
   const automationPickupRef = useRef(new Map<string, PickupState>());
@@ -769,6 +774,7 @@ export default function PianoApp() {
 
   const applyBinding = useCallback((binding: MidiBinding, event: MidiEvent): boolean => {
     const automationAction = parseAutomationMidiAction(binding.action);
+    const drumPadAction = parseDrumPadMidiAction(binding.action);
     const effectiveMode = automationAction
       ? automationMidiValueMode(automationAction.takeover) : binding.valueMode;
     const value = bindingValue(event, effectiveMode);
@@ -796,6 +802,33 @@ export default function PianoApp() {
         engine.releaseProjectAutomationLiveOverride(lane.id);
       }, 180);
       automationMidiReleaseTimersRef.current.set(lane.id, releaseTimer);
+      return true;
+    }
+    if (drumPadAction) {
+      if (event.kind !== "noteOn") return false;
+      const document = projectSessionRef.current?.getSnapshot().document;
+      let target: { trackId: string; pad: ProjectDrumPad } | null = null;
+      for (const track of document?.tracks ?? []) {
+        const pad = track.drumRack?.pads.find((item) => item.id === drumPadAction.padId);
+        if (pad) { target = { trackId: track.id, pad }; break; }
+      }
+      if (!target) return false;
+      const ownerId = `midi-pad/${binding.id}/${event.inputId}/${event.channel}/${event.note}/${crypto.randomUUID()}`;
+      const key = `${event.inputId}:${event.channel}:${event.note}`;
+      const stack = consumedPadVoicesRef.current.get(key) ?? [];
+      stack.push({ ownerId, playedNote: target.pad.midiNote,
+        playedChannel: target.pad.channel, releaseOnNoteOff: target.pad.playMode === "gate" });
+      consumedPadVoicesRef.current.set(key, stack);
+      recorder.record(event, { playedNote: target.pad.midiNote, playedChannel: target.pad.channel });
+      if (engine.projectPlaybackSnapshot()) {
+        void engine.previewProjectRackPad(target.trackId, target.pad.id,
+          event.velocity / 127, ownerId).then((played) => {
+            if (!played) setMidiError(`${target!.pad.name}: no se pudo disparar el pad aprendido.`);
+          }).catch((cause: unknown) => setMidiError(cause instanceof Error
+            ? cause.message : "Falló el pad MIDI aprendido"));
+      } else {
+        setMidiError("Prepara el audio del proyecto antes de tocar un pad aprendido.");
+      }
       return true;
     }
     const isTrigger = ["recording.toggle", "metronome.toggle", "bank.prev", "bank.next", "drum.pad"].includes(binding.action);
@@ -892,6 +925,14 @@ export default function PianoApp() {
     const key = "channel" in event && "note" in event
       ? `${event.inputId}:${event.channel}:${event.note}` : "";
     if (event.kind === "noteOff" && (consumedNotesRef.current.get(key) ?? 0) > 0) {
+      const padStack = consumedPadVoicesRef.current.get(key);
+      const learnedPad = padStack?.shift();
+      if (padStack?.length === 0) consumedPadVoicesRef.current.delete(key);
+      if (learnedPad) {
+        recorder.record(event, { playedNote: learnedPad.playedNote,
+          playedChannel: learnedPad.playedChannel });
+        if (learnedPad.releaseOnNoteOff) engine.releaseProjectPreview(learnedPad.ownerId);
+      }
       const left = consumedNotesRef.current.get(key)! - 1;
       if (left) consumedNotesRef.current.set(key, left);
       else consumedNotesRef.current.delete(key);
@@ -900,15 +941,19 @@ export default function PianoApp() {
     const pending = latestRef.current.learnAction;
     if (pending && !["noteOff", "clock", "activeSensing", "systemReset"].includes(event.kind)) {
       const automationPending = parseAutomationMidiAction(pending);
+      const drumPending = parseDrumPadMidiAction(pending);
       if (automationPending && event.kind !== "cc" && event.kind !== "pitchBend") {
         setMidiError("MIDI Learn de automatización espera un CC, fader, knob o pitch bend observado.");
+      } else if (drumPending && event.kind !== "noteOn") {
+        setMidiError("MIDI Learn de pad espera que golpees una nota/pad físico.");
       } else {
       const bankScoped = !["bank.prev", "bank.next", "recording.toggle", "metronome.toggle"].includes(pending);
       const learned = learnMidiBinding(event, {
-        id: automationPending ? crypto.randomUUID() : `${pending}:${Date.now()}`,
+        id: automationPending || drumPending ? crypto.randomUUID() : `${pending}:${Date.now()}`,
         action: pending, bank: bankScoped ? String(latestRef.current.bank) : undefined,
-        valueMode: automationPending ? automationMidiValueMode(automationPending.takeover) : undefined,
-        consumeNote: automationPending ? false : event.kind === "noteOn" });
+        valueMode: automationPending ? automationMidiValueMode(automationPending.takeover)
+          : drumPending ? "trigger" : undefined,
+        consumeNote: automationPending ? false : drumPending ? true : event.kind === "noteOn" });
       if (learned) {
         const proposed = upsertMidiBinding(latestRef.current.bindings, learned, "reject");
         if (proposed.conflicts.length) setMidiError(`El mensaje ya está asignado a ${proposed.conflicts[0]!.first.action}.`);
@@ -936,7 +981,7 @@ export default function PianoApp() {
         consumedNotesRef.current.set(key, (consumedNotesRef.current.get(key) ?? 0) + 1);
         consumed = true;
       }
-      if (binding.action === "drum.pad") consumed = true;
+      if (binding.action === "drum.pad" || parseDrumPadMidiAction(binding.action)) consumed = true;
     }
     if (consumed) return;
     if (event.kind !== "noteOn" && event.kind !== "noteOff") {
