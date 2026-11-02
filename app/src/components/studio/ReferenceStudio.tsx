@@ -452,10 +452,11 @@ export function ReferenceStudio({
           <div className="ref-editor-toolbar">
             <div className="ref-editor-tabs" role="group" aria-label="Editor">
               <button type="button" className={workspace==="piano-roll" || workspace==="performance" ? "is-selected" : ""}
-                onClick={()=>onWorkspace("piano-roll")}><Icon name="piano" size={16}/> Piano Roll</button>
+                onClick={()=>{setScoreOpen(false);onWorkspace("piano-roll");}}><Icon name="piano" size={16}/> Piano Roll</button>
               <button type="button" className={workspace==="automation"?"is-selected":""}
-                onClick={()=>onWorkspace("automation")}><Icon name="wave" size={16}/> Automatización</button>
-              <button type="button" onClick={onFullEditor} title="Abrir herramientas completas">
+                onClick={()=>{setScoreOpen(false);onWorkspace("automation");}}><Icon name="wave" size={16}/> Automatización</button>
+              <button type="button" className={scoreOpen?"is-selected":""} onClick={()=>setScoreOpen(true)}
+                title="Mostrar partitura real del patrón seleccionado">
                 <Icon name="music" size={16}/> Partitura</button>
             </div>
             <div className="ref-editor-context">
