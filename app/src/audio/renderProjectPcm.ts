@@ -15,8 +15,10 @@ export interface RenderProjectOptions {
   readonly trackId?: string;
   /** Group of source tracks for a bus stem; their routing buses remain intact. */
   readonly trackIds?: readonly string[];
-  /** Stop routing at this bus and render post-bus, before parent/master processing. */
+  /** Capture this bus only after inserts/pan, excluding all parallel/master paths. */
   readonly tapBusTrackId?: string;
+  /** Capture source outlets routed directly to master, without their send returns. */
+  readonly tapDirectMaster?: boolean;
 }
 
 export interface RenderProgress {
@@ -56,7 +58,11 @@ function checkOptions(document: ProjectDocumentV1, options: RenderProjectOptions
       (options.seed !== undefined && (typeof options.seed !== "string" || options.seed.length > 128)) ||
       (options.trackId !== undefined && options.trackIds !== undefined) ||
       (options.tapBusTrackId !== undefined &&
-        (options.trackId !== undefined || options.trackIds === undefined))) {
+        (options.trackId !== undefined || options.trackIds === undefined)) ||
+      (options.tapDirectMaster !== undefined && typeof options.tapDirectMaster !== "boolean") ||
+      (options.tapDirectMaster === true &&
+        (options.tapBusTrackId !== undefined ||
+          options.trackId !== undefined || options.trackIds === undefined))) {
     throw new RangeError("Opciones de render musical inválidas");
   }
   const micros = document.tempoMap;
@@ -99,50 +105,50 @@ function selectTracks(document: ProjectDocumentV1, options: RenderProjectOptions
   if (options.tapBusTrackId && tapBus?.kind !== "bus") {
     throw new RangeError("El punto de resampling debe ser una pista bus existente");
   }
+  // A tapped bus receives both primary outputs and parallel sends. Include
+  // only graph paths that can reach that bus; other paths are built as silent
+  // placeholders and never reach the chosen offline output.
   const include = new Set(sourceIds);
+  const reachesTap = (id: string, seen = new Set<string>()): boolean => {
+    if (id === options.tapBusTrackId) return true;
+    if (seen.has(id)) throw new RangeError("Ciclo de bus en render aislado");
+    const track = byId.get(id);
+    if (!track) throw new RangeError(`Ruta de audio ${id} inexistente`);
+    const nextSeen = new Set(seen);
+    nextSeen.add(id);
+    const destinations = [track.mix.outputBusTrackId,
+      ...track.mix.sends.map((send) => send.busTrackId)]
+      .filter((next): next is string => next !== undefined);
+    return destinations.some((next) => {
+      const bus = byId.get(next);
+      if (bus?.kind !== "bus") throw new RangeError(`Bus ${next} ausente`);
+      return reachesTap(next, nextSeen);
+    });
+  };
   for (const id of sourceIds) {
-    let track: ProjectTrack | undefined = byId.get(id);
-    const seen = new Set<string>();
-    let reachedTap = options.tapBusTrackId === undefined;
-    while (track?.mix.outputBusTrackId) {
-      const parentId: string = track.mix.outputBusTrackId;
-      if (seen.has(parentId)) throw new Error("Ruta de bus cíclica");
-      seen.add(parentId);
-      const parent = byId.get(parentId);
-      if (!parent || parent.kind !== "bus") throw new Error(`Bus ${parentId} ausente`);
-      include.add(parentId);
-      track = parent;
-      if (parentId === options.tapBusTrackId) { reachedTap = true; break; }
+    if (options.tapBusTrackId && !reachesTap(id)) {
+      throw new RangeError(`Pista ${id} no llega al bus de resampling`);
     }
-    if (!reachedTap) throw new RangeError(`Pista ${id} no llega al bus de resampling`);
   }
-  if (!options.tapBusTrackId) {
-    // Sends are parallel post-fader paths. A stem must include every bus reached
-    // through either a primary output or a send, including upstream bus inserts.
-    const pending = [...include];
-    const visited = new Set<string>();
-    while (pending.length) {
-      const id = pending.pop()!;
-      if (visited.has(id)) continue;
-      visited.add(id);
-      const track = byId.get(id)!;
-      const destinations = [track.mix.outputBusTrackId,
-        ...track.mix.sends.map((send) => send.busTrackId)].filter(
-          (value): value is string => value !== undefined);
-      for (const busId of destinations) {
-        const bus = byId.get(busId);
-        if (bus?.kind !== "bus") throw new Error(`Bus ${busId} ausente`);
-        if (!include.has(busId)) include.add(busId);
-        if (!visited.has(busId)) pending.push(busId);
-      }
+  const pending = [...sourceIds];
+  const visited = new Set<string>();
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    const track = byId.get(id)!;
+    const destinations = [track.mix.outputBusTrackId,
+      ...track.mix.sends.map((send) => send.busTrackId)]
+      .filter((next): next is string => next !== undefined);
+    for (const next of destinations) {
+      const bus = byId.get(next);
+      if (bus?.kind !== "bus") throw new RangeError(`Bus ${next} ausente`);
+      if (options.tapBusTrackId && !reachesTap(next)) continue;
+      include.add(next);
+      if (!visited.has(next)) pending.push(next);
     }
   }
   const routedTracks = document.tracks.filter((track) => include.has(track.id));
-  // Tap renders only follow the output route to the selected bus. They cannot
-  // safely include parallel send paths until destination-aware taps are added.
-  if (options.tapBusTrackId && routedTracks.some((track) => track.mix.sends.length)) {
-    throw new Error("Resampling de bus con envíos aún no disponible");
-  }
   const clock = new MusicalClock(document.tempoMap, document.meterMap);
   const startUs = Math.round(clock.tickToSeconds(options.startTick) * 1_000_000);
   const endUs = Math.round(clock.tickToSeconds(options.endTick) * 1_000_000);
@@ -178,11 +184,12 @@ function selectTracks(document: ProjectDocumentV1, options: RenderProjectOptions
       : track : {
     id: track.id, name: track.name, kind: "bus", mix: { ...track.mix, sends: [], effects: [] },
   });
-  const automation = options.tapBusTrackId ? document.automation.filter((lane) =>
+  const isTap = !!options.tapBusTrackId || !!options.tapDirectMaster;
+  const automation = isTap ? document.automation.filter((lane) =>
     lane.target.scope === "track" && lane.target.ownerId !== undefined &&
     include.has(lane.target.ownerId)) : document.automation;
   return { document: { ...document, tracks, clips, automation,
-    ...(options.tapBusTrackId ? { mix: { masterGainDb: 0, masterEffects: [] } } : {}),
+    ...(isTap ? { mix: { masterGainDb: 0, masterEffects: [] } } : {}),
     assets: requiredAssets }, selectedTrackIds: [...sourceIds], requiredAssets };
 }
 
