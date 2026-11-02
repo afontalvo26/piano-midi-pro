@@ -168,8 +168,11 @@ export function ReferenceStudio({
   const [draftLoopEnd, setDraftLoopEnd] = useState(String(loopEndBar));
   const [editError, setEditError] = useState("");
   const [macroDrafts, setMacroDrafts] = useState<Partial<Record<StudioMacroId,number>>>({});
+  const macroDraftRef = useRef<Partial<Record<StudioMacroId,number>>>({});
   const [channelDrafts, setChannelDrafts] = useState<Record<string, {pan?: number; gainDb?: number}>>({});
+  const channelDraftRef = useRef<Record<string, {pan?: number; gainDb?: number}>>({});
   const [masterDraft, setMasterDraft] = useState<number | null>(null);
+  const masterDraftRef = useRef<number | null>(null);
   const [playingSelection, setPlayingSelection] = useState<string | null>(null);
   const dragRef = useRef<{ clipId: string; x: number; laneWidth: number } | null>(null);
   const suppressClickRef = useRef<string | null>(null);
@@ -206,8 +209,9 @@ export function ReferenceStudio({
     }
   }
   function commitMacro(kind: StudioMacroId): void {
-    const value = macroDrafts[kind];
+    const value = macroDraftRef.current[kind];
     if (value === undefined || !selectedTrack) return;
+    delete macroDraftRef.current[kind];
     setMacroDrafts((previous)=>{const next={...previous};delete next[kind];return next;});
     try {
       if(value !== readStudioMacro(selectedTrack.mix.effects, selectedTrack.id,kind)) {
@@ -228,26 +232,28 @@ export function ReferenceStudio({
     saveStatus === "saving" ? "Guardando…" : saveStatus === "pending" ? "Por guardar" :
     saveStatus === "conflict" ? "Conflicto" : saveStatus === "error" ? "Error al guardar" : "Sin proyecto";
   function updateChannelDraft(id: string, field: "pan" | "gainDb", value: number) {
-    setChannelDrafts((previous) => ({...previous, [id]: {...previous[id], [field]: value}}));
+    const next={...channelDraftRef.current,[id]:{...channelDraftRef.current[id],[field]:value}};
+    channelDraftRef.current=next;
+    setChannelDrafts(next);
   }
   function commitChannelDraft(track: ProjectTrack, field: "pan" | "gainDb") {
-    const draft = channelDrafts[track.id]?.[field];
+    const draft = channelDraftRef.current[track.id]?.[field];
     if (draft === undefined) return;
-    setChannelDrafts((previous) => {
-      const next = {...previous};
-      const current = {...next[track.id]};
-      delete current[field];
-      if (Object.keys(current).length) next[track.id] = current;
-      else delete next[track.id];
-      return next;
-    });
+    const next = {...channelDraftRef.current};
+    const current = {...next[track.id]};
+    delete current[field];
+    if (Object.keys(current).length) next[track.id] = current;
+    else delete next[track.id];
+    channelDraftRef.current=next;
+    setChannelDrafts(next);
     if (Number.isFinite(draft) && draft !== track.mix[field]) {
       onTrackMix(track.id, {...track.mix, [field]: draft});
     }
   }
   function commitMasterDraft() {
-    if (masterDraft === null) return;
-    const value = masterDraft;
+    if (masterDraftRef.current === null) return;
+    const value = masterDraftRef.current;
+    masterDraftRef.current = null;
     setMasterDraft(null);
     if (Number.isFinite(value) && value !== (document?.mix.masterGainDb ?? 0)) onMasterGain(value);
   }
@@ -634,7 +640,9 @@ export function ReferenceStudio({
                 return <label className="ref-macro" key={macro.id} title={"Procesador real: "+macro.label}>
                   <input type="range" min={0} max={100} value={value}
                     disabled={!selectedTrack} aria-label={macro.label}
-                    onChange={(event)=>setMacroDrafts((previous)=>({...previous,[macro.id]:Number(event.target.value)}))}
+                    onChange={(event)=>{ const value=Number(event.target.value);
+                      macroDraftRef.current[macro.id]=value;
+                      setMacroDrafts((previous)=>({...previous,[macro.id]:value})); }}
                     onPointerUp={()=>commitMacro(macro.id)}
                     onKeyUp={()=>commitMacro(macro.id)}
                     onBlur={()=>commitMacro(macro.id)}/>
@@ -737,7 +745,8 @@ export function ReferenceStudio({
               <div className="ref-channel-fader">
                 <input type="range" min="-60" max="6" step=".1" aria-label="Ganancia master"
                   value={masterDraft ?? (document?.mix.masterGainDb ?? 0)}
-                  onChange={(event)=>setMasterDraft(Number(event.target.value))}
+                  onChange={(event)=>{const value=Number(event.target.value);
+                    masterDraftRef.current=value;setMasterDraft(value);}}
                   onPointerUp={commitMasterDraft}
                   onKeyUp={commitMasterDraft}
                   onBlur={commitMasterDraft}/>
