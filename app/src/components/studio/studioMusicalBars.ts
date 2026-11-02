@@ -40,3 +40,22 @@ export function studioLoopBarRange(
   return {startTick:studioBarStartTick(meterMap,firstBar),
     endTick:studioBarStartTick(meterMap,lastBar+1)};
 }
+
+/** One-based bar containing the given tick, including after meter changes. */
+export function studioBarNumberAtTick(
+  meterMap: ProjectDocumentV1["meterMap"], tick:number,
+):number {
+  if(!Number.isSafeInteger(tick)||tick<0)throw new RangeError("Tick musical inválido");
+  let barsBefore=0;
+  for(let index=0;index<meterMap.length;index++){
+    const point=meterMap[index]!;
+    const next=meterMap[index+1];
+    const length=3840*point.numerator/point.denominator;
+    if(next && tick>=next.tick){
+      barsBefore+=Math.ceil((next.tick-point.tick)/length);
+    }else{
+      return barsBefore+Math.floor((tick-point.tick)/length)+1;
+    }
+  }
+  throw new RangeError("Mapa de compases inválido");
+}
