@@ -590,6 +590,7 @@ function validateClips(value: unknown, tracks: Map<string, JsonObject>, patterns
     integer(clip.transpose, `${path}.transpose`, -127, 127);
     finite(clip.gainDb, `${path}.gainDb`, -120, 24);
     boolean(clip.muted, `${path}.muted`);
+    if (clip.groupId !== undefined) id(clip.groupId, `${path}.groupId`);
     const sourceId = id(clip.sourceId, `${path}.sourceId`);
     if (clip.kind === "pattern") {
       if (track.kind !== "instrument" && track.kind !== "drum") invalid(path, "patrón en pista no MIDI");
