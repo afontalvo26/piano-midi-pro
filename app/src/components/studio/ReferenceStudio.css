@@ -808,3 +808,10 @@
   border-radius:7px;padding:7px;max-width:100%;min-height:35px;font-size:11px}
 .ref-project-instrument small{color:#bfb7d3;font-size:10px;line-height:1.35}
 @media(max-width:650px){.ref-project-instrument select{min-height:44px}}
+
+.ref-clip-length-editor{display:grid;gap:6px;margin:12px 0;font-size:11px;color:#d1c5e2}
+.ref-clip-length-editor input{min-height:34px;background:#0e1325;color:#f6edff;
+  border:1px solid #5b4685;border-radius:6px;padding:5px 8px;width:100%}
+.ref-inspector-clip-actions{flex-wrap:wrap}
+.ref-inspector-clip-actions button{min-width:75px}
+@media(max-width:650px){.ref-clip-length-editor input{min-height:44px}}
