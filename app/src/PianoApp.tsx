@@ -999,9 +999,18 @@ export default function PianoApp() {
         });
       }
       if (event.kind === "cc" && (event.controller === 120 || event.controller === 123)) {
+        const prefix = `${event.inputId}:${event.channel}:`;
         pianoKeyboardStore.releaseSource(`${event.inputId}:${event.channel}`);
         for (const heldKey of activeNotesRef.current.keys()) {
-          if (heldKey.startsWith(`${event.inputId}:${event.channel}:`)) activeNotesRef.current.delete(heldKey);
+          if (heldKey.startsWith(prefix)) activeNotesRef.current.delete(heldKey);
+        }
+        for (const [heldKey, voices] of consumedPadVoicesRef.current) {
+          if (!heldKey.startsWith(prefix)) continue;
+          for (const voice of voices) if (voice.releaseOnNoteOff) {
+            engine.releaseProjectPreview(voice.ownerId);
+          }
+          consumedPadVoicesRef.current.delete(heldKey);
+          consumedNotesRef.current.delete(heldKey);
         }
       }
       return;
@@ -1114,6 +1123,14 @@ export default function PianoApp() {
           }
           for (const heldKey of activeNotesRef.current.keys()) {
             if (heldKey.startsWith(`${port.id}:`)) activeNotesRef.current.delete(heldKey);
+          }
+          for (const [heldKey, voices] of consumedPadVoicesRef.current) {
+            if (!heldKey.startsWith(`${port.id}:`)) continue;
+            for (const voice of voices) if (voice.releaseOnNoteOff) {
+              engine.releaseProjectPreview(voice.ownerId);
+            }
+            consumedPadVoicesRef.current.delete(heldKey);
+            consumedNotesRef.current.delete(heldKey);
           }
         }
         refreshInputs();
@@ -2788,6 +2805,7 @@ export default function PianoApp() {
                 latestRef.current.learnAction = action;
                 setLearnAction(action);
                 setMidiError("");
+                void prepareProjectAudio();
               }}
               onCancelMidiLearn={() => {
                 latestRef.current.learnAction = null;
@@ -3112,6 +3130,7 @@ export default function PianoApp() {
                 latestRef.current.learnAction = action;
                 setLearnAction(action);
                 setMidiError("");
+                void prepareProjectAudio();
               }}
               onCancelMidiLearn={() => {
                 latestRef.current.learnAction = null;
