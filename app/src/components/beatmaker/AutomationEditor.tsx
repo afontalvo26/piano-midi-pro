@@ -3,7 +3,7 @@ import type { FormEvent, KeyboardEvent, PointerEvent } from "react";
 import type { ProjectAutomationLane, ProjectDocumentV1 } from "../../project/model.ts";
 import type { ProjectCommand } from "../../project/commands.ts";
 import type { AutomationValueSnapshot } from "../../sequencer/automationResolver.ts";
-import { baseAutomationParameter } from "../../project/automationParameters.ts";
+import { projectAutomationBaseValue, projectAutomationParameter } from "../../project/automationParameters.ts";
 import { addAutomationPoint, automationTargetKey, copySelectedAutomationPoints, createBaseAutomationLane,
   deleteAutomationLane, deleteSelectedAutomationPoints, moveAutomationPoint,
   moveSelectedAutomationPoints, pasteAutomationPoints, setAutomationWriteMode,
@@ -69,9 +69,7 @@ function targetName(document: ProjectDocumentV1, target: ProjectAutomationLane["
 }
 
 function baseValue(document: ProjectDocumentV1, lane: ProjectAutomationLane): number {
-  if (lane.target.scope === "master") return document.mix.masterGainDb;
-  const track = document.tracks.find((item) => item.id === lane.target.ownerId);
-  return lane.target.parameterId === "pan" ? track?.mix.pan ?? 0 : track?.mix.gainDb ?? 0;
+  return projectAutomationBaseValue(document, lane.target) ?? 0;
 }
 
 function preciseValue(value: number, step: number): number {
@@ -124,7 +122,7 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
   const [touchValue, setTouchValue] = useState(0);
   const targetKeys = useMemo(() => new Set(availableTargets.map(automationTargetKey)), [availableTargets]);
   const lane = document.automation.find((item) => item.id === selectedLaneId) ?? document.automation[0] ?? null;
-  const descriptor = lane ? baseAutomationParameter(lane.target) : undefined;
+  const descriptor = lane ? projectAutomationParameter(document, lane.target) : undefined;
   const editable = !!lane && !!descriptor && targetKeys.has(automationTargetKey(lane.target)) &&
     !lane.points.some((point) => point.shape === "bezier");
   const selectedPoints = useMemo(() => lane?.points.filter((point) => selectedIds.has(point.id)) ?? [],
