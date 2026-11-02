@@ -88,6 +88,7 @@ export interface ReferenceStudioProps {
   editor: ReactNode;
   instrumentPicker: ReactNode;
   performancePanel: ReactNode;
+  notationPanel: ReactNode;
   loopEnabled: boolean;
   onLoopChange: (enabled: boolean) => void;
   onSeekTick: (tick: number) => void;
@@ -125,7 +126,7 @@ function Meter({ peak, tall = false }: { peak?: number; tall?: boolean }) {
 export function ReferenceStudio({
   document, workspace, activeTrackId, saveStatus, transport, tick, bpm,
   metronome, recording, midiConnected, midiStatus, instrumentName, instrumentCategory,
-  masterLevel, trackLevels, editor, instrumentPicker, performancePanel, loopEnabled, onLoopChange,
+  masterLevel, trackLevels, editor, instrumentPicker, performancePanel, notationPanel, loopEnabled, onLoopChange,
   onSeekTick, onArrangementCommand, onMacroChange, onWorkspace, onLibrary, onProjects, onSettings,
   onNew, onPlay, onStop, onRecord, onMetronome, onTempoDraft, onTempoCommit,
   onTrackSelect, onOpenPattern, onTrackMix, onMasterGain, onFullEditor, onFullMixer,
@@ -134,6 +135,7 @@ export function ReferenceStudio({
   const [inspector, setInspector] = useState<"instrument" | "inspect">("instrument");
   const [instrumentChooserOpen, setInstrumentChooserOpen] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [scoreOpen, setScoreOpen] = useState(false);
   const [mixerOpen, setMixerOpen] = useState(true);
   const [editError, setEditError] = useState("");
   const [macroDrafts, setMacroDrafts] = useState<Partial<Record<StudioMacroId,number>>>({});
@@ -267,7 +269,7 @@ export function ReferenceStudio({
         {NAV.map((item) => <button type="button" key={item.id}
           className={workspace === item.id ? "is-current" : ""}
           aria-current={workspace === item.id ? "page" : undefined}
-          onClick={() => { if(item.id==="library"){setInstrumentChooserOpen(true);return;} if(item.id==="performance")setKeyboardOpen(true); onWorkspace(item.id); }}>
+          onClick={() => { if(item.id==="library"){setInstrumentChooserOpen(true);return;} if(item.id==="performance")setKeyboardOpen(true); setScoreOpen(false); onWorkspace(item.id); }}>
           <Icon name={item.icon} size={24}/><span>{item.label}</span>
         </button>)}
       </nav>
@@ -469,7 +471,7 @@ export function ReferenceStudio({
               <button type="button" title="Abrir el editor completo" aria-label="Editor completo" onClick={onFullEditor}><Icon name="maximize" size={17}/></button>
             </div>
           </div>
-          <div className="ref-editor-slot">{keyboardOpen && workspace==="performance" ? performancePanel : editor}</div>
+          <div className="ref-editor-slot">{scoreOpen ? notationPanel : keyboardOpen && workspace==="performance" ? performancePanel : editor}</div>
         </section>
       </div>
       <aside className="ref-inspector" aria-label="Instrumento e inspector">
