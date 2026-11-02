@@ -89,11 +89,12 @@ export interface TimelineAutomation {
         readonly effectId: string; readonly parameterId: string;
         readonly sendId?: undefined }
     | { readonly scope: "master"; readonly parameterId: "masterGainDb";
-        readonly effectId?: undefined }
+        readonly effectId?: undefined; readonly sendId?: undefined }
     | { readonly scope: "clip"; readonly ownerId: string;
-        readonly parameterId: "gainDb"; readonly effectId?: undefined }
+        readonly parameterId: "gainDb"; readonly effectId?: undefined;
+        readonly sendId?: undefined }
     | { readonly scope: "master"; readonly effectId: string;
-        readonly parameterId: string };
+        readonly parameterId: string; readonly sendId?: undefined };
   readonly tick: number;
   readonly endTick: number;
   readonly startValue: number;
