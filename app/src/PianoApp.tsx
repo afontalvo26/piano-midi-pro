@@ -5,6 +5,7 @@ import { PROJECT_808_INSTRUMENT, PROJECT_CLAP_INSTRUMENT, PROJECT_DRUM_INSTRUMEN
   PROJECT_PIANO_INSTRUMENT } from "./audio/projectAudioSink";
 import { PianoKeyboard } from "./components/studio/PianoKeyboard";
 import { ReferenceStudio } from "./components/studio/ReferenceStudio";
+import { StudioScore } from "./components/studio/StudioScore";
 import { applyStudioMacro } from "./components/studio/studioMacros";
 import { LivePerformanceReadout } from "./components/studio/LivePerformanceReadout";
 import { publishLiveStrike } from "./components/studio/livePerformanceStore";
@@ -2498,6 +2499,8 @@ export default function PianoApp() {
           }}
           onFullEditor={() => setReferenceStudioOpen(false)}
           onFullMixer={() => { setWorkspace("mixer"); setReferenceStudioOpen(false); }}
+          notationPanel={<StudioScore pattern={projectPattern} meter={projectView?.document.meterMap[0]}
+            onOpenEditor={()=>{setWorkspace("piano-roll");setReferenceStudioOpen(false);}} />}
           performancePanel={<div className="ref-performance" aria-label="Teclado interactivo de 37 teclas">
             <div className="ref-performance-toolbar">
               <button type="button" onClick={() => {
