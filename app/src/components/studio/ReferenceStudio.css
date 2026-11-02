@@ -773,3 +773,30 @@
 .ref-ruler-numbers>span{z-index:2}
 .ref-lane-guide{z-index:0}
 .ref-clip{z-index:2}
+
+/* Record/overdub is a first-class Studio flow, not a hidden legacy page. */
+.ref-midi-title .ref-takes-opener{
+  border:1px solid #65538d;border-radius:6px;
+  color:#d6baff;background:#34264b;display:flex;align-items:center;gap:5px;
+  font-size:10px;padding:4px 8px;min-height:28px
+}
+.ref-takes-overlay{
+  position:absolute;z-index:11;top:52px;bottom:9px;left:9px;right:9px;
+  display:flex;flex-direction:column;min-height:0;overflow:hidden;
+  background:#0f1222;color:#f7f0ff;border:1px solid #69448f;
+  border-radius:10px;box-shadow:0 13px 35px #000c
+}
+.ref-takes-body{min-height:0;overflow:auto;flex:1;scrollbar-width:thin;padding:9px}
+.ref-takes-body .recorded-overdub{min-width:0;max-width:none;padding:10px;background:#171329;border-color:#4b3a69}
+.ref-takes-body .recorded-overdub__controls{display:flex;flex-direction:column;gap:8px}
+.ref-takes-body .recorded-overdub__controls>*{min-width:0;width:100%}
+.ref-takes-body :is(input,select,button){max-width:100%}
+.ref-takes-alert{padding:11px;display:grid;gap:8px;background:#382439;color:#ffe5e8;font-size:11px}
+.ref-takes-alert button{border:1px solid #a777ab;background:#582e57;color:#fff;padding:7px;border-radius:6px}
+.ref-takes-empty{padding:15px;line-height:1.5;font-size:12px;color:#bfbbd3}
+.ref-takes-empty strong{color:#fff}
+@media (max-width:650px){
+ .ref-midi-title .ref-takes-opener{min-height:44px}
+ .ref-takes-alert button{min-height:44px}
+ .ref-takes-overlay{left:4px;right:4px}
+}
