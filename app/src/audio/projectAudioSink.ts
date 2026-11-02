@@ -954,7 +954,6 @@ export class ProjectAudioSink implements SequencerSink {
     if (rootOwnerId !== this.rootOwnerId || this.disposed) return;
     this.pendingAutomationReturn.clear();
     this.replannedAutomation.clear();
-    this.liveAutomationOverrides.clear();
     for (const key of this.automatedParameters) {
       if (key === "master:masterGainDb") {
         this.master.volume.cancelAndHoldAtTime(audioTime);
@@ -979,7 +978,6 @@ export class ProjectAudioSink implements SequencerSink {
     }
     this.pendingAutomationReturn.clear();
     this.replannedAutomation.clear();
-    this.liveAutomationOverrides.clear();
     this.automationReplanAt = null;
   }
 
