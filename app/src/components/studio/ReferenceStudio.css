@@ -800,3 +800,11 @@
  .ref-takes-alert button{min-height:44px}
  .ref-takes-overlay{left:4px;right:4px}
 }
+
+.ref-project-instrument{display:grid;gap:7px;padding:10px;flex:none;border-bottom:1px solid #4c3d66;
+  background:linear-gradient(#1b1b31,#131626)}
+.ref-project-instrument label{font-size:11px;color:#f4e5ff;font-weight:700}
+.ref-project-instrument select{background:#26213b;color:#fff;border:1px solid #6b5488;
+  border-radius:7px;padding:7px;max-width:100%;min-height:35px;font-size:11px}
+.ref-project-instrument small{color:#bfb7d3;font-size:10px;line-height:1.35}
+@media(max-width:650px){.ref-project-instrument select{min-height:44px}}
