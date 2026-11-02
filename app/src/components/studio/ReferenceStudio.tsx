@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { ProjectDocumentV1, ProjectTrack } from "../../project/model";
 import type { ProjectCommand } from "../../project/commands.ts";
+import type { ProjectTrackAudioStatus } from "../../audio/projectAudioSink.ts";
 import { STUDIO_MACROS, readStudioMacro, type StudioMacroId } from "./studioMacros.ts";
 import { studioBarStartTick, studioBarNumberAtTick } from "./studioMusicalBars.ts";
 import { uniqueArrangementClip } from "../../composition/arrangementModel.ts";
@@ -97,6 +98,8 @@ export interface ReferenceStudioProps {
   trackLevels?: Readonly<Record<string, { peak: number; rms: number; clipped: boolean }>>;
   editor: ReactNode;
   instrumentPicker: ReactNode;
+  projectAudioTracks?: readonly ProjectTrackAudioStatus[];
+  onPrepareProjectAudio: () => void;
   projectPanel: ReactNode;
   projectsOpen: boolean;
   onCloseProjects: () => void;
@@ -151,7 +154,8 @@ function Meter({ peak, tall = false }: { peak?: number; tall?: boolean }) {
 export function ReferenceStudio({
   document, workspace, activeTrackId, saveStatus, problem, loadingLabel, onRetrySave, transport, tick, bpm,
   metronome, recording, midiConnected, midiStatus, outputLatencyEstimateMs, instrumentName, instrumentCategory,
-  masterLevel, trackLevels, editor, instrumentPicker, projectPanel, projectsOpen,
+  masterLevel, trackLevels, editor, instrumentPicker, projectAudioTracks, onPrepareProjectAudio,
+  projectPanel, projectsOpen,
   onCloseProjects, performancePanel,
   recordingPanel, unsavedRecording, onRetryRecordingSave, onExportRecording,
   notationPanel, loopEnabled,
@@ -210,6 +214,12 @@ export function ReferenceStudio({
   const playheadPercent = Math.min(100, Math.max(0, (tick-startTick)/viewportTicks * 100));
   const clockPosition = studioBarNumberAtTick(meterMap,Math.max(0,tick));
   const selectedTrack = tracks.find((track) => track.id === activeTrackId) ?? tracks[0];
+  const selectedTrackAudio = projectAudioTracks?.find((entry)=>entry.trackId===selectedTrack?.id);
+  const trackInstrumentLabel = selectedTrack?.kind==="instrument"
+    ? selectedTrack.instrument?.instrumentId==="salamander-grand" ? "Piano Salamander · pista"
+      : selectedTrack.instrument?.instrumentId==="tr808-fischer-core" ? "Bajo 808 Fischer · pista"
+      : selectedTrack.instrument?.instrumentId ?? "Sin banco asignado"
+    : selectedTrack?.name ?? instrumentName;
   const panelTitle = selectedTrack?.name ?? instrumentName;
   const selectedClip = document?.clips.find((clip)=>clip.id===playingSelection);
   const isPlaying = transport === "playing";
@@ -686,12 +696,29 @@ export function ReferenceStudio({
           <button type="button" className="ref-instrument-card" onClick={()=>setInstrumentChooserOpen(true)}
             title="Elegir instrumento">
             <span className="ref-instrument-title">
-              <strong>{instrumentName}</strong><small>{instrumentCategory}</small>
+              <strong>{trackInstrumentLabel}</strong><small>{selectedTrack ?
+                selectedTrack.kind==="instrument"?"Banco del proyecto · "+selectedTrack.name
+                  :"Pista "+selectedTrack.name : instrumentCategory}</small>
             </span>
             <Icon name="heart" size={19}/>
             <img className="ref-grand-piano" src={referenceGrandPiano} alt="" />
-            <span className="ref-instrument-tags"><span>✓ Activo</span><span>MIDI</span></span>
+            <span className="ref-instrument-tags">
+              <span>{selectedTrack
+                ? selectedTrackAudio?.status==="ready" ? "✓ Audio listo"
+                  : selectedTrackAudio?.status==="error" ? "Error de banco"
+                  : selectedTrackAudio?.status==="loading" ? "Preparando…"
+                  : "Audio sin preparar" : "Instrumento en vivo"}</span>
+              <span>{selectedTrack?.kind==="audio"?"Audio":
+                selectedTrack?.kind==="drum"?"Pads":"MIDI"}</span>
+            </span>
           </button>
+          {selectedTrack && (!selectedTrackAudio || selectedTrackAudio.status==="error") &&
+            <div className="ref-project-audio-readiness">
+              <span role={selectedTrackAudio?.status==="error"?"alert":"status"}>
+                {selectedTrackAudio?.error??"El audio de esta pista todavía no se ha preparado."}
+              </span>
+              <button type="button" onClick={onPrepareProjectAudio}>Preparar audio del proyecto</button>
+            </div>}
           <div className="ref-macros">
             <h3>Controles del instrumento</h3>
             <div className="ref-macro-list">
