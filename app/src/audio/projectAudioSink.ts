@@ -841,12 +841,44 @@ export class ProjectAudioSink implements SequencerSink {
     return false;
   }
 
+  /** Route-aware solo gating: source mute is not enough when the same signal
+   * reaches master directly AND a soloed auxiliary bus in parallel. */
+  private soloAllowsOutlet(slot: TrackSlot, destinationBusId: string | null,
+    soloBusIds: readonly string[], soloSourceIds: readonly string[]): boolean {
+    if (!soloBusIds.length && !soloSourceIds.length) return true;
+    if (slot.soloOverride ?? slot.track.mix.solo) return true;
+    // A bus carrying a soloed instrument must pass its mixed input downstream.
+    if (soloSourceIds.some((id)=>{
+      const source = this.slots.get(id);
+      return !!source && this.routesThrough(source,slot.track.id);
+    })) return true;
+    if (!destinationBusId) return false;
+    const target = this.slots.get(destinationBusId);
+    return soloBusIds.some((id)=>destinationBusId === id ||
+      (!!target && this.routesThrough(target,id)));
+  }
+
   private refreshMute(audioTime = Tone.immediate()): void {
     this.effectiveMute.clear();
+    const soloSlots = [...this.slots.values()].filter((slot)=>
+      slot.soloOverride ?? slot.track.mix.solo);
+    const soloBusIds = soloSlots.filter((slot)=>slot.track.kind==="bus").map((slot)=>slot.track.id);
+    const soloSourceIds = soloSlots.filter((slot)=>slot.track.kind!=="bus").map((slot)=>slot.track.id);
     for (const slot of this.slots.values()) {
       const muted = this.computeMuted(slot);
       this.effectiveMute.set(slot.track.id, muted);
       slot.muteGate.gain.rampTo(muted ? 0 : 1, 0.008, audioTime);
+      slot.mainGate.gain.rampTo(!muted && this.soloAllowsOutlet(slot,
+        slot.track.mix.outputBusTrackId ?? null,soloBusIds,soloSourceIds) ? 1 : 0,
+      0.008,audioTime);
+      for (let index=0;index<slot.track.mix.sends.length;index++){
+        const send = slot.track.mix.sends[index]!;
+        const sendGain=slot.sends[index];
+        if (!sendGain) continue;
+        const active = !muted && this.soloAllowsOutlet(slot,send.busTrackId,
+          soloBusIds,soloSourceIds);
+        sendGain.gain.rampTo(active ? 10 ** (send.gainDb / 20) : 0,0.008,audioTime);
+      }
     }
   }
 
