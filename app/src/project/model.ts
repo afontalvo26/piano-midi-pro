@@ -400,8 +400,10 @@ export interface ProjectAutomationLane {
   readonly target: {
     readonly scope: "track" | "clip" | "master";
     readonly ownerId?: string;
-    /** Exact insert in the owner chain; parameterId names one numeric parameter of that insert. */
+    /** Exact insert in the owner chain; mutually exclusive with sendId. */
     readonly effectId?: string;
+    /** Exact post-fader send on a track; currently automates that send's gainDb. */
+    readonly sendId?: string;
     readonly parameterId: string;
   };
   readonly points: readonly ProjectAutomationPoint[];
