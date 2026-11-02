@@ -2553,8 +2553,14 @@ export default function PianoApp() {
               instrument:bank,at:Date.now()});
             setProjectsError("");
           }}
-          onUndo={() => {projectSessionRef.current?.undo();}}
-          onRedo={() => {projectSessionRef.current?.redo();}}
+          onUndo={() => {
+            try {projectSessionRef.current?.undo();setProjectsError("");}
+            catch(error){setProjectsError(error instanceof Error?error.message:"No se pudo deshacer");}
+          }}
+          onRedo={() => {
+            try {projectSessionRef.current?.redo();setProjectsError("");}
+            catch(error){setProjectsError(error instanceof Error?error.message:"No se pudo rehacer");}
+          }}
           canUndo={projectView?.canUndo ?? false}
           canRedo={projectView?.canRedo ?? false}
           onMasterGain={(gainDb) => {
