@@ -761,8 +761,10 @@ export default function PianoApp() {
   };
 
   const applyBinding = useCallback((binding: MidiBinding, event: MidiEvent): boolean => {
-    const value = bindingValue(event, binding.valueMode);
     const automationAction = parseAutomationMidiAction(binding.action);
+    const effectiveMode = automationAction
+      ? automationMidiValueMode(automationAction.takeover) : binding.valueMode;
+    const value = bindingValue(event, effectiveMode);
     if (automationAction) {
       if (event.kind !== "cc" && event.kind !== "pitchBend") return false;
       const document = projectSessionRef.current?.getSnapshot().document;
@@ -778,7 +780,7 @@ export default function PianoApp() {
         automationPickupRef.current.set(binding.id, advanced.state);
         if (!advanced.acquired) return true;
       }
-      const next = scaleAutomationMidiValue(value, binding.valueMode, currentValue, descriptor);
+      const next = scaleAutomationMidiValue(value, effectiveMode, currentValue, descriptor);
       if (lane.target.scope === "master" && lane.target.parameterId === "masterGainDb") {
         engine.setProjectMasterGainDb(next);
       } else if (lane.target.scope === "track" && lane.target.ownerId) {
