@@ -63,6 +63,12 @@ function targetName(document: ProjectDocumentV1, target: ProjectAutomationLane["
   const scope = target.scope === "master" ? "Master"
     : target.scope === "track" ? document.tracks.find((track) => track.id === target.ownerId)?.name ?? "Pista eliminada"
       : `Clip ${target.ownerId ?? "?"}`;
+  if (target.sendId && target.scope === "track") {
+    const track = document.tracks.find((item) => item.id === target.ownerId);
+    const send = track?.mix.sends.find((item) => item.id === target.sendId);
+    const bus = send ? document.tracks.find((item) => item.id === send.busTrackId) : undefined;
+    return `${scope} · Send → ${bus?.name ?? send?.busTrackId ?? "bus eliminado"} · volumen`;
+  }
   const parameter = target.parameterId === "gainDb" || target.parameterId === "masterGainDb"
     ? "volumen" : target.parameterId === "pan" ? "panorama" : target.parameterId;
   return `${scope} · ${parameter}${target.effectId ? ` · efecto ${target.effectId}` : ""}`;
