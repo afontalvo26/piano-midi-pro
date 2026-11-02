@@ -1,5 +1,6 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { ProjectDocumentV1, ProjectTrack } from "../../project/model";
+import { subscribeLivePerformance, getLivePerformanceSnapshot } from "./livePerformanceStore";
 import referenceGrandPiano from "./reference-grand-piano.svg";
 import "./ReferenceStudio.css";
 
@@ -125,6 +126,9 @@ export function ReferenceStudio({
   const [channelDrafts, setChannelDrafts] = useState<Record<string, {pan?: number; gainDb?: number}>>({});
   const [masterDraft, setMasterDraft] = useState<number | null>(null);
   const [playingSelection, setPlayingSelection] = useState<string | null>(null);
+  const liveNotes = useSyncExternalStore(subscribeLivePerformance,
+    getLivePerformanceSnapshot, getLivePerformanceSnapshot);
+  const highlightedNote = liveNotes.lastStrike?.playedNote;
   const tracks = useMemo(() => {
     if (!document) return [] as ProjectTrack[];
     return document.trackOrder.map((id) =>
@@ -398,7 +402,10 @@ export function ReferenceStudio({
             <Meter peak={midiConnected?masterLevel?.peak:0}/>
           </div>
           <div className="ref-mini-keyboard" aria-hidden="true">
-            {Array.from({length:21},(_,i)=><span key={i} className={i%7===1||i%7===2||i%7===4||i%7===5||i%7===6?"is-black":""}/>)}
+            {Array.from({length:21},(_,i)=><span key={i} className={
+              (i%7===1||i%7===2||i%7===4||i%7===5||i%7===6?"is-black":"")+
+              (highlightedNote!==undefined && i===highlightedNote%21?" is-current":"")
+            }/>)}
           </div>
         </div>
       </aside>
