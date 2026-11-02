@@ -338,10 +338,13 @@ export function ReferenceStudio({
               <button type="button" aria-label="Ver mezclador" onClick={()=>onWorkspace("mixer")}><Icon name="sliders" size={18}/></button>
             </div>
             <div className="ref-loop-region">
-              <button type="button" onClick={()=>onLoopChange(!loopEnabled)} aria-pressed={loopEnabled}>
+              <button type="button" onClick={()=>onLoopChange(!loopEnabled)} aria-pressed={loopEnabled}
+                aria-label={loopEnabled?"Desactivar bucle":"Activar bucle"}>
                 <Icon name="layers" size={16}/> Región de bucle</button>
-              <button type="button" className={loopEnabled ? "is-selected" : ""} onClick={()=>onLoopChange(!loopEnabled)}>
-                Compás 5 – 12 <Icon name="chevron" size={14}/></button>
+              <button type="button" className={loopEnabled ? "is-selected" : ""}
+                aria-label="Editar región de bucle" aria-expanded={loopEditorOpen}
+                aria-controls="ref-loop-range-editor" onClick={()=>setLoopEditorOpen(!loopEditorOpen)}>
+                Compás {loopStartBar} – {loopEndBar} <Icon name="chevron" size={14}/></button>
             </div>
             <div className="ref-arrangement-tools" role="group" aria-label="Herramientas de edición">
               {(["select","draw","cut"] as const).map((value) =>
@@ -362,6 +365,29 @@ export function ReferenceStudio({
             }}>Cuantizar&nbsp; 1/16 <Icon name="chevron" size={13}/></button>
             <button type="button" className="ref-more" onClick={()=>{onWorkspace("arrangement");onFullEditor();}} aria-label="Más herramientas del arreglo">···</button>
           </div>
+          {loopEditorOpen && <form className="ref-loop-form" id="ref-loop-range-editor"
+            aria-label="Cambiar inicio y final del bucle" onSubmit={(event)=>{
+              event.preventDefault();
+              try {
+                const start=Number(draftLoopStart),end=Number(draftLoopEnd);
+                if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||
+                  start<1||end<start||end>999998){
+                  throw new RangeError("El bucle necesita un primer compás y un último compás válidos");
+                }
+                onLoopRangeChange(start,end);
+                setEditError("");
+                setLoopEditorOpen(false);
+              }catch(error){setEditError(error instanceof Error?error.message:"Rango inválido");}
+            }}>
+            <label>Desde compás <input type="number" min={1} max={999998} required
+              value={draftLoopStart} onChange={(event)=>setDraftLoopStart(event.target.value)}/></label>
+            <label>Hasta compás <input type="number" min={1} max={999998} required
+              value={draftLoopEnd} onChange={(event)=>setDraftLoopEnd(event.target.value)}/></label>
+            <div className="ref-loop-form-buttons">
+              <button type="button" onClick={()=>setLoopEditorOpen(false)}>Cancelar</button>
+              <button type="submit">Aplicar bucle</button>
+            </div>
+          </form>}
           {editError && <div className="ref-edit-error" role="alert">
             <span>{editError}</span><button type="button" aria-label="Cerrar aviso" onClick={()=>setEditError("")}><Icon name="close" size={13}/></button>
           </div>}
