@@ -2746,6 +2746,14 @@ export default function PianoApp() {
             availableTargets={automationTargets} effectiveValues={effectiveAutomationValues}
             playheadTick={projectTick} readPlayheadTick={readProjectTick}
             saveState={projectView.status}
+            onTouchPreview={(target, value) => {
+              if (target.scope === "master" && target.parameterId === "masterGainDb") {
+                engine.setProjectMasterGainDb(value);
+              } else if (target.scope === "track" && target.ownerId) {
+                if (target.parameterId === "gainDb") engine.setProjectTrackMix(target.ownerId, { gainDb: value });
+                else if (target.parameterId === "pan") engine.setProjectTrackMix(target.ownerId, { pan: value });
+              }
+            }}
             onCommand={(command) => commitAutomationEdit((session) => session.dispatch(command))}
             onUndo={() => commitAutomationEdit((session) => session.undo())}
             onRedo={() => commitAutomationEdit((session) => session.redo())}
@@ -3154,6 +3162,14 @@ export default function PianoApp() {
             availableTargets={automationTargets} effectiveValues={effectiveAutomationValues}
             playheadTick={projectTick} readPlayheadTick={readProjectTick}
             saveState={projectView.status}
+            onTouchPreview={(target, value) => {
+              if (target.scope === "master" && target.parameterId === "masterGainDb") {
+                engine.setProjectMasterGainDb(value);
+              } else if (target.scope === "track" && target.ownerId) {
+                if (target.parameterId === "gainDb") engine.setProjectTrackMix(target.ownerId, { gainDb: value });
+                else if (target.parameterId === "pan") engine.setProjectTrackMix(target.ownerId, { pan: value });
+              }
+            }}
             onCommand={(command) => commitAutomationEdit((session) => session.dispatch(command))}
             onUndo={() => commitAutomationEdit((session) => session.undo())}
             onRedo={() => commitAutomationEdit((session) => session.redo())}
