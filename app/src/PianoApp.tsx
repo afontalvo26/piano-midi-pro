@@ -2499,6 +2499,10 @@ export default function PianoApp() {
             setEditorTrackId(trackId); setEditorPatternId(patternId); setWorkspace("piano-roll");
           }}
           onTrackMix={commitTrackMix}
+          onUndo={() => {projectSessionRef.current?.undo();}}
+          onRedo={() => {projectSessionRef.current?.redo();}}
+          canUndo={projectView?.canUndo ?? false}
+          canRedo={projectView?.canRedo ?? false}
           onMasterGain={(gainDb) => {
             if (projectView) commitMasterMix({ ...projectView.document.mix, masterGainDb: gainDb });
           }}
