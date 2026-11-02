@@ -2771,7 +2771,8 @@ export default function PianoApp() {
                   ? cause.message : "Falló la preescucha del pad"));
               }} />) :
             workspace === "mixer" && projectView ? (<ProjectMixer document={projectView.document}
-            meter={trackMeters} masterMeter={visibleProjectMeters?.masterMeter}
+            meter={trackMeters} masterPreMeter={visibleProjectMeters?.masterPreMeter}
+            masterMeter={visibleProjectMeters?.masterMeter}
             sidechainStatus={trackSidechains}
             effectComparisonStatus={trackEffectComparisons}
             onTrackEffectComparison={(trackId, mode) => {
@@ -3198,7 +3199,8 @@ export default function PianoApp() {
               Reintentar guardado de audio</button>}
           </>}
           {workspace === "mixer" && projectView && <ProjectMixer document={projectView.document}
-            meter={trackMeters} masterMeter={visibleProjectMeters?.masterMeter}
+            meter={trackMeters} masterPreMeter={visibleProjectMeters?.masterPreMeter}
+            masterMeter={visibleProjectMeters?.masterMeter}
             sidechainStatus={trackSidechains}
             effectComparisonStatus={trackEffectComparisons}
             onTrackEffectComparison={(trackId, mode) => {
