@@ -17,7 +17,15 @@ interface PreparedClip {
 
 interface ClipVoice {
   readonly source: Tone.ToneBufferSource;
-  readonly gain: Tone.Gain;
+  readonly clipId: string;
+  readonly envelopeGain: Tone.Gain;
+  readonly automationGain: Tone.Gain;
+}
+
+interface ClipGainCommand {
+  readonly kind: "set" | "ramp";
+  readonly valueDb: number;
+  readonly audioTime: number;
 }
 
 /** Original-rate, beat-anchored playback. Seek resumes at the source's verified frame offset. */
@@ -26,6 +34,7 @@ export class AudioClipEngine {
   private readonly prepared = new Map<string, PreparedClip>();
   private readonly registry = new OwnedVoiceRegistry();
   private readonly voices = new Map<OwnedVoiceHandle, ClipVoice>();
+  private readonly gainCommands = new Map<string, ClipGainCommand[]>();
   private readonly assets: readonly ProjectAssetRef[];
   private readonly crossfades: readonly ProjectAudioCrossfade[];
   private readonly reader?: UserSampleReader;
@@ -78,6 +87,88 @@ export class AudioClipEngine {
   get error(): string | null { return this.errorValue; }
   get hasClips(): boolean { return this.clips.size > 0; }
 
+  private clipGainDb(clipId: string): number {
+    const clip = this.clips.get(clipId);
+    if (!clip) throw new RangeError(`Clip inexistente: ${clipId}`);
+    return clip.gainDb;
+  }
+
+  private static linearGain(db: number): number {
+    return 10 ** (Math.max(-120, Math.min(24, db)) / 20);
+  }
+
+  private commands(clipId: string): ClipGainCommand[] {
+    let commands = this.gainCommands.get(clipId);
+    if (!commands) { commands = []; this.gainCommands.set(clipId, commands); }
+    return commands;
+  }
+
+  private rememberGainCommand(clipId: string, command: ClipGainCommand): void {
+    if (!Number.isFinite(command.valueDb) || command.valueDb < -120 || command.valueDb > 24 ||
+        !Number.isFinite(command.audioTime) || command.audioTime < 0) {
+      throw new RangeError("Automatización de gain de clip inválida");
+    }
+    const commands = this.commands(clipId);
+    commands.push(command);
+    commands.sort((left, right) => left.audioTime - right.audioTime ||
+      (left.kind === "set" ? -1 : 1));
+    if (commands.length > 4096) throw new RangeError("Demasiada automatización de gain por clip");
+  }
+
+  private gainDbAt(clipId: string, audioTime: number): number {
+    const commands = this.gainCommands.get(clipId) ?? [];
+    let value = this.clipGainDb(clipId);
+    let previousTime = 0;
+    for (const command of commands) {
+      if (command.audioTime > audioTime) {
+        if (command.kind === "ramp" && command.audioTime > previousTime) {
+          const fraction = Math.max(0, Math.min(1,
+            (audioTime - previousTime) / (command.audioTime - previousTime)));
+          return value + (command.valueDb - value) * fraction;
+        }
+        break;
+      }
+      value = command.valueDb;
+      previousTime = command.audioTime;
+    }
+    return value;
+  }
+
+  private applyGainPlan(clipId: string, gain: Tone.Gain, startAt: number): void {
+    const commands = this.gainCommands.get(clipId) ?? [];
+    gain.gain.setValueAtTime(AudioClipEngine.linearGain(this.gainDbAt(clipId, startAt)), startAt);
+    for (const command of commands) {
+      if (command.audioTime <= startAt) continue;
+      const linear = AudioClipEngine.linearGain(command.valueDb);
+      if (command.kind === "ramp") gain.gain.exponentialRampToValueAtTime(linear, command.audioTime);
+      else gain.gain.setValueAtTime(linear, command.audioTime);
+    }
+  }
+
+  setClipGainAtTime(clipId: string, valueDb: number, audioTime: number): void {
+    this.rememberGainCommand(clipId, { kind: "set", valueDb, audioTime });
+    const linear = AudioClipEngine.linearGain(valueDb);
+    for (const voice of this.voices.values()) if (voice.clipId === clipId) {
+      voice.automationGain.gain.setValueAtTime(linear, audioTime);
+    }
+  }
+
+  rampClipGainToValueAtTime(clipId: string, valueDb: number, audioTime: number): void {
+    this.rememberGainCommand(clipId, { kind: "ramp", valueDb, audioTime });
+    const linear = AudioClipEngine.linearGain(valueDb);
+    for (const voice of this.voices.values()) if (voice.clipId === clipId) {
+      voice.automationGain.gain.exponentialRampToValueAtTime(linear, audioTime);
+    }
+  }
+
+  cancelClipGainAutomation(clipId: string, audioTime: number): void {
+    const commands = this.gainCommands.get(clipId) ?? [];
+    this.gainCommands.set(clipId, commands.filter((command) => command.audioTime < audioTime));
+    for (const voice of this.voices.values()) if (voice.clipId === clipId) {
+      voice.automationGain.gain.cancelAndHoldAtTime(audioTime);
+    }
+  }
+
   play(event: ScheduledAudioClip): OwnedVoiceHandle | null {
     if (this.disposed || this.errorValue || this.voices.size >= MAX_CLIP_SOURCES) {
       this.skipped++;
@@ -125,7 +216,6 @@ export class AudioClipEngine {
       this.errorValue = `Clip ${event.clipId ?? "?"}: tiempo de crossfade ausente`;
       return null;
     }
-    const level = Math.min(16, 10 ** (Math.max(-96, Math.min(24, event.gainDb)) / 20));
     const envelope = { envelopeStartFrame: event.envelopeStartFrame ?? event.sourceStartFrame,
       envelopeEndFrame: event.envelopeEndFrame ?? event.sourceEndFrame,
       fadeInFrames: event.fadeInFrames, fadeOutFrames: event.fadeOutFrames,
@@ -134,10 +224,12 @@ export class AudioClipEngine {
       ? Math.min(0.002, remaining / 2) : 0;
     let handle: OwnedVoiceHandle | null = null;
     let finished = false;
-    const gain = new Tone.Gain(0).connect(this.destination);
+    const envelopeGain = new Tone.Gain(0);
+    const automationGain = new Tone.Gain(AudioClipEngine.linearGain(event.gainDb)).connect(this.destination);
+    envelopeGain.connect(automationGain);
     const source = new Tone.ToneBufferSource({ url: prepared.buffer,
       fadeIn: safetyFadeIn, fadeOut: 0,
-      curve: "linear", onended: () => finish(true) }).connect(gain);
+      curve: "linear", onended: () => finish(true) }).connect(envelopeGain);
     const finish = (naturallyEnded: boolean): void => {
       if (finished) return;
       finished = true;
@@ -145,7 +237,9 @@ export class AudioClipEngine {
         this.voices.delete(handle);
         this.registry.finish(handle);
       }
-      const dispose = (): void => { source.dispose(); gain.dispose(); };
+      const dispose = (): void => {
+        source.dispose(); envelopeGain.dispose(); automationGain.dispose();
+      };
       if (!naturallyEnded || !retainUntilOfflineRender(source.context, dispose)) dispose();
       this.onVoiceEnd?.();
     };
@@ -155,11 +249,12 @@ export class AudioClipEngine {
         source.fadeOut = Math.max(0.005, fadeSeconds);
         source.stop(Math.max(at, audioTime));
       } });
-    this.voices.set(handle, { source, gain });
+    this.voices.set(handle, { source, clipId: approved.id, envelopeGain, automationGain });
     try {
+      this.applyGainPlan(approved.id, automationGain, at);
       source.start(at, sourceFrame / rate, undefined, 1);
-      scheduleClipEnvelope(gain.gain, envelope, at, at + remaining,
-        sourceFrame, rate, songTimeUs, level);
+      scheduleClipEnvelope(envelopeGain.gain, envelope, at, at + remaining,
+        sourceFrame, rate, songTimeUs, 1);
       source.stop(at + remaining);
     } catch (error) { finish(false); throw error; }
     return handle;
@@ -183,10 +278,12 @@ export class AudioClipEngine {
     this.registry.panic(Tone.immediate(), 0.008);
     for (const [handle, voice] of this.voices) {
       voice.source.dispose();
-      voice.gain.dispose();
+      voice.envelopeGain.dispose();
+      voice.automationGain.dispose();
       this.registry.finish(handle);
     }
     this.voices.clear();
+    this.gainCommands.clear();
     this.prepared.clear();
   }
 }
