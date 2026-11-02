@@ -6,8 +6,10 @@ import type { AutomationValueSnapshot } from "../../sequencer/automationResolver
 import { baseAutomationParameter } from "../../project/automationParameters.ts";
 import { addAutomationPoint, automationTargetKey, copySelectedAutomationPoints, createBaseAutomationLane,
   deleteAutomationLane, deleteSelectedAutomationPoints, moveAutomationPoint,
-  moveSelectedAutomationPoints, pasteAutomationPoints } from "../../composition/automationEdit.ts";
-import type { AutomationPointCopy, BaseAutomationTarget } from "../../composition/automationEdit.ts";
+  moveSelectedAutomationPoints, pasteAutomationPoints, setAutomationWriteMode,
+  writeAutomationTouchGesture } from "../../composition/automationEdit.ts";
+import type { AutomationPointCopy, AutomationTouchSample,
+  BaseAutomationTarget } from "../../composition/automationEdit.ts";
 import { AUTOMATION_CANVAS_HEIGHT, AUTOMATION_CANVAS_TOP, AUTOMATION_CANVAS_BOTTOM,
   automationTickAtX, automationValueAtY, drawAutomationLane,
   drawAutomationPlayhead, hitAutomationPoint } from "../../composition/automationCanvas.ts";
@@ -23,6 +25,8 @@ export interface AutomationEditorProps {
   readonly playheadTick?: number;
   readonly readPlayheadTick?: () => number;
   readonly effectiveValues?: readonly AutomationValueSnapshot[];
+  /** Immediate audio preview while a Touch gesture owns the control. */
+  readonly onTouchPreview?: (target: ProjectAutomationLane["target"], value: number) => void;
   readonly onCommand: (command: ProjectCommand) => void | Promise<void>;
   readonly onUndo?: () => void | Promise<void>;
   readonly onRedo?: () => void | Promise<void>;
@@ -88,7 +92,7 @@ export function AutomationEditor(props: AutomationEditorProps) {
 }
 
 function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
-  readPlayheadTick, effectiveValues, onCommand, onUndo, onRedo, canUndo, canRedo,
+  readPlayheadTick, effectiveValues, onTouchPreview, onCommand, onUndo, onRedo, canUndo, canRedo,
   saveState }: AutomationEditorProps & { readonly document: ProjectDocumentV1 }) {
   const [selectedLaneId, setSelectedLaneId] = useState(document.automation[0]?.id ?? "");
   const [targetChoice, setTargetChoice] = useState("");
@@ -107,6 +111,8 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playheadCanvasRef = useRef<HTMLCanvasElement>(null);
   const gestureRef = useRef<DragGesture | null>(null);
+  const touchSamplesRef = useRef<AutomationTouchSample[] | null>(null);
+  const [touchValue, setTouchValue] = useState(0);
   const targetKeys = useMemo(() => new Set(availableTargets.map(automationTargetKey)), [availableTargets]);
   const lane = document.automation.find((item) => item.id === selectedLaneId) ?? document.automation[0] ?? null;
   const descriptor = lane ? baseAutomationParameter(lane.target) : undefined;
@@ -116,6 +122,12 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
     [lane, selectedIds]);
   const selectedPoint = selectedPoints.length === 1 ? selectedPoints[0] : null;
   const effectiveValue = effectiveValues?.find((item) => item.laneId === lane?.id);
+  useEffect(() => {
+    if (!lane || !descriptor || touchSamplesRef.current) return;
+    const value = effectiveValue?.value ?? baseValue(document, lane);
+    setTouchValue(Math.max(descriptor.min, Math.min(descriptor.max,
+      preciseValue(value, descriptor.unit === "pan" ? 0.01 : 0.1))));
+  }, [lane, descriptor, effectiveValue?.value, document]);
   const missingTargets = availableTargets.filter((target) => !document.automation.some((item) =>
     automationTargetKey(item.target) === automationTargetKey(target)));
   const chosenTarget = missingTargets.find((target) => automationTargetKey(target) === targetChoice) ??
@@ -181,6 +193,26 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
       await onCommand(command);
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }
+  }
+
+  function sampleTouch(value: number): void {
+    if (!lane || !descriptor || !touchSamplesRef.current) return;
+    const nextValue = Math.max(descriptor.min, Math.min(descriptor.max,
+      preciseValue(value, valueStep)));
+    const tick = Math.max(0, Math.round(readPlayheadTick?.() ?? playheadTick));
+    const samples = touchSamplesRef.current;
+    const last = samples.at(-1);
+    if (last?.tick === tick) samples[samples.length - 1] = { tick, value: nextValue };
+    else samples.push({ tick, value: nextValue });
+    setTouchValue(nextValue);
+    onTouchPreview?.(lane.target, nextValue);
+  }
+
+  function finishTouch(): void {
+    if (!lane) return;
+    const samples = touchSamplesRef.current;
+    touchSamplesRef.current = null;
+    if (samples?.length) void commit(() => writeAutomationTouchGesture(document, lane.id, samples));
   }
 
   function pointerPosition(event: PointerEvent<HTMLCanvasElement>): { x: number; y: number } {
@@ -366,6 +398,42 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
       </div>}
     </div>
     {lane && <>
+      <div className="automation-editor__write">
+        <div role="group" aria-label="Modo de escritura de automatización">
+          <button type="button" aria-pressed={(lane.writeMode ?? "read") === "read"}
+            disabled={busy} onClick={() => void commit(() =>
+              setAutomationWriteMode(document, lane.id, "read"))}>Read</button>
+          <button type="button" aria-pressed={lane.writeMode === "touch"}
+            disabled={busy || !editable} onClick={() => void commit(() =>
+              setAutomationWriteMode(document, lane.id, "touch"))}>Touch</button>
+        </div>
+        <label>Fader Touch · {descriptor?.unit}
+          <input type="range" aria-label="Fader Touch de automatización"
+            min={descriptor?.min} max={descriptor?.max} step={valueStep} value={touchValue}
+            disabled={!editable || lane.writeMode !== "touch" || busy}
+            onPointerDown={(event) => {
+              touchSamplesRef.current = [];
+              event.currentTarget.setPointerCapture(event.pointerId);
+              sampleTouch(Number(event.currentTarget.value));
+            }}
+            onChange={(event) => sampleTouch(Number(event.currentTarget.value))}
+            onPointerUp={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+              finishTouch();
+            }}
+            onPointerCancel={() => {
+              touchSamplesRef.current = null;
+              const restore = effectiveValue?.value ?? baseValue(document, lane);
+              setTouchValue(restore);
+              onTouchPreview?.(lane.target, restore);
+            }} />
+        </label>
+        <output aria-live="polite">{touchValue.toFixed(descriptor?.unit === "pan" ? 2 : 1)}
+          {descriptor?.unit === "dB" ? " dB" : ""}</output>
+        <small>Touch escribe un solo gesto reversible y vuelve suavemente a la curva al soltar.</small>
+      </div>
       <div className="automation-editor__toolbar">
         <div role="group" aria-label="Herramienta de automatización">
           <button type="button" aria-pressed={tool === "navigate"} onClick={() => setTool("navigate")}>Desplazar</button>
