@@ -177,6 +177,8 @@ export interface ProjectSidechain {
   readonly ratio: number;
   readonly attackMs: number;
   readonly releaseMs: number;
+  /** Delay only the target path so the key can reduce gain before the transient arrives. */
+  readonly lookaheadMs?: number;
   readonly maxReductionDb: number;
 }
 
