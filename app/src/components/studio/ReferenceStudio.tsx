@@ -125,9 +125,12 @@ export function ReferenceStudio({
   const [channelDrafts, setChannelDrafts] = useState<Record<string, {pan?: number; gainDb?: number}>>({});
   const [masterDraft, setMasterDraft] = useState<number | null>(null);
   const [playingSelection, setPlayingSelection] = useState<string | null>(null);
-  const tracks = useMemo(() => document?.trackOrder.map((id) =>
-    document.tracks.find((track) => track.id === id)).filter(
-      (track): track is ProjectTrack => !!track && track.kind !== "bus") ?? [], [document]);
+  const tracks = useMemo(() => {
+    if (!document) return [] as ProjectTrack[];
+    return document.trackOrder.map((id) =>
+      document.tracks.find((track) => track.id === id)).filter(
+      (track): track is ProjectTrack => !!track && track.kind !== "bus");
+  }, [document]);
   const meter = document?.meterMap[0];
   const ticksPerBar = 960 * 4 * (meter?.numerator ?? 4) / (meter?.denominator ?? 4);
   const bars = 16;
