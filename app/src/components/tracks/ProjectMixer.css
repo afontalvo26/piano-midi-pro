@@ -61,3 +61,8 @@
   .project-mixer__comparison-buttons { grid-template-columns: minmax(0, 1fr); }
   .project-mixer__comparison-buttons button { width: 100%; }
 }
+
+.project-mixer__master-meters { display: grid; gap: 9px; }
+.project-mixer__master-meters .project-mixer__meter {
+  padding: 8px; border: 1px solid #4c4357; border-radius: 8px; background: #1b1721;
+}
