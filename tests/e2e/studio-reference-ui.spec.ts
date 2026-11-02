@@ -11,7 +11,8 @@ test("new Studio uses reference layout with actual project data and a live piano
   await expect(shell.getByRole("region", {name:"Mezcla rápida"})).toBeVisible();
   await expect(shell.getByRole("complementary", {name:"Instrumento e inspector"})).toBeVisible();
   await expect(shell.getByRole("button", {name:"Nueva idea"})).toBeVisible();
-  await expect(shell.getByText("Sin medir")).toBeVisible();
+  await expect(shell.locator(".ref-system-status").filter({hasText:"Latencia"}))
+    .toContainText(/Sin medir|≈\\d+ ms/);
   await shell.getByRole("button", {name:"Nueva idea"}).click();
   await expect(shell.getByRole("region", {name:"Arreglo del proyecto"}).locator(".ref-track-row").first())
     .toBeVisible({timeout:20_000});
