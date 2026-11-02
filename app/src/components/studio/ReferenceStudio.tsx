@@ -347,7 +347,7 @@ export function ReferenceStudio({
         <section className="ref-editor" aria-label="Editor musical">
           <div className="ref-editor-toolbar">
             <div className="ref-editor-tabs" role="group" aria-label="Editor">
-              <button type="button" className={workspace==="piano-roll"?"is-selected":""}
+              <button type="button" className={workspace==="piano-roll" || workspace==="performance" ? "is-selected" : ""}
                 onClick={()=>onWorkspace("piano-roll")}><Icon name="piano" size={16}/> Piano Roll</button>
               <button type="button" className={workspace==="automation"?"is-selected":""}
                 onClick={()=>onWorkspace("automation")}><Icon name="wave" size={16}/> Automatización</button>
