@@ -369,7 +369,7 @@ export function ReferenceStudio({
           <button type="button" className={inspector==="inspect"?"is-selected":""}
             onClick={()=>setInspector("inspect")}>Inspector</button>
         </div>
-        {instrumentChooserOpen ? <div className="ref-instrument-picker" aria-label="Biblioteca de instrumentos">
+        {instrumentChooserOpen ? <div className="ref-instrument-picker" role="dialog" aria-modal={false} aria-label="Biblioteca de instrumentos">
           <div className="ref-instrument-picker-header"><strong>Biblioteca de instrumentos</strong>
             <button type="button" onClick={()=>setInstrumentChooserOpen(false)} aria-label="Cerrar biblioteca"><Icon name="close" size={16}/></button>
           </div>
