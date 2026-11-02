@@ -61,8 +61,13 @@ function routingChain(track: ProjectTrack, byId: ReadonlyMap<string, ProjectTrac
 /** Read-only preflight; unsupported DSP never disappears silently in a WAV. */
 export function planProjectAudioExport(document: ProjectDocumentV1,
   options: AudioExportPlanOptions): AudioExportPlan {
-  if (document.tracks.some((track) => track.mix.sends.length > 0)) {
-    throw new RangeError("WAV aún no admite envíos; retíralos antes de exportar");
+  // Full mixes and per-track stems can render parallel sends through the
+  // same WebAudio graph as Studio. A bus-specific stem still needs a separate
+  // tapped graph: rendering all source paths would leak their direct/master
+  // signal into the bus file. Reject that mode rather than mislabel a WAV.
+  if (options.stems === "buses" &&
+      document.tracks.some((track) => track.mix.sends.length > 0)) {
+    throw new RangeError("Stems por bus con envíos requieren aislamiento de rutas; usa mezcla completa o stems por pista");
   }
   // The offline renderer consumes the same resolver as project playback. This
   // preflight rejects effect/clip/bezier lanes instead of silently omitting them.
