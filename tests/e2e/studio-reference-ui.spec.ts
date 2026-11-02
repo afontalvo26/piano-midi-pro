@@ -437,3 +437,41 @@ test("compact inspector trims and duplicates MIDI clips using project history",a
   await studio.getByRole("button",{name:"Rehacer"}).click();
   await expect(row.locator(".ref-clip")).toHaveCount(2);
 });
+
+
+test("Studio arranger pages beyond bar 16, zooms and edits visible later measures",async({page})=>{
+  await page.setViewportSize({width:1586,height:992});
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const studio=page.getByTestId("reference-studio");
+  await studio.getByRole("button",{name:"Nueva idea"}).click();
+  const navigation=studio.getByRole("group",{name:"Navegación del arreglo"});
+  await expect(navigation).toContainText("1–16");
+  await navigation.getByRole("button",{name:"Compases siguientes"}).click();
+  await expect(navigation).toContainText("17–32");
+  const ruler=studio.getByRole("slider",{name:"Mover cabezal de reproducción"});
+  await expect(ruler).toHaveAttribute("aria-valuemin","61440");
+  await expect(studio.locator(".ref-track-row").first().locator(".ref-clip")).toHaveCount(0);
+  await navigation.getByLabel("Compases visibles").selectOption("8");
+  await expect(navigation).toContainText("17–24");
+  await studio.getByRole("button",{name:"Dibujar"}).click();
+  const lane=studio.locator(".ref-track-row").first().locator(".ref-track-lane");
+  const rect=await lane.boundingBox();
+  expect(rect).not.toBeNull();
+  await lane.click({position:{x:Math.floor(rect!.width*.15),y:20}});
+  await expect(lane.locator(".ref-clip")).toHaveCount(1);
+  await navigation.getByRole("button",{name:"Centrar cabezal"}).click();
+  await expect(navigation).toContainText("1–8");
+  await expect(lane.locator(".ref-clip")).toHaveCount(1);
+});
+
+test("moving to next bar uses meter map rather than current time-signature width",async({page})=>{
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const output=await page.evaluate(async()=>{
+    const {studioBarStartTick,studioBarNumberAtTick}=await import("/src/components/studio/studioMusicalBars.ts");
+    const map=[{tick:0,numerator:4,denominator:4},{tick:7680,numerator:3,denominator:4}];
+    const values=[0,3900,8000,10600].map(tick=>
+      studioBarStartTick(map,studioBarNumberAtTick(map,tick)+1));
+    return values;
+  });
+  expect(output).toEqual([3840,7680,10560,13440]);
+});
