@@ -14,6 +14,8 @@ export interface MonoSampleVoiceSettings {
   readonly glideMs: number;
   readonly attackMs: number;
   readonly releaseMs: number;
+  readonly saturation?: number;
+  readonly subGainDb?: number;
 }
 
 interface MonoSource {
@@ -44,6 +46,10 @@ function validateSettings(settings: MonoSampleVoiceSettings, region: SampleRegio
       !Number.isFinite(settings.glideMs) || settings.glideMs < 0 || settings.glideMs > 2_000 ||
       !Number.isFinite(settings.attackMs) || settings.attackMs < 0 || settings.attackMs > 5_000 ||
       !Number.isFinite(settings.releaseMs) || settings.releaseMs < 0 || settings.releaseMs > 5_000 ||
+      (settings.saturation !== undefined && (!Number.isFinite(settings.saturation) ||
+        settings.saturation < 0 || settings.saturation > 1)) ||
+      (settings.subGainDb !== undefined && (!Number.isFinite(settings.subGainDb) ||
+        settings.subGainDb < -36 || settings.subGainDb > 0)) ||
       (settings.retrigger === "legato" &&
         (region.playMode !== "gate" || region.loopMode !== "loop"))) {
     throw new RangeError("Configuración monofónica de muestra inválida");
@@ -60,6 +66,10 @@ export class MonoUserSampleEngine {
   private readonly region: SampleRegion;
   private readonly settings: MonoSampleVoiceSettings;
   private readonly destination: Tone.ToneAudioNode;
+  private readonly voiceBus: Tone.Gain;
+  private readonly saturation: Tone.Distortion | null;
+  private readonly subFilter: Tone.Filter | null;
+  private readonly subGain: Tone.Gain | null;
   private readonly onVoiceEnd?: () => void;
   private current: MonoSource | null = null;
   private lastRate: number | null = null;
@@ -74,6 +84,20 @@ export class MonoUserSampleEngine {
     this.region = region;
     this.settings = settings;
     this.destination = destination;
+    this.voiceBus = new Tone.Gain(1);
+    this.saturation = (settings.saturation ?? 0) > 0
+      ? new Tone.Distortion({ distortion: settings.saturation!, wet: 1, oversample: "4x" })
+      : null;
+    if (this.saturation) this.voiceBus.connect(this.saturation).connect(destination);
+    else this.voiceBus.connect(destination);
+    if (settings.subGainDb !== undefined) {
+      this.subFilter = new Tone.Filter({ type: "lowpass", frequency: 90, Q: 0.7, rolloff: -24 });
+      this.subGain = new Tone.Gain(10 ** (settings.subGainDb / 20));
+      this.voiceBus.connect(this.subFilter).connect(this.subGain).connect(destination);
+    } else {
+      this.subFilter = null;
+      this.subGain = null;
+    }
     this.onVoiceEnd = onVoiceEnd;
   }
 
@@ -109,7 +133,7 @@ export class MonoUserSampleEngine {
     const previousRate = this.current?.source.playbackRate.getValueAtTime(audioTime)
       ?? this.lastRate ?? rate;
     const startRate = this.settings.glideMs > 0 ? previousRate : rate;
-    const gain = new Tone.Gain(level).connect(this.destination);
+    const gain = new Tone.Gain(level).connect(this.voiceBus);
     const source = new Tone.ToneBufferSource({
       url: this.regionBuffer,
       playbackRate: startRate,
@@ -230,10 +254,13 @@ export class MonoUserSampleEngine {
   }
 
   snapshot(): OwnedVoiceSnapshot & { readonly dropped: number; readonly activeSources: number;
-    readonly heldNotes: number; readonly targetPlaybackRate: number | null } {
+    readonly heldNotes: number; readonly targetPlaybackRate: number | null;
+    readonly saturation: number; readonly subGainDb: number | null } {
     return { ...this.registry.snapshot(), dropped: this.dropped,
       activeSources: this.sources.size, heldNotes: this.held.length,
-      targetPlaybackRate: this.current?.targetRate ?? null };
+      targetPlaybackRate: this.current?.targetRate ?? null,
+      saturation: this.settings.saturation ?? 0,
+      subGainDb: this.settings.subGainDb ?? null };
   }
 
   dispose(): void {
@@ -241,5 +268,9 @@ export class MonoUserSampleEngine {
     this.disposed = true;
     for (const voice of [...this.sources]) this.finishVoice(voice);
     this.held.length = 0;
+    this.voiceBus.dispose();
+    this.saturation?.dispose();
+    this.subFilter?.dispose();
+    this.subGain?.dispose();
   }
 }
