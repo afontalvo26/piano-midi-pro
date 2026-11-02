@@ -53,3 +53,18 @@ Los cambios señalados como **corregidos en código** son propuestas no verifica
 Para cada cambio siguiente: **ID de spec → criterio Given/When/Then → diseño/contrato técnico → prueba que falla → implementación → pruebas ejecutadas + métricas → evidencia con SHA → aceptación**. Si el mockup contradice la spec, abrir primero una decisión de cambio, no decidirlo silenciosamente desde JSX.
 
 **Estado final de este documento:** auditoría abierta, sin certificación de release.
+
+
+## Continuación de correcciones del código (2026-11-02; sin aceptación)
+
+Estas intervenciones posteriores **no** cambian el estado de los 113 criterios ni certifican un build:
+
+- **INS-01/INS-06:** se añadió `replaceTrackInstrument` al comando CAS con Undo/Redo y un selector de **bancos instalados reconocidos por el sink del proyecto** (Salamander y bajo 808 Fischer) por pista. El catálogo WebAudioFont sigue siendo **global para tocar en vivo** y debe identificarse así; no se promete paridad live/export para presets WebAudioFont. Pendiente instalar/validar otras familias por pista.
+- **MID/UXP-02:** se integró el componente real `RecordedOverdubPanel` en el inspector contextual para previsualizar/confirmar tomas MIDI guardadas, sin borrar originales. Se añadieron reintento y exportación de emergencia cuando una toma falla al guardar. Falta prueba real de capturar→guardado→previsualizar→commit→recarga.
+- **ARR-02/ROL-04:** cuantización rápida bloquea ahora una fuente utilizada por varios clips sin separación; «Hacer único» reutiliza el comando reversible existente. Falta comprobar Undo/Redo y render de la señal después del cambio.
+- **CLK-01:** «Ir al inicio» ya no detiene el transporte, ejecuta Seek a tick 0. «Avanzar un compás» mantiene su significado. La región de bucle es editable y respeta cambios de métrica.
+- **UXP-06:** los gestos de ganancia, panorámica y macros usan un borrador sincronizado para confirmar cada valor **una sola vez** al soltar; una pérdida de foco posterior no debe enviar un comando duplicado.
+- **QLT-08/QLT-09:** el gate `--release` exige varias clases de evidencia por criterio, incluyendo pruebas de código y producción, además de física/licencias para casos aplicables. Se añadió `tests/unit/beatmaker-acceptance-gate.test.mjs`, aún sin ejecutar.
+- **Decisión de producto pendiente:** [ADR-UXP-001](decisions/ADR-UXP-001-score-preview.md) distingue explícitamente la pantalla heredada de Partitura (excluida) de un visor contextual de notas propias dentro del mockup aprobado. No es aprobación automática.
+
+**Riesgos no resueltos:** runners de GitHub Actions sin pasos ejecutados; QA real de navegador/CPU/audio/fidelidad; SMK-37 físico Elite y Pro; 113 expedientes de aceptación sin evidencias completas. La palabra `implemented` significa cambios propuestos en código, no un criterio verde.
