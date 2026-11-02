@@ -2539,6 +2539,27 @@ export default function PianoApp() {
           onFullMixer={() => { setWorkspace("mixer"); setReferenceStudioOpen(false); }}
           notationPanel={<StudioScore pattern={projectPattern} meter={projectView?.document.meterMap[0]}
             onOpenEditor={()=>{setWorkspace("piano-roll");setReferenceStudioOpen(false);}} />}
+          recordingPanel={projectView && projectTrack && projectPattern ? (
+            <RecordedOverdubPanel key={`${projectView.document.id}:${projectTrack.id}:${projectPattern.id}`}
+                document={projectView.document} trackId={projectTrack.id} patternId={projectPattern.id}
+                projectStartTick={projectTick}
+                startTickForTake={(recordingId) => savedOverdubTarget?.projectId === projectView.document.id &&
+                  savedOverdubTarget.trackId === projectTrack.id &&
+                  savedOverdubTarget.recordingId === recordingId
+                  ? savedOverdubTarget.startTick : projectTick}
+                activeSceneId={projectLauncher?.activeSceneId} recording={recording || unsavedRecording}
+                takes={takes}
+                onLoadTake={(recordingId) => convertRecordedTake(library, recordingId, {
+                  patternId: crypto.randomUUID(), patternName: "Toma MIDI para overdub",
+                })}
+                onCommit={(request) => commitRecordedOverdub(projectView.document.id, request)} />
+          ) : <div className="ref-takes-empty">
+            <strong>Selecciona un patrón MIDI</strong>
+            <p>Abre un proyecto y selecciona una pista con patrón para añadir una toma propia.</p>
+          </div>}
+          unsavedRecording={unsavedRecording}
+          onRetryRecordingSave={()=>{void saveUnsavedRecording();}}
+          onExportRecording={exportLatest}
           performancePanel={<div className="ref-performance" aria-label="Teclado interactivo de 37 teclas">
             <div className="ref-performance-toolbar">
               <button type="button" onClick={() => {
