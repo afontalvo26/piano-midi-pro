@@ -24,13 +24,20 @@ aditivos ni reconstruyen necesariamente la mezcla al sumarlos, en especial
 con procesadores no lineales. La metadata `sendsIncluded` del WAV/ZIP
 refleja la topología real, sin afirmar aditividad.
 
-`stems=buses` con cualquier envío se rechaza expresamente durante preflight.
-Ese tipo de stem requiere una señal capturada en un bus aislado: filtrar sólo
-las pistas que alcanzan el bus NO basta, porque pueden conservar otras rutas
-a master y generar contenido incorrecto. Tampoco se habilita el tap AUD-06
-en rutas con envíos sin aislamiento completo de la señal.
+`stems=buses` con envíos ahora utiliza un tap aislado al bus elegido
+después de sus inserts, volumen y panorama, pero antes de sus buses padre
+y del master. La salida directa al master se captura por separado con
+`tapDirectMaster`; las rutas paralelas hacia otros buses permanecen fuera
+de cada salida capturada. Las fuentes capaces de alimentar un bus se
+calculan por cualquiera de sus aristas de salida principal o send, sin
+volver a crear los clips de la pista destino del resampling.
+
+Los stems de buses anidados, los directos y los retornos de sends pueden
+**solaparse**; el manifiesto establece `stemsAdditive=false` y
+`busStemsOverlap` para no prometer reconstrucción por suma.
 
 **Pruebas previstas:** `project-mixer-sends.spec.ts` compara energía de
-master seco/con envío, un stem individual, frames WAV y metadatos, y
-comprueba el rechazo específico del bus stem con sends. Sigue pendiente
-ejecutar y pasar el gate completo.
+master seco/con envío, stem de pista, bus aislado y salida directa;
+`project-bus-resample.spec.ts` comprueba resampling de una fuente que
+sólo llega al bus por un send, excluyendo destino y master. Sigue
+pendiente ejecutar y pasar la regresión real.
