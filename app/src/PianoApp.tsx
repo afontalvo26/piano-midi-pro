@@ -333,6 +333,7 @@ export default function PianoApp() {
   const [studioPendingSeek, setStudioPendingSeek] = useState<number | null>(null);
   const [editorPatternId, setEditorPatternId] = useState<string | null>(null);
   const [editorTrackId, setEditorTrackId] = useState<string | null>(null);
+  const [studioSelectedTrackId, setStudioSelectedTrackId] = useState<string | null>(null);
   const [projectAudioPreparing, setProjectAudioPreparing] = useState(false);
   const [preparedProjectDocument, setPreparedProjectDocument] = useState<ProjectDocumentV1 | null>(null);
   const [projectAudioStatus, setProjectAudioStatus] = useState("");
@@ -1312,6 +1313,7 @@ export default function PianoApp() {
     setProjectBpmDraft(null);
     setEditorPatternId(null);
     setEditorTrackId(null);
+    setStudioSelectedTrackId(null);
     setSavedOverdubTarget(null);
     recordingTargetRef.current = null;
     setTakeImportNotice("");
@@ -2485,7 +2487,7 @@ export default function PianoApp() {
               expected:track.mix.effects,effects,at:Date.now()});
             setProjectsError("");
           }}
-          activeTrackId={projectTrack?.id}
+          activeTrackId={studioSelectedTrackId ?? projectTrack?.id}
           saveStatus={projectView?.status ?? "none"}
           problem={projectView?.error || projectsError || instrumentError || midiError || undefined}
           loadingLabel={projectSwitching ? "Abriendo proyecto…" :
@@ -2523,8 +2525,15 @@ export default function PianoApp() {
             void engine.setMetronome({ enabled: next, bpm }); }}
           onTempoDraft={setProjectBpmDraft}
           onTempoCommit={commitProjectBpm}
-          onTrackSelect={(track) => { setEditorTrackId(track.id); setEditorPatternId(null); }}
+          onTrackSelect={(track) => {
+            setStudioSelectedTrackId(track.id);
+            if(track.kind==="instrument" || track.kind==="drum") {
+              setEditorTrackId(track.id);
+              setEditorPatternId(null);
+            }
+          }}
           onOpenPattern={(trackId, patternId) => {
+            setStudioSelectedTrackId(trackId);
             setEditorTrackId(trackId); setEditorPatternId(patternId); setWorkspace("piano-roll");
           }}
           onTrackMix={commitTrackMix}
