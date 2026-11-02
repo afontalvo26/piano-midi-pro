@@ -532,7 +532,7 @@
  .ref-track-number,.ref-track-toggles{display:none}
  .ref-track-icon{width:25px}
  .ref-track-identity strong{font-size:10px}
- .ref-loop-region{display:none}
+ .ref-loop-region{display:flex;flex:none}
  .ref-arrangement-toolbar{gap:3px}
  .ref-editor-tabs button{padding:5px 7px}
  .ref-editor-context{display:none}
@@ -713,3 +713,28 @@
 .ref-inspector-clip-actions{display:flex;gap:7px;margin:11px 0}
 .ref-inspector-clip-actions button{flex:1;border-radius:6px;border:1px solid #6e4f9b;background:#372a57;color:#f2e7ff;padding:7px 4px}
 .ref-inspector-clip-actions button:last-child{border-color:#894c67;background:#46283b}
+
+/* CLK-03: the editable loop range works at desktop and on small displays. */
+.ref-loop-form {
+  position:absolute;top:43px;right:12px;z-index:30;
+  display:grid;grid-template-columns:1fr 1fr;gap:9px;min-width:265px;
+  padding:12px;background:#19172d;border:1px solid #8160be;border-radius:10px;
+  box-shadow:0 12px 25px #000c;white-space:normal;
+}
+.ref-loop-form label{display:grid;gap:5px;font-size:10px;color:#c4badd}
+.ref-loop-form input{width:100%;height:35px;border:1px solid #665480;border-radius:6px;
+  padding:6px;background:#0d1224;color:#fff;font-size:13px}
+.ref-loop-form-buttons{grid-column:1/-1;display:flex;justify-content:flex-end;gap:7px}
+.ref-loop-form-buttons button{border:1px solid #7451a8;border-radius:6px;background:#372755;
+  padding:7px 11px;font-size:11px;color:#fff}
+.ref-loop-form-buttons button[type=submit]{background:#613aae}
+.ref-loop-region{position:relative}
+@media (max-width:650px) {
+ .ref-arrangement-toolbar{overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+ .ref-loop-region button{min-height:44px;flex:none;white-space:nowrap}
+ .ref-loop-form{right:4px;left:4px;top:45px;min-width:0}
+ .ref-segmented button,.ref-arrangement-tools button,
+ .ref-quantize,.ref-more{min-height:44px;min-width:44px}
+ .ref-transport button{min-height:44px;min-width:44px}
+ .ref-track-scroll{scrollbar-width:thin}
+}
