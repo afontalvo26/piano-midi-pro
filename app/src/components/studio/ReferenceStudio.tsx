@@ -1,5 +1,6 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { ProjectDocumentV1, ProjectTrack } from "../../project/model";
+import referenceGrandPiano from "./reference-grand-piano.svg";
 import "./ReferenceStudio.css";
 
 export type StudioWorkspace =
@@ -50,40 +51,6 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true"
     fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
     <path d={paths[name]} />
-  </svg>;
-}
-
-function GrandPianoArt() {
-  return <svg className="ref-grand-piano" viewBox="0 0 320 165" role="img"
-    aria-label="Ilustración de piano de cola negro">
-    <defs>
-      <linearGradient id="ref-lid" x1="0" x2="1" y1="0" y2="1">
-        <stop stopColor="#171523" />
-        <stop offset=".45" stopColor="#0c0a11"/>
-        <stop offset=".8" stopColor="#443020"/>
-        <stop offset="1" stopColor="#02030a"/>
-      </linearGradient>
-      <linearGradient id="ref-body" x1="0" x2="1" y1="0" y2="1">
-        <stop stopColor="#16131d"/><stop offset=".55" stopColor="#05050b"/>
-        <stop offset=".85" stopColor="#494152"/><stop offset="1" stopColor="#020208"/>
-      </linearGradient>
-      <filter id="ref-shadow"><feGaussianBlur stdDeviation="9"/></filter>
-    </defs>
-    <ellipse cx="198" cy="145" rx="110" ry="15" fill="#080411" opacity=".8" filter="url(#ref-shadow)"/>
-    <path d="M130 71 232 17 270 9 259 79 181 97Z" fill="url(#ref-lid)"
-      stroke="#9d7344" strokeWidth="2"/>
-    <path d="M132 75 234 22 260 20 174 87Z" fill="#d1a36d" opacity=".9"/>
-    <path d="M136 79 234 27 247 27 161 90Z" fill="#583a24"/>
-    <path d="M133 83 196 107 274 76 270 89 194 124 125 100Z" fill="#03040a" stroke="#655163"/>
-    <path d="M86 95 174 84 277 88 268 117 180 127 81 111Z" fill="url(#ref-body)" stroke="#74677d"/>
-    <path d="M84 97 151 89 160 105 90 113Z" fill="#edeaf4"/>
-    {Array.from({length:19},(_,i)=><path key={i} d={"M"+(87+i*3.65)+" "+(97-i*.43)+"v13"} stroke="#403b4b" strokeWidth="1"/>)}
-    {Array.from({length:13},(_,i)=><path key={i} d={"M"+(90+i*5.2)+" "+(96-i*.4)+"v6"} stroke="#08090d" strokeWidth="2.1"/>)}
-    <path d="M160 117 153 164h10l18-42M252 110l-7 54h10l16-57" fill="#04050b" stroke="#595362"/>
-    <path d="M94 111 81 153h9l19-40" fill="#05050b" stroke="#595362"/>
-    <path d="M80 104 69 119l80 9 13-12" fill="#0d0c14"/>
-    <path d="M107 138h26l-4 9h-19zM115 147v17M125 147v17" fill="#15131d" stroke="#494051"/>
-    <path d="M184 100 252 83" stroke="#7e6c5b" strokeWidth="1.3" opacity=".7"/>
   </svg>;
 }
 
@@ -400,7 +367,7 @@ export function ReferenceStudio({
               <strong>{instrumentName}</strong><small>{instrumentCategory}</small>
             </span>
             <Icon name="heart" size={19}/>
-            <GrandPianoArt/>
+            <img className="ref-grand-piano" src={referenceGrandPiano} alt="" />
             <span className="ref-instrument-tags"><span>✓ Activo</span><span>MIDI</span></span>
           </button>
           <div className="ref-macros">
