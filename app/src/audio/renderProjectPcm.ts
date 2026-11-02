@@ -16,6 +16,8 @@ export interface RenderProjectOptions {
   readonly trackId?: string;
   /** Group of source tracks for a bus stem; their routing buses remain intact. */
   readonly trackIds?: readonly string[];
+  /** With trackId, capture that track post-inserts/pan/sidechain and before buses/master. */
+  readonly tapTrackOutput?: boolean;
   /** Capture this bus only after inserts/pan, excluding all parallel/master paths. */
   readonly tapBusTrackId?: string;
   /** Capture source outlets routed directly to master, without their send returns. */
@@ -58,6 +60,10 @@ function checkOptions(document: ProjectDocumentV1, options: RenderProjectOptions
       options.tailSeconds < 0 || options.tailSeconds > 5 ||
       (options.seed !== undefined && (typeof options.seed !== "string" || options.seed.length > 128)) ||
       (options.trackId !== undefined && options.trackIds !== undefined) ||
+      (options.tapTrackOutput !== undefined && typeof options.tapTrackOutput !== "boolean") ||
+      (options.tapTrackOutput === true &&
+        (options.trackId === undefined || options.trackIds !== undefined ||
+          options.tapBusTrackId !== undefined || options.tapDirectMaster === true)) ||
       (options.tapBusTrackId !== undefined &&
         (typeof options.tapBusTrackId !== "string" ||
           options.tapBusTrackId.length === 0 ||
@@ -193,7 +199,7 @@ function selectTracks(document: ProjectDocumentV1, options: RenderProjectOptions
       : track : {
     id: track.id, name: track.name, kind: "bus", mix: { ...track.mix, sends: [], effects: [] },
   });
-  const isTap = !!options.tapBusTrackId || !!options.tapDirectMaster;
+  const isTap = options.tapTrackOutput === true || !!options.tapBusTrackId || !!options.tapDirectMaster;
   const renderedClipIds = new Set(clips.map((clip) => clip.id));
   const automation = isTap ? document.automation.filter((lane) =>
     lane.target.scope === "track" && lane.target.ownerId !== undefined
