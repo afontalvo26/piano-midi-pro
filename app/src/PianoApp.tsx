@@ -29,6 +29,7 @@ import { ProjectRepository, type ProjectListItem } from "./project/repository";
 import type { ProjectAssetStatus } from "./project/assets";
 import { inspectProjectAssets, relocalizeProjectAsset } from "./project/assetRelocation";
 import { ProjectSession, type ProjectSessionSnapshot } from "./project/session";
+import { selectMidiRecordingTarget } from "./project/midiRecordingTarget";
 import { exportProjectBundle, importProjectBundle, previewProjectBundle } from "./project/bundle";
 import { convertRecordedTake } from "./project/smfImport";
 import { prepareRecordedTakeImport } from "./project/takeImport";
@@ -664,8 +665,13 @@ export default function PianoApp() {
     }
     const now = performance.now();
     const project = projectSessionRef.current?.getSnapshot().document;
-    const rollable = project?.tracks.filter((track) => track.kind === "instrument" || track.kind === "drum") ?? [];
-    const targetTrack = rollable.find((track) => track.id === editorTrackId) ?? rollable[0];
+    let targetTrack: ProjectDocumentV1["tracks"][number] | null;
+    try {
+      targetTrack=selectMidiRecordingTarget(project??null,editorTrackId);
+    } catch(cause) {
+      setMidiError(cause instanceof Error?cause.message:"Pista MIDI de grabación ambigua");
+      return;
+    }
     const position = engine.projectPlaybackSnapshot()?.transport;
     const startTick = position?.state === "playing" || position?.state === "paused" ? position.tick : 0;
     const clock = project ? new MusicalClock(project.tempoMap, project.meterMap) : null;
