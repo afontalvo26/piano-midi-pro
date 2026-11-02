@@ -4,7 +4,8 @@ import type { ProjectCommand } from "../../project/commands.ts";
 import { STUDIO_MACROS, readStudioMacro, type StudioMacroId } from "./studioMacros.ts";
 import { studioBarStartTick, studioBarNumberAtTick } from "./studioMusicalBars.ts";
 import { uniqueArrangementClip } from "../../composition/arrangementModel.ts";
-import { drawStudioClip, cutStudioClip, moveStudioClip, quantizeStudioClip,
+import { drawStudioClip, cutStudioClip, moveStudioClip, duplicateStudioClip,
+  resizeStudioPatternClip, quantizeStudioClip,
   snapStudioTick, type ReferenceArrangementTool } from "./referenceArrangementActions.ts";
 import { subscribeLivePerformance, getLivePerformanceSnapshot } from "./livePerformanceStore";
 import referenceGrandPiano from "./reference-grand-piano.svg";
@@ -175,6 +176,7 @@ export function ReferenceStudio({
   const [masterDraft, setMasterDraft] = useState<number | null>(null);
   const masterDraftRef = useRef<number | null>(null);
   const [playingSelection, setPlayingSelection] = useState<string | null>(null);
+  const [clipLengthDraft, setClipLengthDraft] = useState<{id:string;value:string}|null>(null);
   const dragRef = useRef<{ clipId: string; x: number; laneWidth: number } | null>(null);
   const suppressClickRef = useRef<string | null>(null);
   const liveNotes = useSyncExternalStore(subscribeLivePerformance,
@@ -666,7 +668,25 @@ export function ReferenceStudio({
             <p>{selectedClip.kind==="pattern" ? "Patrón MIDI" : "Grabación de audio"} ·
               Compás {studioBarNumberAtTick(meterMap,selectedClip.startTick)}</p>
             <p>Duración: {selectedClip.lengthTicks} ticks (PPQ 960)</p>
+            {selectedClip.kind==="pattern"&&document&& <label className="ref-clip-length-editor">
+              Duración · ticks
+              <input type="number" min={1} max={Number.MAX_SAFE_INTEGER}
+                aria-label="Duración del clip en ticks"
+                value={clipLengthDraft?.id===selectedClip.id?
+                  clipLengthDraft.value:String(selectedClip.lengthTicks)}
+                onChange={(event)=>setClipLengthDraft({id:selectedClip.id,value:event.target.value})}
+                onKeyDown={(event)=>{if(event.key==="Enter"){event.preventDefault();event.currentTarget.blur();}}}
+                onBlur={()=>{
+                  if(!clipLengthDraft || clipLengthDraft.id!==selectedClip.id)return;
+                  const value=Number(clipLengthDraft.value);
+                  setClipLengthDraft(null);
+                  void executeEdit(()=>resizeStudioPatternClip(document,selectedClip.id,value));
+                }}/>
+            </label>}
             <div className="ref-inspector-clip-actions">
+              <button type="button" onClick={()=>{if(!document)return;
+                void executeEdit(()=>duplicateStudioClip(document,selectedClip.id));
+              }}>Duplicar clip</button>
               <button type="button" onClick={()=>{if(!document)return;
                 void executeEdit(()=>({kind:"replaceClips", expected:document.clips,
                   clips:document.clips.map((clip)=>clip.id===selectedClip.id?
