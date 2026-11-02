@@ -11,6 +11,8 @@ interface ResolvedLane {
   readonly target: BaseTarget;
   readonly base: number;
   readonly points: ProjectAutomationLane["points"];
+  readonly activeStartTick?: number;
+  readonly activeEndTick?: number;
   readonly sequence: number;
 }
 
@@ -62,7 +64,17 @@ function resolveLane(document: ProjectDocumentV1, lane: ProjectAutomationLane,
     throw new Error(`Automatización ${lane.id}: parámetro sin reproducción live/WAV`);
   }
   if (lane.target.scope === "clip") {
-    throw new Error(`Automatización ${lane.id}: clip gain aún no usa el scheduler de mixer`);
+    const clip = document.clips.find((item) => item.id === lane.target.ownerId);
+    if (!clip || clip.kind !== "audio" || (clip.timeMode ?? "beat") !== "beat") {
+      if (lane.points.length === 0) return null;
+      throw new Error(`Automatización ${lane.id}: clip no admite gain automation por ticks`);
+    }
+    const base = projectAutomationBaseValue(document, lane.target);
+    if (base === undefined) throw new Error(`Automatización ${lane.id}: valor base ausente`);
+    const points = lane.points.map((point) => ({ ...point, tick: clip.startTick + point.tick }));
+    return { id: lane.id, target: { scope: "clip", ownerId: clip.id, parameterId: "gainDb" },
+      base, points, activeStartTick: clip.startTick,
+      activeEndTick: clip.startTick + clip.lengthTicks, sequence };
   }
   const base = projectAutomationBaseValue(document, lane.target);
   if (base === undefined) throw new Error(`Automatización ${lane.id}: valor base ausente`);
@@ -96,8 +108,12 @@ export function createBaseAutomationResolver(document: ProjectDocumentV1,
     const events: TimelineAutomation[] = [];
     for (const lane of lanes) {
       if (lane.points.length === 0) continue;
-      let cursor = Math.max(startTick, lane.points[0]!.tick);
-      while (cursor < endTick) {
+      const laneStart = lane.activeStartTick ?? 0;
+      const laneEnd = lane.activeEndTick ?? endTick;
+      if (laneEnd <= startTick || laneStart >= endTick) continue;
+      let cursor = Math.max(startTick, laneStart, lane.points[0]!.tick);
+      const stopTick = Math.min(endTick, laneEnd);
+      while (cursor < stopTick) {
         const index = indexAt(lane.points, cursor);
         const point = lane.points[index]!;
         const nextPoint = lane.points[index + 1]?.tick ?? endTick;
@@ -109,7 +125,7 @@ export function createBaseAutomationResolver(document: ProjectDocumentV1,
           curveBoundary = Math.min(nextPoint,
             point.tick + stepIndex * AUTOMATION_BEZIER_MAX_STEP_TICKS);
         }
-        const boundary = Math.min(endTick, nextPoint, nextTempo, curveBoundary);
+        const boundary = Math.min(stopTick, nextPoint, nextTempo, curveBoundary);
         if (boundary <= cursor) throw new Error("Automatización sin avance temporal");
         const startValue = valueAt(lane, cursor);
         const shape = (point.shape === "linear" || point.shape === "bezier") &&
@@ -126,8 +142,13 @@ export function createBaseAutomationResolver(document: ProjectDocumentV1,
   };
   return Object.assign(resolve, { snapshot: (tick: number): readonly AutomationValueSnapshot[] => {
     if (!Number.isSafeInteger(tick) || tick < 0) throw new RangeError("Tick inválido");
-    return lanes.map((lane) => ({ laneId: lane.id, target: lane.target,
-      value: valueAt(lane, tick), owner: lane.points.length === 0 ||
-        tick < lane.points[0]!.tick ? "base" : "read", tick }));
+    return lanes.map((lane) => {
+      const active = tick >= (lane.activeStartTick ?? 0) &&
+        tick < (lane.activeEndTick ?? Number.MAX_SAFE_INTEGER);
+      return { laneId: lane.id, target: lane.target,
+        value: active ? valueAt(lane, tick) : lane.base,
+        owner: active && lane.points.length > 0 && tick >= lane.points[0]!.tick ? "read" : "base",
+        tick };
+    });
   } });
 }
