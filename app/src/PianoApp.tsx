@@ -2277,7 +2277,8 @@ export default function PianoApp() {
       const wasPrepared = preparedProjectRef.current === previous &&
         engine.projectPlaybackSnapshot()?.audio.projectId === previous.id;
       const canApplyLive = track.mix.outputBusTrackId === mix.outputBusTrackId &&
-        track.mix.effects === mix.effects && track.mix.sends === mix.sends;
+        track.mix.effects === mix.effects && track.mix.sends === mix.sends &&
+        track.mix.sidechain === mix.sidechain;
       const snapshot = session.dispatch({ kind: "replaceTrackMix", trackId,
         expected: track.mix, mix, at: Date.now() });
       if (wasPrepared && canApplyLive && engine.syncProjectMixRevision(snapshot.document) !== null) {
@@ -2409,6 +2410,10 @@ export default function PianoApp() {
     ? engine.projectPlaybackSnapshot()?.audio : undefined;
   const trackMeters = visibleProjectMeters && Object.fromEntries(visibleProjectMeters.tracks.map((track) =>
     [track.trackId, track.meter]));
+  const trackSidechains = visibleProjectMeters && Object.fromEntries(visibleProjectMeters.tracks.map((track) =>
+    [track.trackId, { sourceTrackId: track.sidechainSourceTrackId,
+      reductionDb: track.sidechainReductionDb, peakReductionDb: track.sidechainReductionPeakDb,
+      error: track.sidechainError }]));
   const automationTargets: readonly BaseAutomationTarget[] = projectView ? [
     { scope: "master", parameterId: "masterGainDb" },
     ...projectView.document.tracks.flatMap((track): BaseAutomationTarget[] => [
@@ -2712,6 +2717,7 @@ export default function PianoApp() {
               }} />) :
             workspace === "mixer" && projectView ? (<ProjectMixer document={projectView.document}
             meter={trackMeters} masterMeter={visibleProjectMeters?.masterMeter}
+            sidechainStatus={trackSidechains}
             onTrackMix={commitTrackMix} onMasterMix={commitMasterMix}
             onTrackEffects={commitTrackEffects} onMasterEffects={commitMasterEffects}
             onCreateBus={createProjectBus} onRemoveBus={removeProjectBus}
@@ -3107,6 +3113,7 @@ export default function PianoApp() {
           </>}
           {workspace === "mixer" && projectView && <ProjectMixer document={projectView.document}
             meter={trackMeters} masterMeter={visibleProjectMeters?.masterMeter}
+            sidechainStatus={trackSidechains}
             onTrackMix={commitTrackMix} onMasterMix={commitMasterMix}
             onTrackEffects={commitTrackEffects} onMasterEffects={commitMasterEffects}
             onCreateBus={createProjectBus} onRemoveBus={removeProjectBus}
