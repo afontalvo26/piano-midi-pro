@@ -826,63 +826,106 @@ export class ProjectAudioSink implements SequencerSink {
     }
   }
 
-  private automationTargetParameter(target: ProjectAutomationLane["target"]):
-    Tone.Param<"decibels"> | Tone.Param<"audioRange"> {
-    if (target.scope === "master") {
-      if (target.parameterId !== "masterGainDb" || target.effectId !== undefined) {
-        throw new RangeError("Parámetro master no automatizable");
-      }
-      return this.master.volume;
-    }
-    if (target.scope !== "track" || !target.ownerId || target.effectId !== undefined) {
+  private automationTargetKey(target: ProjectAutomationLane["target"]): string {
+    const key = JSON.stringify([target.scope, target.ownerId ?? null,
+      target.effectId ?? null, target.parameterId]);
+    this.automationTargetsByKey.set(key, { ...target });
+    return key;
+  }
+
+  private automationControl(target: ProjectAutomationLane["target"]): {
+    readonly min: number;
+    readonly max: number;
+    readonly cancel: (time: number) => void;
+    readonly set: (value: number, time: number) => void;
+    readonly ramp: (value: number, time: number) => void;
+  } {
+    const descriptor = projectAutomationParameter(this.document, target);
+    if (!descriptor || target.scope === "clip") {
       throw new RangeError("Parámetro no automatizable en vivo");
     }
-    const slot = this.slots.get(target.ownerId);
-    if (!slot) throw new RangeError(`Pista ${target.ownerId} inexistente`);
-    if (target.parameterId === "gainDb") return slot.volume.volume;
-    if (target.parameterId === "pan") return slot.panner.pan;
-    throw new RangeError("Parámetro de pista no automatizable");
-  }
-
-  private automationTargetKey(target: ProjectAutomationLane["target"]): string {
-    if (target.scope === "master" && target.parameterId === "masterGainDb" &&
-        target.effectId === undefined) return "master:masterGainDb";
-    if (target.scope === "track" && target.ownerId && target.effectId === undefined &&
-        (target.parameterId === "gainDb" || target.parameterId === "pan")) {
-      return `${target.ownerId}:${target.parameterId}`;
+    if (target.effectId) {
+      let effect: ProjectEffect | undefined;
+      let node: Tone.ToneAudioNode | undefined;
+      if (target.scope === "master") {
+        effect = this.document.mix.masterEffects.find((item) => item.id === target.effectId);
+        node = this.masterEffectNodes.get(target.effectId);
+      } else {
+        const slot = target.ownerId ? this.slots.get(target.ownerId) : undefined;
+        effect = slot?.track.mix.effects.find((item) => item.id === target.effectId);
+        node = slot?.effectNodes.get(target.effectId);
+      }
+      if (!effect || !node) throw new RangeError("Efecto automatizado no está activo en el grafo");
+      const binding = projectEffectAutomationParam(effect, node, target.parameterId);
+      if (!binding) throw new RangeError("Parámetro de efecto no automatizable");
+      return {
+        min: descriptor.min, max: descriptor.max,
+        cancel: (time) => { binding.param.cancelAndHoldAtTime(time); },
+        set: (value, time) => { binding.param.setValueAtTime(binding.toAudioValue(value), time); },
+        ramp: (value, time) => { binding.param.linearRampToValueAtTime(binding.toAudioValue(value), time); },
+      };
     }
-    throw new RangeError("Parámetro no automatizable en vivo");
+    if (target.scope === "master" && target.parameterId === "masterGainDb") {
+      return {
+        min: descriptor.min, max: descriptor.max,
+        cancel: (time) => { this.master.volume.cancelAndHoldAtTime(time); },
+        set: (value, time) => { this.master.volume.setValueAtTime(value, time); },
+        ramp: (value, time) => { this.master.volume.exponentialRampToValueAtTime(value, time); },
+      };
+    }
+    if (target.scope === "track" && target.ownerId) {
+      const slot = this.slots.get(target.ownerId);
+      if (!slot) throw new RangeError(`Pista ${target.ownerId} inexistente`);
+      if (target.parameterId === "gainDb") {
+        return {
+          min: descriptor.min, max: descriptor.max,
+          cancel: (time) => { slot.volume.volume.cancelAndHoldAtTime(time); },
+          set: (value, time) => { slot.volume.volume.setValueAtTime(value, time); },
+          ramp: (value, time) => { slot.volume.volume.exponentialRampToValueAtTime(value, time); },
+        };
+      }
+      if (target.parameterId === "pan") {
+        return {
+          min: descriptor.min, max: descriptor.max,
+          cancel: (time) => { slot.panner.pan.cancelAndHoldAtTime(time); },
+          set: (value, time) => { slot.panner.pan.setValueAtTime(value, time); },
+          ramp: (value, time) => { slot.panner.pan.linearRampToValueAtTime(value, time); },
+        };
+      }
+    }
+    throw new RangeError("Parámetro de automatización no disponible");
   }
 
-  private automationParameter(event: ScheduledAutomation):
-    Tone.Param<"decibels"> | Tone.Param<"audioRange"> {
-    return this.automationTargetParameter(event.target);
-  }
-
-  private automationKey(event: ScheduledAutomation): string {
-    return this.automationTargetKey(event.target);
+  private automationBaseValue(target: ProjectAutomationLane["target"]): number {
+    if (!target.effectId && target.scope === "master" && target.parameterId === "masterGainDb") {
+      return this.masterGainOverride ?? this.document.mix.masterGainDb;
+    }
+    if (!target.effectId && target.scope === "track" && target.ownerId) {
+      const slot = this.slots.get(target.ownerId);
+      if (!slot) throw new RangeError(`Pista ${target.ownerId} inexistente`);
+      if (target.parameterId === "gainDb") return slot.gainOverride ?? slot.track.mix.gainDb;
+      if (target.parameterId === "pan") return slot.panOverride ?? slot.track.mix.pan;
+    }
+    const value = projectAutomationBaseValue(this.document, target);
+    if (value === undefined) throw new RangeError("Valor base de automatización no disponible");
+    return value;
   }
 
   /** Physical/Touch ownership cancels future timeline writes until explicitly released. */
   setAutomationLiveOverride(target: ProjectAutomationLane["target"], value: number,
     audioTime = Tone.immediate()): void {
     const key = this.automationTargetKey(target);
+    const control = this.automationControl(target);
     this.physicalAutomationReturns.delete(key);
-    const isPan = target.parameterId === "pan";
-    validMixNumber(value, isPan ? -1 : -120, isPan ? 1 : 24, "Control físico");
-    const param = this.automationTargetParameter(target);
+    validMixNumber(value, control.min, control.max, "Control físico");
     if (!this.liveAutomationOverrides.has(key)) {
-      param.cancelAndHoldAtTime(audioTime);
+      control.cancel(audioTime);
       this.automatedParameters.delete(key);
       this.pendingAutomationReturn.delete(key);
       this.replannedAutomation.delete(key);
     }
     this.liveAutomationOverrides.set(key, value);
-    if (isPan) {
-      (param as Tone.Param<"audioRange">).linearRampToValueAtTime(value, audioTime + 0.015);
-    } else {
-      (param as Tone.Param<"decibels">).exponentialRampToValueAtTime(value, audioTime + 0.015);
-    }
+    control.ramp(value, audioTime + 0.015);
   }
 
   /** Release physical ownership and return smoothly to the resolved read/base value. */
@@ -890,9 +933,9 @@ export class ProjectAudioSink implements SequencerSink {
     audioTime = Tone.immediate()): void {
     const key = this.automationTargetKey(target);
     if (!this.liveAutomationOverrides.delete(key)) return;
-    const isPan = target.parameterId === "pan";
-    validMixNumber(returnValue, isPan ? -1 : -120, isPan ? 1 : 24, "Retorno de automatización");
-    this.automationTargetParameter(target).cancelAndHoldAtTime(audioTime);
+    const control = this.automationControl(target);
+    validMixNumber(returnValue, control.min, control.max, "Retorno de automatización");
+    control.cancel(audioTime);
     this.physicalAutomationReturns.add(key);
   }
 
@@ -906,12 +949,11 @@ export class ProjectAudioSink implements SequencerSink {
 
   automation(event: ScheduledAutomation): void {
     if (this.disposed || !this.hasAudioOwnership()) return;
-    const isDb = event.target.parameterId !== "pan";
-    validMixNumber(event.startValue, isDb ? -120 : -1, isDb ? 24 : 1, "Automatización");
-    validMixNumber(event.endValue, isDb ? -120 : -1, isDb ? 24 : 1, "Automatización");
-    const param = this.automationParameter(event);
-    const key = this.automationKey(event);
+    const key = this.automationTargetKey(event.target);
     if (this.liveAutomationOverrides.has(key)) return;
+    const control = this.automationControl(event.target);
+    validMixNumber(event.startValue, control.min, control.max, "Automatización");
+    validMixNumber(event.endValue, control.min, control.max, "Automatización");
     const now = Math.max(Tone.immediate(), this.automationReplanAt ?? 0);
     const start = Math.max(now, event.audioTime);
     const duration = event.endAudioTime - event.audioTime;
@@ -922,28 +964,16 @@ export class ProjectAudioSink implements SequencerSink {
       !this.replannedAutomation.has(key);
     const physicalReturn = firstAfterReplan && this.physicalAutomationReturns.has(key);
     if (firstAfterReplan) {
-      if (!this.pendingAutomationReturn.has(key)) param.cancelAndHoldAtTime(now);
+      if (!this.pendingAutomationReturn.has(key)) control.cancel(now);
       this.pendingAutomationReturn.delete(key);
       this.replannedAutomation.add(key);
     }
     const reentryAt = physicalReturn ? Math.max(start, now + 0.015) : start;
-    if (event.target.parameterId === "pan") {
-      const pan = param as Tone.Param<"audioRange">;
-      if (physicalReturn || (firstAfterReplan && start > now)) {
-        pan.linearRampToValueAtTime(startValue, reentryAt);
-      } else pan.setValueAtTime(startValue, start);
-      if (event.shape === "linear" && event.endAudioTime > reentryAt) {
-        pan.linearRampToValueAtTime(event.endValue, event.endAudioTime);
-      }
-    } else {
-      const gain = param as Tone.Param<"decibels">;
-      if (physicalReturn || (firstAfterReplan && start > now)) {
-        gain.exponentialRampToValueAtTime(startValue, reentryAt);
-      } else gain.setValueAtTime(startValue, start);
-      if (event.shape === "linear" && event.endAudioTime > reentryAt) {
-        // Exponential linear-gain ramp is linear in dB, the persisted parameter unit.
-        gain.exponentialRampToValueAtTime(event.endValue, event.endAudioTime);
-      }
+    if (physicalReturn || (firstAfterReplan && start > now)) {
+      control.ramp(startValue, reentryAt);
+    } else control.set(startValue, start);
+    if (event.shape === "linear" && event.endAudioTime > reentryAt) {
+      control.ramp(event.endValue, event.endAudioTime);
     }
     if (physicalReturn) this.physicalAutomationReturns.delete(key);
     this.automatedParameters.add(key);
@@ -951,24 +981,12 @@ export class ProjectAudioSink implements SequencerSink {
 
   private restoreAutomationParameter(key: string, audioTime: number,
     smooth: boolean): void {
-    if (key === "master:masterGainDb") {
-      const base = this.masterGainOverride ?? this.document.mix.masterGainDb;
-      if (smooth) this.master.volume.exponentialRampToValueAtTime(base, audioTime + 0.015);
-      else this.master.volume.setValueAtTime(base, audioTime);
-      return;
-    }
-    const separator = key.lastIndexOf(":");
-    const slot = this.slots.get(key.slice(0, separator));
-    if (!slot) return;
-    if (key.slice(separator + 1) === "gainDb") {
-      const base = slot.gainOverride ?? slot.track.mix.gainDb;
-      if (smooth) slot.volume.volume.exponentialRampToValueAtTime(base, audioTime + 0.015);
-      else slot.volume.volume.setValueAtTime(base, audioTime);
-    } else {
-      const base = slot.panOverride ?? slot.track.mix.pan;
-      if (smooth) slot.panner.pan.linearRampToValueAtTime(base, audioTime + 0.015);
-      else slot.panner.pan.setValueAtTime(base, audioTime);
-    }
+    const target = this.automationTargetsByKey.get(key);
+    if (!target) return;
+    const control = this.automationControl(target);
+    const base = this.automationBaseValue(target);
+    if (smooth) control.ramp(base, audioTime + 0.015);
+    else control.set(base, audioTime);
   }
 
   cancelAutomationEpoch(rootOwnerId: string, _epoch: number, audioTime: number,
@@ -977,15 +995,9 @@ export class ProjectAudioSink implements SequencerSink {
     this.pendingAutomationReturn.clear();
     this.replannedAutomation.clear();
     for (const key of this.automatedParameters) {
-      if (key === "master:masterGainDb") {
-        this.master.volume.cancelAndHoldAtTime(audioTime);
-      } else {
-        const separator = key.lastIndexOf(":");
-        const slot = this.slots.get(key.slice(0, separator));
-        if (!slot) continue;
-        if (key.slice(separator + 1) === "gainDb") slot.volume.volume.cancelAndHoldAtTime(audioTime);
-        else slot.panner.pan.cancelAndHoldAtTime(audioTime);
-      }
+      const target = this.automationTargetsByKey.get(key);
+      if (!target) continue;
+      this.automationControl(target).cancel(audioTime);
       if (restoreBase) this.restoreAutomationParameter(key, audioTime, false);
       else this.pendingAutomationReturn.add(key);
     }
