@@ -105,6 +105,69 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
   expect(result.encodedAudioBytes.every((value: number) => value > 44)).toBe(true);
 });
 
+test("a muted primary bus preserves an independent audible send", async ({ page }) => {
+  test.setTimeout(90_000);
+  page.setDefaultTimeout(20_000);
+  await page.goto("/", { waitUntil: "domcontentloaded", timeout: 15_000 });
+  const result = await page.evaluate(async () => {
+    const { analyzeUserSample } = await import("/src/audio/userSampleAsset.ts");
+    const { renderProjectPcm } = await import("/src/audio/renderProjectPcm.ts");
+    const { createProjectDocument } = await import("/src/project/model.ts");
+    const frames = 12_000;
+    const bytes = new ArrayBuffer(44 + frames * 2);
+    const view = new DataView(bytes);
+    const ascii = (offset: number, s: string) => {
+      for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
+    };
+    ascii(0, "RIFF"); view.setUint32(4, bytes.byteLength - 8, true); ascii(8, "WAVE");
+    ascii(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true); view.setUint32(24, 48_000, true);
+    view.setUint32(28, 96_000, true); view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true); ascii(36, "data"); view.setUint32(40, frames * 2, true);
+    for (let i = 0; i < frames; i++) {
+      view.setInt16(44 + i * 2, Math.round(Math.sin(i / 15) * 3_000), true);
+    }
+    const analyzed = await analyzeUserSample(new Blob([bytes], { type: "audio/wav" }),
+      "mute-send-qa", new OfflineAudioContext(1, 1, 48_000));
+    const mix = { gainDb: 0, pan: 0, mute: false, solo: false,
+      armed: false, effects: [], sends: [] };
+    const source = { id: "source", name: "Pista", kind: "audio" as const,
+      mix: { ...mix, outputBusTrackId: "main",
+        sends: [{ id: "aux-send", busTrackId: "aux", gainDb: 0 }] } };
+    const main = { id: "main", name: "Bus mudo", kind: "bus" as const,
+      mix: { ...mix, mute: true } };
+    const aux = { id: "aux", name: "Auxiliar audible", kind: "bus" as const, mix };
+    const clip = { id: "clip", trackId: "source", kind: "audio" as const,
+      sourceId: analyzed.ref.id, startTick: 0, lengthTicks: 480,
+      sourceOffsetTick: 0, sourceStartFrame: 0, sourceEndFrame: frames,
+      fadeInFrames: 0, fadeOutFrames: 0, gainDb: 0, muted: false,
+      transpose: 0, loopMode: "none" as const, tailPolicy: "cut" as const };
+    const base = createProjectDocument({ id: "qa-muted-main-with-send", at: 1 });
+    const doc = { ...base, tracks: [source, main, aux],
+      trackOrder: ["source", "main", "aux"], assets: [analyzed.ref], clips: [clip] };
+    const dryDoc = { ...doc, tracks: [
+      { ...source, mix: { ...source.mix, sends: [] } }, main, aux] };
+    const mutedDoc = { ...doc, tracks: [
+      { ...source, mix: { ...source.mix, mute: true } }, main, aux] };
+    const reader = { readAsset: async () => analyzed.data };
+    const options = { startTick: 0, endTick: 480, tailSeconds: 0,
+      sampleRate: 48_000, seed: "mute-send-qa" } as const;
+    const [wet, dry, muted] = await Promise.all([
+      renderProjectPcm(doc, options, reader),
+      renderProjectPcm(dryDoc, options, reader),
+      renderProjectPcm(mutedDoc, options, reader),
+    ]);
+    const energy = (data: Float32Array) => data.reduce((sum, x) => sum + x * x, 0);
+    return { wetEnergy: energy(wet.left), dryEnergy: energy(dry.left),
+      mutedEnergy: energy(muted.left),
+      missingAttacks: wet.report.audio.missingAttacks };
+  });
+  expect(result.wetEnergy).toBeGreaterThan(0.01);
+  expect(result.dryEnergy).toBeLessThan(result.wetEnergy * 0.01);
+  expect(result.mutedEnergy).toBeLessThan(result.wetEnergy * 0.01);
+  expect(result.missingAttacks).toBe(0);
+});
+
 test("mobile mixer adds, edits and removes an acyclic send at 320 px", async ({ page }) => {
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
