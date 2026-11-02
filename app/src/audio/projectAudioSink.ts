@@ -228,6 +228,8 @@ export class ProjectAudioSink implements SequencerSink {
   private readonly automatedParameters = new Set<string>();
   /** Parameters temporarily owned by a physical/Touch control; timeline events must not overwrite them. */
   private readonly liveAutomationOverrides = new Map<string, number>();
+  /** First read event after a physical release must crossfade back instead of snapping. */
+  private readonly physicalAutomationReturns = new Set<string>();
   private automationReplanAt: number | null = null;
   private readonly pendingAutomationReturn = new Set<string>();
   private readonly replannedAutomation = new Set<string>();
@@ -874,13 +876,8 @@ export class ProjectAudioSink implements SequencerSink {
     if (!this.liveAutomationOverrides.delete(key)) return;
     const isPan = target.parameterId === "pan";
     validMixNumber(returnValue, isPan ? -1 : -120, isPan ? 1 : 24, "Retorno de automatización");
-    const param = this.automationTargetParameter(target);
-    param.cancelAndHoldAtTime(audioTime);
-    if (isPan) {
-      (param as Tone.Param<"audioRange">).linearRampToValueAtTime(returnValue, audioTime + 0.015);
-    } else {
-      (param as Tone.Param<"decibels">).exponentialRampToValueAtTime(returnValue, audioTime + 0.015);
-    }
+    this.automationTargetParameter(target).cancelAndHoldAtTime(audioTime);
+    this.physicalAutomationReturns.add(key);
   }
 
   isAutomationLiveOverride(target: ProjectAutomationLane["target"]): boolean {
@@ -907,27 +904,32 @@ export class ProjectAudioSink implements SequencerSink {
       ? event.startValue + (event.endValue - event.startValue) * fraction : event.startValue;
     const firstAfterReplan = this.automationReplanAt !== null &&
       !this.replannedAutomation.has(key);
+    const physicalReturn = firstAfterReplan && this.physicalAutomationReturns.has(key);
     if (firstAfterReplan) {
       if (!this.pendingAutomationReturn.has(key)) param.cancelAndHoldAtTime(now);
       this.pendingAutomationReturn.delete(key);
       this.replannedAutomation.add(key);
     }
+    const reentryAt = physicalReturn ? Math.max(start, now + 0.015) : start;
     if (event.target.parameterId === "pan") {
       const pan = param as Tone.Param<"audioRange">;
-      if (firstAfterReplan && start > now) pan.linearRampToValueAtTime(startValue, start);
-      else pan.setValueAtTime(startValue, start);
-      if (event.shape === "linear" && event.endAudioTime > start) {
+      if (physicalReturn || (firstAfterReplan && start > now)) {
+        pan.linearRampToValueAtTime(startValue, reentryAt);
+      } else pan.setValueAtTime(startValue, start);
+      if (event.shape === "linear" && event.endAudioTime > reentryAt) {
         pan.linearRampToValueAtTime(event.endValue, event.endAudioTime);
       }
     } else {
       const gain = param as Tone.Param<"decibels">;
-      if (firstAfterReplan && start > now) gain.exponentialRampToValueAtTime(startValue, start);
-      else gain.setValueAtTime(startValue, start);
-      if (event.shape === "linear" && event.endAudioTime > start) {
+      if (physicalReturn || (firstAfterReplan && start > now)) {
+        gain.exponentialRampToValueAtTime(startValue, reentryAt);
+      } else gain.setValueAtTime(startValue, start);
+      if (event.shape === "linear" && event.endAudioTime > reentryAt) {
         // Exponential linear-gain ramp is linear in dB, the persisted parameter unit.
         gain.exponentialRampToValueAtTime(event.endValue, event.endAudioTime);
       }
     }
+    if (physicalReturn) this.physicalAutomationReturns.delete(key);
     this.automatedParameters.add(key);
   }
 
