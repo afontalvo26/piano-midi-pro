@@ -455,7 +455,7 @@ export function ReferenceStudio({
                 onClick={()=>{setScoreOpen(false);onWorkspace("piano-roll");}}><Icon name="piano" size={16}/> Piano Roll</button>
               <button type="button" className={workspace==="automation"?"is-selected":""}
                 onClick={()=>{setScoreOpen(false);onWorkspace("automation");}}><Icon name="wave" size={16}/> Automatización</button>
-              <button type="button" className={scoreOpen?"is-selected":""} onClick={()=>setScoreOpen(true)}
+              <button type="button" className={scoreOpen?"is-selected":""} onClick={()=>{onWorkspace("piano-roll");setScoreOpen(true);}}
                 title="Mostrar partitura real del patrón seleccionado">
                 <Icon name="music" size={16}/> Partitura</button>
             </div>
@@ -472,7 +472,7 @@ export function ReferenceStudio({
               <button type="button" title="Abrir el editor completo" aria-label="Editor completo" onClick={onFullEditor}><Icon name="maximize" size={17}/></button>
             </div>
           </div>
-          <div className="ref-editor-slot">{scoreOpen ? notationPanel : keyboardOpen && workspace==="performance" ? performancePanel : editor}</div>
+          <div className="ref-editor-slot">{scoreOpen && (workspace==="piano-roll"||workspace==="performance") ? notationPanel : keyboardOpen && workspace==="performance" ? performancePanel : editor}</div>
         </section>
       </div>
       <aside className="ref-inspector" aria-label="Instrumento e inspector">
