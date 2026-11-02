@@ -2475,10 +2475,15 @@ export default function PianoApp() {
             projectSessionRef.current.dispatch(command);
           }}
           onMacroChange={(trackId, macro, value) => {
-            const track = projectSessionRef.current?.getSnapshot().document.tracks
-              .find((item)=>item.id===trackId);
-            if(!track) throw new Error("Selecciona una pista para editar sus efectos");
-            commitTrackEffects(trackId, applyStudioMacro(track.mix.effects,trackId,macro,value));
+            const session = projectSessionRef.current;
+            const track = session?.getSnapshot().document.tracks.find((item)=>item.id===trackId);
+            if(!session || !track) throw new Error("Selecciona una pista para editar sus efectos");
+            // Do not swallow CAS/validation errors: the visible macro must not
+            // silently claim that a processor was saved when it was rejected.
+            const effects = applyStudioMacro(track.mix.effects, trackId, macro, value);
+            session.dispatch({kind:"replaceTrackEffects",trackId,
+              expected:track.mix.effects,effects,at:Date.now()});
+            setProjectsError("");
           }}
           activeTrackId={projectTrack?.id}
           saveStatus={projectView?.status ?? "none"}
