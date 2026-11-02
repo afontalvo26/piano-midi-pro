@@ -40,6 +40,7 @@ jobs:
           mkdir -p .logs
           result=0
           node scripts/audit-beatmaker-requirements.mjs > .logs/ci-requirements.log 2>&1 || result=1
+          node scripts/verify-beatmaker-acceptance.mjs --check > .logs/ci-acceptance-structure.log 2>&1 || result=1
           node --test tests/unit/smk37-capture.test.mjs > .logs/ci-midi-gate.log 2>&1 || result=1
           (cd app && timeout 180s npx tsc -b) > .logs/ci-typescript.log 2>&1 || result=1
           (cd app && timeout 120s npx eslint .) > .logs/ci-eslint.log 2>&1 || result=1
