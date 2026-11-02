@@ -73,3 +73,26 @@ sin merge a la rama de producto.
 
 El corte anterior de Codex y sus logs se conservan como histórico;
 las nuevas propuestas NO heredan sus resultados de aceptación.
+
+
+## Anexo — nueva interfaz aprobada (PR #5, 2026-11-02)
+
+**Rama:** `design/studio-reference-ui-20261101` sobre la propuesta de audio del PR #1. **Sin merge, sin release y sin validación ejecutada satisfactoriamente.** Este anexo no sustituye ni hereda las mediciones del corte del 2026-11-01.
+
+**Código escrito y pendiente de compilar/probar:**
+- Shell con cabecera, editor, arreglo, inspector, mixer, navegador, catálogo real y teclado virtual de 37 teclas.
+- Operaciones MIDI reversibles: mover/dibujar/dividir clips, cuantización rápida, «Hacer único» para proteger fuentes compartidas, Undo/Redo.
+- Transporte con loop editable, seek por compás, compases variables y scheduler por epochs.
+- Efectos de pista con perillas persistentes, borradores de gesto para evitar doble commit; selección de banco **por pista** mediante `replaceTrackInstrument` (Salamander/808 instalados).
+- Flujo de tomas MIDI integrado en inspector: previsualización/confirmación de overdub, reintento de guardado y exportación de emergencia.
+- Alertas de guardado/estado real, MIDI sin fingir identificación SMK-37, estimación de búfer del navegador sin llamarla latencia física.
+- Verificador de 113 criterios endurecido para exigir pruebas de software/producción y evidencia física/licencias según ID; test del gate añadido.
+
+**Riesgos importantes sin resolver:**
+- [Auditoría SDD 15 puntos](spec-drift-2026-11-02.md) y [ADR de lectura musical contextual](decisions/ADR-UXP-001-score-preview.md).
+- Actions sigue fallando antes de disponer de pasos/logs útiles; **no existe certificación TypeScript, lint, Vite o Playwright de estos commits**.
+- Instrumentos remotos WebAudioFont siguen siendo live; sólo Salamander/808 tienen asignación por pista en este panel. Otros bancos profesionales, licencias, QA y equivalencia offline pendientes.
+- La matriz `acceptance-evidence.json` registra **113 pendientes, 0 aprobados, 0 expedientes con pruebas adjuntas**. No convertir un commit ni un test escrito en una aprobación.
+- Screenshot comparable real del navegador a 1586×992, 320–1440 px, zoom 200%, audio PCM/latencia/37+37 y SMK-37 físico Elite/Pro todavía sin ejecutar.
+
+**Comandos previstos cuando se habilite un checkout ejecutable:** `node scripts/audit-beatmaker-requirements.mjs`, `node scripts/verify-beatmaker-acceptance.mjs --check`, `node --test tests/unit/beatmaker-acceptance-gate.test.mjs`, `cd app && npx tsc -b && npx eslint . && npx vite build`, `node scripts/audit-studio-dist.mjs`, `npx playwright test tests/e2e/studio-reference-ui.spec.ts tests/e2e/sequencer-transport.spec.ts --workers=1 --retries=0`. `--release` debe seguir **rojo** hasta completar evidencias reales.
