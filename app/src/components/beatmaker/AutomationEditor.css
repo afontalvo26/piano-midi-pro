@@ -94,3 +94,14 @@
   .automation-editor__write output { min-width: 0; }
   .automation-editor__write small { grid-column: auto; }
 }
+
+.automation-editor__midi-learn { display: grid; grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: end; gap: 8px; margin-bottom: 12px; padding: 10px; border: 1px solid #4c3d56;
+  border-radius: 8px; background: #17121d; }
+.automation-editor__midi-learn p { grid-column: 1 / -1; margin: 0; color: #c5b9d0;
+  font-size: 11px; line-height: 1.45; }
+@media (max-width: 640px) {
+  .automation-editor__midi-learn { grid-template-columns: 1fr; }
+  .automation-editor__midi-learn p { grid-column: auto; }
+  .automation-editor__midi-learn button { width: 100%; }
+}
