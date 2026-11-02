@@ -327,6 +327,7 @@ export default function PianoApp() {
   const [projectSwitching, setProjectSwitching] = useState(false);
   const [workspace, setWorkspace] = useState<"performance" | "piano-roll" | "drums" | "arrangement" | "sampler" | "audio" | "mixer" | "automation" | "export">("performance");
   const [referenceStudioOpen, setReferenceStudioOpen] = useState(true);
+  const [referenceProjectsOpen, setReferenceProjectsOpen] = useState(false);
   const [studioLoopEnabled, setStudioLoopEnabled] = useState(false);
   const [studioLoopStartBar, setStudioLoopStartBar] = useState(5);
   const [studioLoopEndBar, setStudioLoopEndBar] = useState(12);
@@ -2514,7 +2515,9 @@ export default function PianoApp() {
           trackLevels={trackMeters}
           onWorkspace={(id) => setWorkspace(id)}
           onLibrary={() => { setWorkspace("performance"); setReferenceStudioOpen(false); }}
-          onProjects={() => { setScreen("tracks"); void refreshProjects(); }}
+          onProjects={() => {setReferenceProjectsOpen(true); void refreshProjects();}}
+          onCloseProjects={() => setReferenceProjectsOpen(false)}
+          projectsOpen={referenceProjectsOpen}
           onSettings={() => { setScreen("settings"); setObservations(monitor.snapshot()); void refreshStorageHealth(); }}
           onNew={() => { void createProject("Proyecto sin título").catch((cause: unknown) =>
             setProjectsError(cause instanceof Error ? cause.message : "No se pudo crear el proyecto")); }}
@@ -2570,6 +2573,18 @@ export default function PianoApp() {
           onFullMixer={() => { setWorkspace("mixer"); setReferenceStudioOpen(false); }}
           notationPanel={<StudioScore pattern={projectPattern} meter={projectView?.document.meterMap[0]}
             onOpenEditor={()=>{setWorkspace("piano-roll");setReferenceStudioOpen(false);}} />}
+          projectPanel={<ProjectBrowser projects={projects} loading={projectsLoading}
+            error={projectsError} activeProjectId={projectView?.document.id}
+            onCreate={async(name)=>{await createProject(name);setReferenceProjectsOpen(false);}}
+            onOpen={async(id)=>{await openProject(id);setReferenceProjectsOpen(false);}}
+            onRename={(id,name)=>mutateProject(id,{kind:"renameProject",name,at:Date.now()})}
+            onDuplicate={duplicateProject} onSetArchived={setProjectArchived}
+            onExport={exportProject} onPreview={previewProjectBundle} onImport={importProject}
+            onListDrafts={(projectId)=>projectRepository.listDrafts(projectId)}
+            onRecoverDraft={async(projectId,sessionId)=>{
+              await recoverProjectDraft(projectId,sessionId);setReferenceProjectsOpen(false);
+            }}
+            onDiscardDraft={(projectId,sessionId)=>projectRepository.discardDraft(projectId,sessionId)} />}
           recordingPanel={projectView && projectTrack && projectPattern ? (
             <RecordedOverdubPanel key={`${projectView.document.id}:${projectTrack.id}:${projectPattern.id}`}
                 document={projectView.document} trackId={projectTrack.id} patternId={projectPattern.id}
