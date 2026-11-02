@@ -47,7 +47,7 @@ export interface ProjectWavResult {
   readonly files: readonly ProjectWavFile[];
   /** The project limiter is nonlinear; stems are aligned but not additive. */
   readonly stemsAdditive: boolean;
-  readonly projectLimiterIncluded: true;
+  readonly projectLimiterIncluded: boolean;
   /** True when the rendered graph contains post-fader send paths. */
   readonly sendsIncluded: boolean;
   /** Master WAV includes the document master insert chain; isolated stems intentionally do not. */
@@ -191,7 +191,8 @@ export async function exportProjectWav(revision: ProjectRevision, assetReader: U
   return { projectId: revision.projectId, projectName: revision.document.name,
     revision: revision.revision,
     revisionHash: revision.hash, format: options.format, seed, plan: finalPlan, files,
-    stemsAdditive: finalPlan.stemsAdditive, projectLimiterIncluded: true,
+    stemsAdditive: finalPlan.stemsAdditive,
+    projectLimiterIncluded: finalPlan.projectLimiterIncluded,
     sendsIncluded: revision.document.tracks.some((track) => track.mix.sends.length > 0),
     masterEffectsIncluded: revision.document.mix.masterEffects.some((effect) => effect.enabled),
     sidechainIncluded: revision.document.tracks.some((track) => track.mix.sidechain !== undefined),
