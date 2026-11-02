@@ -166,6 +166,16 @@ export interface ProjectSend {
   readonly gainDb: number;
 }
 
+/** Audio-driven ducking. The detector source is control-only and never adds audio to the target. */
+export interface ProjectSidechain {
+  readonly sourceTrackId: TrackId;
+  readonly thresholdDb: number;
+  readonly ratio: number;
+  readonly attackMs: number;
+  readonly releaseMs: number;
+  readonly maxReductionDb: number;
+}
+
 export interface ProjectMixChannel {
   readonly gainDb: number;
   readonly pan: number;
@@ -175,6 +185,8 @@ export interface ProjectMixChannel {
   /** Omitted means the master bus. */
   readonly outputBusTrackId?: TrackId;
   readonly sends: readonly ProjectSend[];
+  /** Optional kick/key detector driving gain reduction after inserts and pan. */
+  readonly sidechain?: ProjectSidechain;
   readonly effects: readonly ProjectEffect[];
 }
 
