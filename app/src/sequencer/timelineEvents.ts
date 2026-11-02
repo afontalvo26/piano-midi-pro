@@ -80,9 +80,14 @@ export interface TimelineAutomation {
   readonly laneId: string;
   readonly target:
     | { readonly scope: "track"; readonly ownerId: string;
-        readonly parameterId: "gainDb" | "pan"; readonly effectId?: undefined }
+        readonly parameterId: "gainDb" | "pan"; readonly effectId?: undefined;
+        readonly sendId?: undefined }
     | { readonly scope: "track"; readonly ownerId: string;
-        readonly effectId: string; readonly parameterId: string }
+        readonly sendId: string; readonly parameterId: "gainDb";
+        readonly effectId?: undefined }
+    | { readonly scope: "track"; readonly ownerId: string;
+        readonly effectId: string; readonly parameterId: string;
+        readonly sendId?: undefined }
     | { readonly scope: "master"; readonly parameterId: "masterGainDb";
         readonly effectId?: undefined }
     | { readonly scope: "clip"; readonly ownerId: string;
