@@ -145,6 +145,7 @@ interface TrackSlot {
   readonly effectNodes: ReadonlyMap<string, Tone.ToneAudioNode>;
   /** Independent post-fader, post-insert sends to bus inputs. */
   readonly sends: Tone.Gain[];
+  readonly sendNodes: Map<string, Tone.Gain>;
   sidechainNode: AudioWorkletNode | null;
   sidechainSource: Tone.Analyser | null;
   sidechainReductionDb: number;
@@ -349,6 +350,7 @@ export class ProjectAudioSink implements SequencerSink {
           }
           const sendGain = new Tone.Gain(10 ** (send.gainDb / 20));
           slot.sends.push(sendGain);
+          slot.sendNodes.set(send.id, sendGain);
           slot.meter.connect(sendGain);
           if (!detectorOnly) sendGain.connect(bus.volume);
         }
@@ -385,7 +387,8 @@ export class ProjectAudioSink implements SequencerSink {
       originalEffectMeter, originalEffectMeterState, processedEffectMeter, processedEffectMeterState,
       originalEffectGain, processedEffectGain, effectComparisonMode: "off",
       effectComparisonOriginalDb: 0, effectComparisonProcessedDb: 0, effects: [],
-      effectNodes: new Map(), sends: [], sidechainNode: null, sidechainSource: null, sidechainReductionDb: 0,
+      effectNodes: new Map(), sends: [], sendNodes: new Map(), sidechainNode: null,
+      sidechainSource: null, sidechainReductionDb: 0,
       sidechainReductionPeakDb: 0, sidechainError: null, piano: null, drums: null,
       sampler: null, rack: null, audioClips: null, sampleAsset: null,
       status: "loading", error: null, muteOverride: null, soloOverride: null,
@@ -850,7 +853,7 @@ export class ProjectAudioSink implements SequencerSink {
 
   private automationTargetKey(target: ProjectAutomationLane["target"]): string {
     const key = JSON.stringify([target.scope, target.ownerId ?? null,
-      target.effectId ?? null, target.parameterId]);
+      target.effectId ?? null, target.sendId ?? null, target.parameterId]);
     this.automationTargetsByKey.set(key, { ...target });
     return key;
   }
@@ -879,6 +882,20 @@ export class ProjectAudioSink implements SequencerSink {
         cancel: (time) => { slot.audioClips!.cancelClipGainAutomation(clip.id, time); },
         set: (value, time) => { slot.audioClips!.setClipGainAtTime(clip.id, value, time); },
         ramp: (value, time) => { slot.audioClips!.rampClipGainToValueAtTime(clip.id, value, time); },
+      };
+    }
+    if (target.scope === "track" && target.ownerId && target.sendId &&
+        !target.effectId && target.parameterId === "gainDb") {
+      const slot = this.slots.get(target.ownerId);
+      const send = slot?.track.mix.sends.find((item) => item.id === target.sendId);
+      const node = slot?.sendNodes.get(target.sendId);
+      if (!slot || !send || !node) throw new RangeError("Send automatizado no está activo en el grafo");
+      const linear = (db: number) => 10 ** (Math.max(-120, Math.min(24, db)) / 20);
+      return {
+        min: descriptor.min, max: descriptor.max,
+        cancel: (time) => { node.gain.cancelAndHoldAtTime(time); },
+        set: (value, time) => { node.gain.setValueAtTime(linear(value), time); },
+        ramp: (value, time) => { node.gain.exponentialRampToValueAtTime(linear(value), time); },
       };
     }
     if (target.effectId) {
@@ -934,10 +951,11 @@ export class ProjectAudioSink implements SequencerSink {
   }
 
   private automationBaseValue(target: ProjectAutomationLane["target"]): number {
-    if (!target.effectId && target.scope === "master" && target.parameterId === "masterGainDb") {
+    if (!target.effectId && !target.sendId &&
+        target.scope === "master" && target.parameterId === "masterGainDb") {
       return this.masterGainOverride ?? this.document.mix.masterGainDb;
     }
-    if (!target.effectId && target.scope === "track" && target.ownerId) {
+    if (!target.effectId && !target.sendId && target.scope === "track" && target.ownerId) {
       const slot = this.slots.get(target.ownerId);
       if (!slot) throw new RangeError(`Pista ${target.ownerId} inexistente`);
       if (target.parameterId === "gainDb") return slot.gainOverride ?? slot.track.mix.gainDb;
