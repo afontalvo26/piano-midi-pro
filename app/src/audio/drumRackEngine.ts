@@ -234,12 +234,15 @@ export class DrumRackEngine {
       if (oldest) this.registry.releaseHandle(oldest, audioTime, 0.008);
     }
     if (this.voices.size >= MAX_ALLOCATED_VOICES) { this.dropped++; return null; }
+    const sensitivity = bounded(pad.definition.velocitySensitivity ?? 1, 0, 2);
+    const normalizedVelocity = velocity / 127;
+    const shapedVelocity = bounded(0.75 + (normalizedVelocity - 0.75) * sensitivity, 0.01, 1);
     const layers = [...pad.layers.keys()].sort((a, b) => a - b);
-    const layer = layers[Math.max(0, Math.ceil(velocity / 127 * layers.length) - 1)]!;
+    const layer = layers[Math.max(0, Math.ceil(shapedVelocity * layers.length) - 1)]!;
     const variants = pad.layers.get(layer)!;
     const buffer = variants[pad.nextVariant++ % variants.length]!;
     const rate = 2 ** (pad.definition.pitchSemitones / 12);
-    const level = Math.min(16, (velocity / 127) ** 1.35 * outGain);
+    const level = Math.min(16, shapedVelocity ** 1.35 * outGain);
     const fade = bounded(pad.definition.decayMs / 1000, 0.005, 2);
     let handle: OwnedVoiceHandle | null = null;
     let finished = false;
