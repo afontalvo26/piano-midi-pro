@@ -41,9 +41,6 @@ export async function renderProjectBusPcm(revision: ProjectRevision,
   const routes = findBusResampleRoutes(document, bus.id, destination.id);
   const sourceTrackIds = routes.sourceTrackIds;
   if (!sourceTrackIds.length) throw new RangeError("El bus no tiene pistas fuente para resampling");
-  if (routes.hasUnsupportedSends) {
-    throw new RangeError("Resampling de bus con envíos aún no está disponible");
-  }
   const includedEffectIds = routes.routedTracks.flatMap((track) =>
     track.mix.effects.filter((effect) => effect.enabled).map((effect) => effect.id));
   const rendered = await renderProjectPcm(document, {
@@ -66,6 +63,7 @@ export async function renderProjectBusPcm(revision: ProjectRevision,
     sourceRevision: revision.revision, sourceHash: revision.hash,
     startTick: options.startTick, endTick: options.endTick,
     tap: "post-bus-pre-master", sourceTrackIds, includedEffectIds,
+    includedSendIds: routes.includedSendIds,
     seed: options.seed, sampleRate: options.sampleRate, channelCount: 2,
     frameCount: encoded.report.frames, tailFrames,
     rendererVersion: "bus-resample-v1",
