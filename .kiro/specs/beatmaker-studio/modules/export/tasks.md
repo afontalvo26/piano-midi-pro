@@ -13,8 +13,9 @@
 
 - [x] Proponer exportación del master y stems por pista con grafo de sends en PR #1.
 - [x] Registrar explícitamente `sendsIncluded` en el WAV/ZIP de salida.
-- [x] Rechazar stems por bus con sends, evitando archivos incorrectos.
-- [ ] Ejecutar comparación PCM live/offline y exportación real del master/track con sends.
-- [ ] Aislar y verificar stems por bus con sends y colas, sin doble mezcla.
+- [x] Proponer taps distintos para bus y salida directa, con sends y selección de rutas anidadas.
+- [x] Escribir test E2E de stem de bus, salida directa y ausencia de filtración desde master.
+- [ ] Ejecutar comparación PCM live/offline y exportación real de master/track/bus con sends.
+- [ ] Corregir los fallos de ejecución y validar stems por bus con colas y sin doble mezcla.
 - [ ] Verificar aditividad y sidechain después de completar MIX-04.
 - [ ] Hacer pasar suite transversal y auditoría de build en una revisión fija.
