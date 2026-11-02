@@ -24,7 +24,7 @@ export function StudioScore({pattern,meter,onOpenEditor}:StudioScoreProps) {
     const degree=[0,0,1,1,2,3,3,4,4,5,5,6][midi%12]!;
     return Math.floor(midi/12)*7+degree;
   };
-  const noteY = (midi:number):number => staffBottom-(stepFor(midi)-30)*8.5;
+  const noteY = (midi:number):number => staffBottom-(stepFor(midi)-37)*8.5;
   return <section className="ref-score" aria-label="Partitura de lectura">
     <div className="ref-score-heading">
       <span><strong>{pattern.name}</strong> · {meter?.numerator??4}/{meter?.denominator??4} · {pattern.notes.length} notas</span>
