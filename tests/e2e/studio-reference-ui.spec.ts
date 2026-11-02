@@ -531,3 +531,18 @@ test("playhead aligns with track lanes at 320/390/1586 viewport widths",async({p
     expect(Math.abs(bounds[0]!.x-(bounds[1]!.x+bounds[1]!.width/2))).toBeLessThan(5);
   }
 });
+
+
+test("Studio instrument card never labels an unprepared project bank as active",async({page})=>{
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const studio=page.getByTestId("reference-studio");
+  await studio.getByRole("button",{name:"Nueva idea"}).click();
+  const card=studio.locator(".ref-instrument-card");
+  await expect(card).toContainText("Piano Salamander · pista");
+  await expect(card).toContainText("Audio sin preparar");
+  await expect(card).not.toContainText("✓ Audio listo");
+  await expect(studio.getByRole("button",{name:"Preparar audio del proyecto"})).toBeVisible();
+  await studio.locator(".ref-track-row").nth(2).locator(".ref-track-info").click();
+  await expect(card).toContainText("Bajo 808 Fischer · pista");
+  await expect(card).toContainText("Audio sin preparar");
+});
