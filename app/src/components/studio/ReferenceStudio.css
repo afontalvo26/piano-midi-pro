@@ -641,3 +641,62 @@
   min-height: 35px;
   font-size: 11px;
 }
+
+/* Functional tools and reversible timeline feedback, inside the approved skin. */
+.ref-arrangement { position: relative; }
+.ref-edit-error {
+  position: absolute; z-index: 20; top: 44px; right: 10px;
+  display: flex; align-items: center; gap: 9px;
+  max-width: min(470px, 85%); padding: 9px 12px;
+  border: 1px solid #c65c83; border-radius: 8px;
+  background: #381c32; color: #ffe4e9;
+  box-shadow: 0 9px 22px #0009; font-size: 11px;
+}
+.ref-edit-error button { border: 0; background: transparent; padding: 3px; }
+.ref-ruler-numbers[role=slider] { cursor: crosshair; }
+.ref-ruler-numbers[role=slider]:focus-visible { outline: 2px solid #24edcf; outline-offset: -2px; }
+.ref-studio[data-tool="draw"] .ref-track-lane { cursor: crosshair; }
+.ref-studio[data-tool="cut"] .ref-clip { cursor: crosshair; }
+.ref-studio[data-tool="select"] .ref-clip { cursor: grab; touch-action: pan-y; }
+.ref-studio[data-tool="select"] .ref-clip:active { cursor: grabbing; }
+
+/* Working performance dock: the original 37-key component plays and sends MIDI. */
+.ref-performance { height: 100%; min-width: 0; display: flex; flex-direction: column; background: #090d1b; }
+.ref-performance-toolbar {
+  display: flex; align-items: center; gap: 10px; min-height: 42px;
+  padding: 5px 12px; border-bottom: 1px solid #34314c;
+  background: #131629; color: #d9d5ef;
+}
+.ref-performance-toolbar button, .ref-performance-pedals button {
+  border: 1px solid #604991; border-radius: 7px;
+  background: linear-gradient(120deg,#342750,#201e3c);
+  color: #f4eeff; min-height: 29px; padding: 5px 10px; font-size: 11px;
+}
+.ref-performance-toolbar > span:not(.ref-performance-hint) { font-weight: 700; color: #d0c0f1; }
+.ref-performance-hint { margin-left: auto; font-size: 10px; color: #abaac7; }
+.ref-performance-keys {
+  flex: 1; min-height: 150px; padding: 9px 10px 6px;
+  overflow: auto; scrollbar-width: thin;
+}
+.ref-editor-slot .ref-performance-keys .piano-wrapper {
+  height: 100%; min-height: 150px; max-height: 194px; border: 1px solid #39344f;
+  border-radius: 5px; overflow: hidden;
+}
+.ref-performance-pedals {
+  display: flex; gap: 8px; justify-content: center; align-items: center;
+  padding: 6px 10px 9px;
+}
+.ref-performance-pedals button { min-width: 90px; }
+.ref-performance-pedals button[aria-pressed="true"] {
+  color: #a4fff0; border-color: #16d4af; background: #0a4c43;
+  box-shadow: 0 0 10px #19dab963;
+}
+.ref-editor-context>button.is-selected { border-color: #7f50dc; background: #3b2b62; }
+@media(max-width:650px) {
+  .ref-performance-hint { display: none; }
+  .ref-editor-context>button { padding: 4px 7px; }
+  .ref-performance-toolbar { padding: 4px 6px; gap: 5px; }
+  .ref-performance-keys { padding: 6px 4px; }
+  .ref-performance-pedals { gap: 4px; }
+  .ref-performance-pedals button { min-width: 0; flex: 1; font-size: 10px; }
+}
