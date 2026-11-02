@@ -777,7 +777,7 @@ export default function PianoApp() {
       const document = projectSessionRef.current?.getSnapshot().document;
       const lane = document?.automation.find((item) => item.id === automationAction.laneId);
       const descriptor = lane && document ? projectAutomationParameter(document, lane.target) : undefined;
-      if (!document || !lane || !descriptor || lane.target.scope === "clip") return false;
+      if (!document || !lane || !descriptor) return false;
       const live = engine.projectAutomationSnapshot().find((item) => item.laneId === lane.id)?.value;
       const currentValue = live ?? automationBaseValue(lane, document);
       if (automationAction.takeover === "pickup") {
