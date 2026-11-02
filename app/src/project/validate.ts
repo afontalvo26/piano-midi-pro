@@ -837,6 +837,10 @@ function validateAutomation(value: unknown, tracks: Map<string, JsonObject>, cli
       }
       const descriptor = numericProjectEffectParameter(effect.kind as string,
         target.parameterId as string);
+      if (effect.kind === "saturation" && target.parameterId === "drive") {
+        invalid(`${path}.target.parameterId`,
+          "drive de saturación reconstruye la curva y no admite automatización continua");
+      }
       if (descriptor) valueRange = [descriptor.min, descriptor.max];
       else if (projectEffectParameters(effect.kind as string)) {
         invalid(`${path}.target.parameterId`, "parámetro de efecto no automatizable");
