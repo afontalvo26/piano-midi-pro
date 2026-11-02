@@ -435,6 +435,8 @@ export default function PianoApp() {
   const pedalSourcesRef = useRef(new Map<string, boolean>());
   const lastTriggerRef = useRef(new Map<string, number>());
   const automationPickupRef = useRef(new Map<string, PickupState>());
+  /** MIDI CC has no release event; inactivity ends physical ownership per lane. */
+  const automationMidiReleaseTimersRef = useRef(new Map<string, number>());
   const calibrationBankRef = useRef(calibrationBank);
   const calibrationTimerRef = useRef<number | null>(null);
   const traceTimerRef = useRef<number | null>(null);
@@ -460,6 +462,10 @@ export default function PianoApp() {
       masterVolume, releaseSeconds, reverbDecay, chorusWet, bpm, metronomeOn, recording,
       calibrateNextKey, calibratedPortId, screen };
   });
+  useEffect(() => () => {
+    for (const timer of automationMidiReleaseTimersRef.current.values()) window.clearTimeout(timer);
+    automationMidiReleaseTimersRef.current.clear();
+  }, []);
 
   const selectedInput = midiInputs.find((input) => input.id === selectedInputId);
   const listeningInputs = midiInputs.filter((input) => attachedInputIds.includes(input.id));
@@ -782,13 +788,14 @@ export default function PianoApp() {
         if (!advanced.acquired) return true;
       }
       const next = scaleAutomationMidiValue(value, effectiveMode, currentValue, descriptor);
-      if (lane.target.scope === "master" && lane.target.parameterId === "masterGainDb") {
-        engine.setProjectMasterGainDb(next);
-      } else if (lane.target.scope === "track" && lane.target.ownerId) {
-        if (lane.target.parameterId === "gainDb") engine.setProjectTrackMix(lane.target.ownerId, { gainDb: next });
-        else if (lane.target.parameterId === "pan") engine.setProjectTrackMix(lane.target.ownerId, { pan: next });
-        else return false;
-      } else return false;
+      if (!engine.setProjectAutomationLiveOverride(lane.id, next)) return false;
+      const previousRelease = automationMidiReleaseTimersRef.current.get(lane.id);
+      if (previousRelease !== undefined) window.clearTimeout(previousRelease);
+      const releaseTimer = window.setTimeout(() => {
+        automationMidiReleaseTimersRef.current.delete(lane.id);
+        engine.releaseProjectAutomationLiveOverride(lane.id);
+      }, 180);
+      automationMidiReleaseTimersRef.current.set(lane.id, releaseTimer);
       return true;
     }
     const isTrigger = ["recording.toggle", "metronome.toggle", "bank.prev", "bank.next", "drum.pad"].includes(binding.action);
@@ -2801,13 +2808,11 @@ export default function PianoApp() {
               setMidiError("");
             }}
             onCancelMidiLearn={() => { latestRef.current.learnAction = null; setLearnAction(null); }}
-            onTouchPreview={(target, value) => {
-              if (target.scope === "master" && target.parameterId === "masterGainDb") {
-                engine.setProjectMasterGainDb(value);
-              } else if (target.scope === "track" && target.ownerId) {
-                if (target.parameterId === "gainDb") engine.setProjectTrackMix(target.ownerId, { gainDb: value });
-                else if (target.parameterId === "pan") engine.setProjectTrackMix(target.ownerId, { pan: value });
-              }
+            onTouchPreview={(laneId, _target, value) => {
+              engine.setProjectAutomationLiveOverride(laneId, value);
+            }}
+            onTouchRelease={(laneId) => {
+              engine.releaseProjectAutomationLiveOverride(laneId);
             }}
             onCommand={(command) => commitAutomationEdit((session) => session.dispatch(command))}
             onUndo={() => commitAutomationEdit((session) => session.undo())}
@@ -3225,13 +3230,11 @@ export default function PianoApp() {
               setMidiError("");
             }}
             onCancelMidiLearn={() => { latestRef.current.learnAction = null; setLearnAction(null); }}
-            onTouchPreview={(target, value) => {
-              if (target.scope === "master" && target.parameterId === "masterGainDb") {
-                engine.setProjectMasterGainDb(value);
-              } else if (target.scope === "track" && target.ownerId) {
-                if (target.parameterId === "gainDb") engine.setProjectTrackMix(target.ownerId, { gainDb: value });
-                else if (target.parameterId === "pan") engine.setProjectTrackMix(target.ownerId, { pan: value });
-              }
+            onTouchPreview={(laneId, _target, value) => {
+              engine.setProjectAutomationLiveOverride(laneId, value);
+            }}
+            onTouchRelease={(laneId) => {
+              engine.releaseProjectAutomationLiveOverride(laneId);
             }}
             onCommand={(command) => commitAutomationEdit((session) => session.dispatch(command))}
             onUndo={() => commitAutomationEdit((session) => session.undo())}
