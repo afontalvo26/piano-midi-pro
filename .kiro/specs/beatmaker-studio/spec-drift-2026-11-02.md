@@ -70,13 +70,13 @@ Estas intervenciones posteriores **no** cambian el estado de los 113 criterios n
 **Riesgos no resueltos:** runners de GitHub Actions sin pasos ejecutados; QA real de navegador/CPU/audio/fidelidad; SMK-37 físico Elite y Pro; 113 expedientes de aceptación sin evidencias completas. La palabra `implemented` significa cambios propuestos en código, no un criterio verde.
 
 
-## Continuación de controles ARR-07, PRJ-01 y MIX-04 (mismo corte, aún no certificada)
+## Continuación de controles ARR-07, PRJ-01 y MIX-05 (mismo corte, aún no certificada)
 
 | Contrato | Corrección en código | Prueba añadida y límites |
 |---|---|---|
 | ARR-07, CLK-02 | Arreglo ahora permite desplazamiento musical por páginas y zoom **4/8/16/32 compases**. El cálculo de posiciones usa `meterMap` y no 4/4 uniforme. La ventana acota correctamente clips, guía de bucle y cabezal; el botón «Centrar cabezal» vuelve a la región actual. | `studio-reference-ui.spec.ts` cubre dibujo en compases 17–24 y retorno. No acredita 500+ compases reales, carga de documentos grandes ni precisión a 200% de zoom. |
 | ARR-01, UXP-07 | «Cortar» usa el tiempo audible de la porción visible de un clip que cruza el borde de la ventana. El cabezal utiliza la misma medida de columna que los carriles en 320, 390 y 1586 px. | Prueba de alineación añadida; falta ejecución de navegador y captura comparable. |
-| MIX-04 | `ProjectAudioSink` ya no emite simultáneamente al master y a un bus aislado al activar solo sobre un bus auxiliar: añadió gate post-fader de salida principal, mantuvo gates separados de los sends y preservó en el stem directo la ruta que realmente llega al master. | `project-mixer-sends.spec.ts` compara energía PCM de bus solo vs ruta aislada, sin solo y punto directo; **prueba escrita no ejecutada**. Confirmar mezcla audible y ausencia de regresiones en buses encadenados. |
+| MIX-05 | `ProjectAudioSink` ya no emite simultáneamente al master y a un bus aislado al activar solo sobre un bus auxiliar: añadió gate post-fader de salida principal, mantuvo gates separados de los sends y preservó en el stem directo la ruta que realmente llega al master. | `project-mixer-sends.spec.ts` compara energía PCM de bus solo vs ruta aislada, sin solo y punto directo; **prueba escrita no ejecutada**. Confirmar mezcla audible y ausencia de regresiones en buses encadenados. |
 | PRJ-01, UXP-03 | Se reutiliza `ProjectBrowser` en una ventana modal dentro del Studio aprobado: crear, abrir, renombrar, duplicar, archivar, importar/exportar y recuperar borradores. `RecordedTracks` también se monta ahí para gestionar tomas sin regresar a la pantalla antigua. | `studio-reference-ui.spec.ts` cubre abrir/cerrar, crear proyecto y biblioteca. Faltan recuperación CAS, restauración de paquete y pérdida de permiso bajo overlay. |
 | QLT-09 | Se amplió el workflow de referencia para incluir regresiones de routing PCM además de UI/transport. | GitHub Actions sigue sin ejecutar pasos del job; no asumir build o test verde. |
 
