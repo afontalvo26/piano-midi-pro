@@ -327,3 +327,54 @@ test("reference shell labels MIDI ports generically rather than claiming an unob
   await expect(shell.getByRole("button",{name:"Rehacer"})).toBeVisible();
   await expect(shell.getByText("SMK-37 conectado")).toHaveCount(0);
 });
+
+
+test("take recording opens the real overdub workflow in the new Studio",async({page})=>{
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const studio=page.getByTestId("reference-studio");
+  await studio.getByRole("button",{name:"Nueva idea"}).click();
+  await studio.getByRole("button",{name:"Ver tomas MIDI y overdub"}).click();
+  const takes=studio.getByRole("dialog",{name:"Tomas MIDI del proyecto"});
+  await expect(takes).toBeVisible();
+  await expect(takes.getByRole("region",{name:"Agregar toma al patrón"})).toBeVisible();
+  await takes.getByRole("button",{name:"Cerrar tomas MIDI"}).click();
+  await expect(takes).toHaveCount(0);
+});
+
+test("per-track sound assignment is CAS versioned, undoable and independent of live catalog",async({page})=>{
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const result=await page.evaluate(async()=>{
+    const {createProjectDocument}=await import("/src/project/model.ts");
+    const {applyCommand}=await import("/src/project/commands.ts");
+    const original={instrumentId:"salamander-grand",packageVersion:"verified",presetId:"natural"};
+    const changed={instrumentId:"tr808-fischer-core",packageVersion:"verified",presetId:"core"};
+    const track={id:"per-track-instrument",name:"Piano",kind:"instrument" as const,
+      instrument:original,
+      mix:{gainDb:0,pan:0,mute:false,solo:false,armed:false,sends:[],effects:[]}};
+    const doc={...createProjectDocument({id:"track-bank-check",at:1}),
+      trackOrder:[track.id],tracks:[track]};
+    const command={kind:"replaceTrackInstrument" as const,trackId:track.id,
+      expected:original,instrument:changed,at:2};
+    const applied=applyCommand(doc,command);
+    const reverted=applyCommand(applied.document,applied.inverse);
+    const redone=applyCommand(reverted.document,reverted.inverse);
+    return {initial:doc.tracks[0]!.instrument?.instrumentId,
+      after:applied.document.tracks[0]!.instrument?.instrumentId,
+      undo:reverted.document.tracks[0]!.instrument?.instrumentId,
+      redo:redone.document.tracks[0]!.instrument?.instrumentId,
+      sameOtherState:JSON.stringify(redone.document.tracks[0]!.mix)===JSON.stringify(track.mix)};
+  });
+  expect(result).toEqual({initial:"salamander-grand",after:"tr808-fischer-core",
+    undo:"salamander-grand",redo:"tr808-fischer-core",sameOtherState:true});
+});
+
+test("studio instrument catalog distinguishes global live sound from per-track verified banks",async({page})=>{
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const studio=page.getByTestId("reference-studio");
+  await studio.getByRole("button",{name:"Nueva idea"}).click();
+  await studio.getByRole("navigation",{name:"Flujos de trabajo"})
+    .getByRole("button",{name:"Biblioteca"}).click();
+  const picker=studio.getByRole("dialog",{name:"Biblioteca de instrumentos"});
+  await expect(picker.getByLabel("Banco sonoro de pista")).toBeVisible();
+  await expect(picker.getByText(/catálogo inferior cambia sólo el sonido de interpretación/)).toBeVisible();
+});
