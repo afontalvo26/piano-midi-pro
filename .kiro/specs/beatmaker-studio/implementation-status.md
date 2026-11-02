@@ -96,3 +96,18 @@ las nuevas propuestas NO heredan sus resultados de aceptación.
 - Screenshot comparable real del navegador a 1586×992, 320–1440 px, zoom 200%, audio PCM/latencia/37+37 y SMK-37 físico Elite/Pro todavía sin ejecutar.
 
 **Comandos previstos cuando se habilite un checkout ejecutable:** `node scripts/audit-beatmaker-requirements.mjs`, `node scripts/verify-beatmaker-acceptance.mjs --check`, `node --test tests/unit/beatmaker-acceptance-gate.test.mjs`, `cd app && npx tsc -b && npx eslint . && npx vite build`, `node scripts/audit-studio-dist.mjs`, `npx playwright test tests/e2e/studio-reference-ui.spec.ts tests/e2e/sequencer-transport.spec.ts --workers=1 --retries=0`. `--release` debe seguir **rojo** hasta completar evidencias reales.
+
+
+## Anexo de continuidad — navegación y audio por ruta (2026-11-02)
+
+**Implementación no aceptada en PR #5:**
+
+1. `ReferenceStudio` ya no está limitado a los primeros 16 compases: páginas de 4/8/16/32 compases, navegación hacia delante y atrás, centrar playhead y coordenadas tick derivadas de `meterMap`. La ventana recorta correctamente la forma y la posición de los clips, la selección y la región de bucle. Un corte sobre un clip parcialmente visible opera sobre la **posición audible de la ventana**, no el inicio oculto del clip.
+2. `ProjectAudioSink` separa el gate de salida principal del gate de los envíos, para no filtrar simultáneamente el dry/master cuando se pone en solo un bus auxiliar. Los stems directos usan el gate principal. Regresión PCM nueva en `tests/e2e/project-mixer-sends.spec.ts`.
+3. La gestión `ProjectBrowser` y la biblioteca `RecordedTracks` se alojan en un modal del nuevo Studio. Permiten crear, abrir, renombrar, archivar, duplicar, exportar/importar paquetes, recuperación de drafts y gestión de tomas MIDI sin regresar a la pantalla anterior. Nuevas pruebas de apertura/creación y salida segura de modal.
+4. El playhead de escritorio y móvil comparte una única medida CSS de ancho de carril para 320, 390 y 1586 px, con prueba de comparación de coordenadas.
+5. El workflow `studio-reference-ui.yml` amplía la ejecución de navegador a `project-mixer-sends.spec.ts`.
+
+**No afirmar aprobado:** el último run aún falló con **0 pasos de job**; su descarga de logs devolvió `BlobNotFound` desde GitHub. El repositorio tampoco puede clonarse desde el contenedor por falla DNS de `github.com`. Sin build, lint, PCM real, Playwright ni hardware comprobado, no hay base para cambiar las 113 filas de `acceptance-evidence.json`.
+
+Bloqueos: runner de CI y logs, certificados físicos SMK-37, fidelidad visual screenshot desktop/móvil, bibliotecas/paquetes/licencias faltantes, pruebas de sesiones largas y mezcla de buses anidados. Conservar PR en borrador.
