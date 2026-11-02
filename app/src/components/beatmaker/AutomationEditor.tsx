@@ -28,7 +28,9 @@ export interface AutomationEditorProps {
   readonly readPlayheadTick?: () => number;
   readonly effectiveValues?: readonly AutomationValueSnapshot[];
   /** Immediate audio preview while a Touch gesture owns the control. */
-  readonly onTouchPreview?: (target: ProjectAutomationLane["target"], value: number) => void;
+  readonly onTouchPreview?: (laneId: string, target: ProjectAutomationLane["target"], value: number) => void;
+  /** Releases temporary physical ownership after the gesture commits or is cancelled. */
+  readonly onTouchRelease?: (laneId: string) => void;
   readonly midiLearnAction?: string | null;
   readonly onMidiLearn?: (laneId: string, takeover: AutomationMidiTakeover) => void;
   readonly onCancelMidiLearn?: () => void;
@@ -97,7 +99,7 @@ export function AutomationEditor(props: AutomationEditorProps) {
 }
 
 function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
-  readPlayheadTick, effectiveValues, onTouchPreview, midiLearnAction, onMidiLearn,
+  readPlayheadTick, effectiveValues, onTouchPreview, onTouchRelease, midiLearnAction, onMidiLearn,
   onCancelMidiLearn, onCommand, onUndo, onRedo, canUndo, canRedo,
   saveState }: AutomationEditorProps & { readonly document: ProjectDocumentV1 }) {
   const [selectedLaneId, setSelectedLaneId] = useState(document.automation[0]?.id ?? "");
@@ -214,14 +216,17 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
     if (last?.tick === tick) samples[samples.length - 1] = { tick, value: nextValue };
     else samples.push({ tick, value: nextValue });
     setTouchValue(nextValue);
-    onTouchPreview?.(lane.target, nextValue);
+    onTouchPreview?.(lane.id, lane.target, nextValue);
   }
 
-  function finishTouch(): void {
+  async function finishTouch(): Promise<void> {
     if (!lane) return;
+    const activeLaneId = lane.id;
     const samples = touchSamplesRef.current;
     touchSamplesRef.current = null;
-    if (samples?.length) void commit(() => writeAutomationTouchGesture(document, lane.id, samples));
+    if (samples?.length) await commit(() =>
+      writeAutomationTouchGesture(document, activeLaneId, samples));
+    onTouchRelease?.(activeLaneId);
   }
 
   function pointerPosition(event: PointerEvent<HTMLCanvasElement>): { x: number; y: number } {
@@ -434,19 +439,19 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
             }}
             onKeyUp={(event) => {
               if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End",
-                "PageUp", "PageDown"].includes(event.key)) finishTouch();
+                "PageUp", "PageDown"].includes(event.key)) void finishTouch();
             }}
             onPointerUp={(event) => {
               if (event.currentTarget.hasPointerCapture(event.pointerId)) {
                 event.currentTarget.releasePointerCapture(event.pointerId);
               }
-              finishTouch();
+              void finishTouch();
             }}
             onPointerCancel={() => {
               touchSamplesRef.current = null;
               const restore = effectiveValue?.value ?? baseValue(document, lane);
               setTouchValue(restore);
-              onTouchPreview?.(lane.target, restore);
+              onTouchRelease?.(lane.id);
             }} />
         </label>
         <output aria-live="polite">{touchValue.toFixed(descriptor?.unit === "pan" ? 2 : 1)}
