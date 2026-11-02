@@ -2,6 +2,7 @@ import type { ProjectAutomationLane, ProjectDocumentV1 } from "../project/model.
 import { projectAutomationBaseValue, projectAutomationParameter } from "../project/automationParameters.ts";
 import type { AutomationResolver, TimelineAutomation } from "./timelineEvents.ts";
 import { MusicalClock } from "./musicalClock.ts";
+import { AUTOMATION_BEZIER_MAX_STEP_TICKS, automationInterpolatedValue } from "../composition/automationCurve.ts";
 
 type BaseTarget = TimelineAutomation["target"];
 
@@ -39,7 +40,8 @@ function valueAt(lane: ResolvedLane, tick: number): number {
   const next = lane.points[index + 1];
   if (!next || point.shape === "step") return point.value;
   const fraction = (tick - point.tick) / (next.tick - point.tick);
-  return point.value + (next.value - point.value) * fraction;
+  return automationInterpolatedValue(point.value, next.value,
+    point.shape, point.curve, fraction);
 }
 
 function resolveLane(document: ProjectDocumentV1, lane: ProjectAutomationLane,
@@ -61,9 +63,6 @@ function resolveLane(document: ProjectDocumentV1, lane: ProjectAutomationLane,
   }
   if (lane.target.scope === "clip") {
     throw new Error(`Automatización ${lane.id}: clip gain aún no usa el scheduler de mixer`);
-  }
-  if (lane.points.some((point) => point.shape === "bezier")) {
-    throw new Error(`Automatización ${lane.id}: curva bezier aún no reproducible`);
   }
   const base = projectAutomationBaseValue(document, lane.target);
   if (base === undefined) throw new Error(`Automatización ${lane.id}: valor base ausente`);
@@ -103,11 +102,18 @@ export function createBaseAutomationResolver(document: ProjectDocumentV1,
         const point = lane.points[index]!;
         const nextPoint = lane.points[index + 1]?.tick ?? endTick;
         const nextTempo = tempoTicks.find((tick) => tick > cursor) ?? endTick;
-        const boundary = Math.min(endTick, nextPoint, nextTempo);
+        let curveBoundary = nextPoint;
+        if (point.shape === "bezier" && index + 1 < lane.points.length) {
+          const elapsed = Math.max(0, cursor - point.tick);
+          const stepIndex = Math.floor(elapsed / AUTOMATION_BEZIER_MAX_STEP_TICKS) + 1;
+          curveBoundary = Math.min(nextPoint,
+            point.tick + stepIndex * AUTOMATION_BEZIER_MAX_STEP_TICKS);
+        }
+        const boundary = Math.min(endTick, nextPoint, nextTempo, curveBoundary);
         if (boundary <= cursor) throw new Error("Automatización sin avance temporal");
         const startValue = valueAt(lane, cursor);
-        const shape = point.shape === "linear" && index + 1 < lane.points.length
-          ? "linear" : "step";
+        const shape = (point.shape === "linear" || point.shape === "bezier") &&
+          index + 1 < lane.points.length ? "linear" : "step";
         const endValue = shape === "linear" ? valueAt(lane, boundary) : startValue;
         events.push({ laneId: lane.id, target: lane.target, tick: cursor,
           endTick: boundary, startValue, endValue, shape, sequence: lane.sequence });
