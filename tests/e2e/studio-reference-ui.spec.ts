@@ -563,6 +563,7 @@ test("MIDI recording destination honors track arm state and refuses ambiguous ca
     const multiple={...doc,tracks:[make("piano",true),make("bass",true)]};
     let ambiguous=false;
     try{selectMidiRecordingTarget(multiple,null);}catch{ambiguous=true;}
+    const selectedId=(track:{id:string}|null)=>track?.id??null;
     return {
       unarmed:selectedId(selectMidiRecordingTarget(doc,"bass")),
       armedSelectedOther:selectedId(selectMidiRecordingTarget(single,"bass")),
@@ -570,7 +571,6 @@ test("MIDI recording destination honors track arm state and refuses ambiguous ca
       multipleNoSelection:ambiguous,
       noProject:selectMidiRecordingTarget(null,"piano")===null,
     };
-    function selectedId(track:{id:string}|null){return track?.id??null;}
   });
   expect(result).toEqual({unarmed:"bass",armedSelectedOther:"piano",
     multipleChosen:"bass",multipleNoSelection:true,noProject:true});
