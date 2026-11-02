@@ -26,6 +26,18 @@ export const BASE_AUTOMATION_PARAMETERS: readonly AutomationParameterDescriptor[
     min: -120, max: 24, defaultValue: 0, unit: "dB", scale: "linear", smoothingMs: 15 },
 ]);
 
+const SEND_GAIN_AUTOMATION: AutomationParameterDescriptor = {
+  typeId: "base-mix", version: 1, scope: "track", parameterId: "gainDb",
+  min: -120, max: 24, defaultValue: -12, unit: "dB", scale: "linear", smoothingMs: 15,
+};
+
+function sendForTarget(document: ProjectDocumentV1, target: ProjectAutomationLane["target"]) {
+  if (!target.sendId || target.scope !== "track" || !target.ownerId ||
+      target.effectId !== undefined || target.parameterId !== "gainDb") return undefined;
+  return document.tracks.find((track) => track.id === target.ownerId)?.mix.sends
+    .find((send) => send.id === target.sendId);
+}
+
 /** Distortion drive rebuilds a waveshaper curve, so it is intentionally static. */
 export function isAutomatableEffectParameter(effect: ProjectEffect, parameterId: string): boolean {
   if (!effect.enabled || (effect.kind === "saturation" && parameterId === "drive")) return false;
@@ -53,6 +65,9 @@ ProjectEffect | undefined {
 /** Runtime-safe descriptor: only enabled effect parameters backed by continuous Tone params. */
 export function projectAutomationParameter(document: ProjectDocumentV1,
   target: ProjectAutomationLane["target"]): AutomationParameterDescriptor | undefined {
+  if (target.sendId !== undefined) {
+    return sendForTarget(document, target) ? SEND_GAIN_AUTOMATION : undefined;
+  }
   const base = baseAutomationParameter(target);
   if (base) {
     if (target.scope === "clip") {
@@ -73,6 +88,7 @@ export function projectAutomationParameter(document: ProjectDocumentV1,
 
 export function projectAutomationBaseValue(document: ProjectDocumentV1,
   target: ProjectAutomationLane["target"]): number | undefined {
+  if (target.sendId !== undefined) return sendForTarget(document, target)?.gainDb;
   const base = baseAutomationParameter(target);
   if (base) {
     if (target.scope === "master") return document.mix.masterGainDb;
@@ -113,6 +129,10 @@ readonly ProjectAutomationLane["target"][] {
   for (const track of document.tracks) {
     targets.push({ scope: "track", ownerId: track.id, parameterId: "gainDb" },
       { scope: "track", ownerId: track.id, parameterId: "pan" });
+    for (const send of track.mix.sends) {
+      targets.push({ scope: "track", ownerId: track.id, sendId: send.id,
+        parameterId: "gainDb" });
+    }
     for (const effect of track.mix.effects) {
       if (!effect.enabled) continue;
       for (const descriptor of projectEffectParameters(effect.kind) ?? []) {
