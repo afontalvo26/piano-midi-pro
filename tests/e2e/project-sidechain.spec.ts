@@ -40,7 +40,7 @@ test("MIX-04 sidechain usa detector de audio y mantiene el key fuera del stem de
     const kickTrack = { id: "kick", name: "Kick", kind: "audio" as const, mix: baseMix };
     const bassTrack = { id: "bass", name: "808", kind: "audio" as const,
       mix: { ...baseMix, sidechain: { sourceTrackId: "kick", thresholdDb: -30,
-        ratio: 10, attackMs: 1, releaseMs: 120, maxReductionDb: 18 } } };
+        ratio: 10, attackMs: 1, releaseMs: 120, lookaheadMs: 5, maxReductionDb: 18 } } };
     const clip = (id: string, trackId: string, sourceId: string) => ({
       id, trackId, kind: "audio" as const, sourceId, startTick: 0, lengthTicks: 960,
       sourceOffsetTick: 0, sourceStartFrame: 0, sourceEndFrame: frames,
@@ -68,6 +68,8 @@ test("MIX-04 sidechain usa detector de audio y mantiene el key fuera del stem de
     } catch { selfRejected = true; }
     return { dry: energy(dryPcm.left), wet: energy(wetPcm.left),
       selected: wetPcm.report.selectedTrackIds,
+      lookaheadMs: wetPcm.report.audio.tracks.find((track) => track.trackId === "bass")
+        ?.sidechainLookaheadMs ?? -1,
       finite: wetPcm.left.every(Number.isFinite) && wetPcm.right.every(Number.isFinite),
       selfRejected };
   });
@@ -75,6 +77,7 @@ test("MIX-04 sidechain usa detector de audio y mantiene el key fuera del stem de
   expect(result.wet).toBeGreaterThan(0.001);
   expect(result.wet).toBeLessThan(result.dry * 0.94);
   expect(result.selected).toEqual(["bass"]);
+  expect(result.lookaheadMs).toBe(5);
   expect(result.finite).toBe(true);
   expect(result.selfRejected).toBe(true);
 });
@@ -92,6 +95,7 @@ test("mezclador móvil configura sidechain y conserva parámetros", async ({ pag
   await expect(sidechain.getByRole("button", { name: "Activo" })).toBeVisible();
   await sidechain.getByRole("spinbutton", { name: "Umbral sidechain de Piano" }).fill("-32");
   await sidechain.getByRole("spinbutton", { name: "Ratio sidechain de Piano" }).fill("6");
+  await sidechain.getByRole("spinbutton", { name: "Lookahead sidechain de Piano" }).fill("7.5");
   await expect(page.getByRole("region", { name: "Proyecto de Beatmaker" }))
     .toContainText("Guardado", { timeout: 20_000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -104,4 +108,5 @@ test("mezclador móvil configura sidechain y conserva parámetros", async ({ pag
     .getByRole("region", { name: "Sidechain de Piano" });
   await expect(reopened.getByRole("spinbutton", { name: "Umbral sidechain de Piano" })).toHaveValue("-32");
   await expect(reopened.getByRole("spinbutton", { name: "Ratio sidechain de Piano" })).toHaveValue("6");
+  await expect(reopened.getByRole("spinbutton", { name: "Lookahead sidechain de Piano" })).toHaveValue("7.5");
 });
