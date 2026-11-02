@@ -860,6 +860,21 @@ export class ProjectAudioSink implements SequencerSink {
     if (!descriptor || target.scope === "clip") {
       throw new RangeError("Parámetro no automatizable en vivo");
     }
+    if (target.scope === "clip" && target.ownerId && !target.effectId &&
+        target.parameterId === "gainDb") {
+      const clip = this.document.clips.find((item) => item.id === target.ownerId);
+      const slot = clip ? this.slots.get(clip.trackId) : undefined;
+      if (!clip || clip.kind !== "audio" || (clip.timeMode ?? "beat") !== "beat" ||
+          !slot?.audioClips) {
+        throw new RangeError("Clip de audio no automatizable en este grafo");
+      }
+      return {
+        min: descriptor.min, max: descriptor.max,
+        cancel: (time) => { slot.audioClips!.cancelClipGainAutomation(clip.id, time); },
+        set: (value, time) => { slot.audioClips!.setClipGainAtTime(clip.id, value, time); },
+        ramp: (value, time) => { slot.audioClips!.rampClipGainToValueAtTime(clip.id, value, time); },
+      };
+    }
     if (target.effectId) {
       let effect: ProjectEffect | undefined;
       let node: Tone.ToneAudioNode | undefined;
