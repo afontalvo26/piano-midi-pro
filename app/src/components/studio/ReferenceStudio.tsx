@@ -123,7 +123,7 @@ function Meter({ peak, tall = false }: { peak?: number; tall?: boolean }) {
 export function ReferenceStudio({
   document, workspace, activeTrackId, saveStatus, transport, tick, bpm,
   metronome, recording, midiConnected, midiStatus, instrumentName, instrumentCategory,
-  masterLevel, trackLevels, editor, instrumentPicker, loopEnabled, onLoopChange,
+  masterLevel, trackLevels, editor, instrumentPicker, performancePanel, loopEnabled, onLoopChange,
   onSeekTick, onArrangementCommand, onWorkspace, onLibrary, onProjects, onSettings,
   onNew, onPlay, onStop, onRecord, onMetronome, onTempoDraft, onTempoCommit,
   onTrackSelect, onOpenPattern, onTrackMix, onMasterGain, onFullEditor, onFullMixer,
@@ -131,6 +131,7 @@ export function ReferenceStudio({
   const [tool, setTool] = useState<ReferenceArrangementTool>("select");
   const [inspector, setInspector] = useState<"instrument" | "inspect">("instrument");
   const [instrumentChooserOpen, setInstrumentChooserOpen] = useState(false);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [mixerOpen, setMixerOpen] = useState(true);
   const [editError, setEditError] = useState("");
   const [macroValues, setMacroValues] = useState([72, 85, 28, 78]);
@@ -445,7 +446,7 @@ export function ReferenceStudio({
               <button type="button" title="Abrir el editor completo" aria-label="Editor completo" onClick={onFullEditor}><Icon name="maximize" size={17}/></button>
             </div>
           </div>
-          <div className="ref-editor-slot">{editor}</div>
+          <div className="ref-editor-slot">{keyboardOpen && workspace==="performance" ? performancePanel : editor}</div>
         </section>
       </div>
       <aside className="ref-inspector" aria-label="Instrumento e inspector">
