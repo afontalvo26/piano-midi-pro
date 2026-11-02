@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("post-fader send contributes to live-like offline WAV and one-track stem", async ({ page }) => {
+test("post-fader send contributes to master but not the isolated post-track stem", async ({ page }) => {
   test.setTimeout(180_000);
   page.setDefaultTimeout(20_000);
   await page.goto("/", { waitUntil: "domcontentloaded", timeout: 15_000 });
@@ -59,7 +59,8 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
     });
     const dryPcm = await renderProjectPcm(dry, options, reader);
     const wetPcm = await renderProjectPcm(wet, options, reader);
-    const stemPcm = await renderProjectPcm(wet, { ...options, trackId: source.id }, reader);
+    const stemPcm = await renderProjectPcm(wet,
+      { ...options, trackId: source.id, tapTrackOutput: true }, reader);
     const energy = (pcm: Float32Array): number => pcm.reduce((sum, sample) => sum + sample * sample, 0);
     const allFinite = (pcm: Float32Array): boolean => pcm.every(Number.isFinite);
     return {
@@ -72,6 +73,7 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
       renderedSendsIncluded: wav.sendsIncluded,
       wavKinds: wav.files.map((file) => file.kind),
       wavFrames: wav.files.map((file) => file.pcm.frames),
+      wavPeaks: wav.files.map((file) => file.pcm.outputPeak),
       busStemKinds: busWav.files.map((file) => file.kind),
       busStemIds: busWav.files.map((file) => file.id),
       busStemFrames: busWav.files.map((file) => file.pcm.frames),
@@ -83,7 +85,7 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
   });
   expect(result.dryEnergy).toBeGreaterThan(0.01);
   expect(result.wetEnergy).toBeGreaterThan(result.dryEnergy * 3);
-  expect(result.stemEnergy).toBeCloseTo(result.wetEnergy, 3);
+  expect(result.stemEnergy).toBeCloseTo(result.dryEnergy, 3);
   expect(result.dryLength).toBe(12_000);
   expect(result.wetLength).toBe(12_000);
   expect(result.finite).toBe(true);
@@ -92,6 +94,7 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
   expect(result.renderedSendsIncluded).toBe(true);
   expect(result.wavKinds).toEqual(["master", "track"]);
   expect(result.wavFrames).toEqual([12_000, 12_000]);
+  expect(result.wavPeaks[0]).toBeGreaterThan(result.wavPeaks[1] * 1.3);
   expect(result.busStemKinds).toEqual(["master", "bus", "direct"]);
   expect(result.busStemIds).toEqual(["master", "parallel", "master-direct"]);
   expect(result.busStemFrames).toEqual([12_000, 12_000, 12_000]);
