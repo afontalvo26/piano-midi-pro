@@ -97,6 +97,9 @@ export interface ReferenceStudioProps {
   trackLevels?: Readonly<Record<string, { peak: number; rms: number; clipped: boolean }>>;
   editor: ReactNode;
   instrumentPicker: ReactNode;
+  projectPanel: ReactNode;
+  projectsOpen: boolean;
+  onCloseProjects: () => void;
   performancePanel: ReactNode;
   recordingPanel: ReactNode;
   unsavedRecording: boolean;
@@ -148,7 +151,8 @@ function Meter({ peak, tall = false }: { peak?: number; tall?: boolean }) {
 export function ReferenceStudio({
   document, workspace, activeTrackId, saveStatus, problem, loadingLabel, onRetrySave, transport, tick, bpm,
   metronome, recording, midiConnected, midiStatus, outputLatencyEstimateMs, instrumentName, instrumentCategory,
-  masterLevel, trackLevels, editor, instrumentPicker, performancePanel,
+  masterLevel, trackLevels, editor, instrumentPicker, projectPanel, projectsOpen,
+  onCloseProjects, performancePanel,
   recordingPanel, unsavedRecording, onRetryRecordingSave, onExportRecording,
   notationPanel, loopEnabled,
   loopStartBar, loopEndBar, onLoopRangeChange, onLoopChange,
@@ -277,6 +281,7 @@ export function ReferenceStudio({
         <span><strong>Piano MIDI Pro</strong><small>Beatmaker Studio</small></span>
       </div>
       <button className="ref-project-select" type="button" onClick={onProjects}
+        aria-haspopup="dialog" aria-expanded={projectsOpen}
         title="Abrir y gestionar proyectos">
         <Icon name="folder" size={23}/>
         <span><strong>{document?.name ?? "Nuevo proyecto"}</strong>
@@ -317,6 +322,19 @@ export function ReferenceStudio({
       <button type="button" className="ref-top-icon" title="Configuración" aria-label="Configuración"
         onClick={onSettings}><Icon name="settings" size={21}/></button>
     </header>
+    {projectsOpen && <div className="ref-project-modal-backdrop"
+      onMouseDown={(event)=>{if(event.target===event.currentTarget)onCloseProjects();}}
+      onKeyDown={(event)=>{if(event.key==="Escape"){event.stopPropagation();onCloseProjects();}}}>
+      <section className="ref-project-modal" role="dialog" aria-modal="true"
+        aria-label="Gestión de proyectos">
+        <div className="ref-project-modal-title">
+          <strong>Proyectos · Piano MIDI Pro</strong>
+          <button type="button" autoFocus aria-label="Cerrar gestión de proyectos"
+            onClick={onCloseProjects}><Icon name="close" size={19}/></button>
+        </div>
+        <div className="ref-project-modal-content">{projectPanel}</div>
+      </section>
+    </div>}
     <aside className="ref-sidebar" aria-label="Navegación musical">
       <nav className="ref-nav" aria-label="Flujos de trabajo">
         {NAV.map((item) => <button type="button" key={item.id}
