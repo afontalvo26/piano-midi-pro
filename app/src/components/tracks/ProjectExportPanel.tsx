@@ -20,7 +20,7 @@ export function ProjectExportPanel({ busy, progress, notice, onExport,
   const [dither, setDither] = useState(true);
   return <section className="project-export" aria-label="Exportar audio del proyecto">
     <div className="project-export__intro"><h2>Exportar audio</h2>
-      <p>Renderiza el arreglo guardado en WAV estéreo. El master y los stems usan la misma línea de tiempo y el limitador del proyecto.</p></div>
+      <p>Renderiza el arreglo guardado en WAV estéreo. Master y stems comparten la misma línea de tiempo; sólo el master atraviesa la cadena master/limitador.</p></div>
     <div className="project-export__fields">
       <label>Frecuencia
         <select aria-label="Frecuencia WAV" disabled={busy} value={sampleRate}
