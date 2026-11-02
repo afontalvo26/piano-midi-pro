@@ -194,9 +194,13 @@ function selectTracks(document: ProjectDocumentV1, options: RenderProjectOptions
     id: track.id, name: track.name, kind: "bus", mix: { ...track.mix, sends: [], effects: [] },
   });
   const isTap = !!options.tapBusTrackId || !!options.tapDirectMaster;
+  const renderedClipIds = new Set(clips.map((clip) => clip.id));
   const automation = isTap ? document.automation.filter((lane) =>
-    lane.target.scope === "track" && lane.target.ownerId !== undefined &&
-    include.has(lane.target.ownerId)) : document.automation;
+    lane.target.scope === "track" && lane.target.ownerId !== undefined
+      ? include.has(lane.target.ownerId)
+      : lane.target.scope === "clip" && lane.target.ownerId !== undefined
+        ? renderedClipIds.has(lane.target.ownerId)
+        : false) : document.automation;
   return { document: { ...document, tracks, clips, automation,
     ...(isTap ? { mix: { masterGainDb: 0, masterEffects: [] } } : {}),
     assets: requiredAssets }, selectedTrackIds: [...sourceIds],
