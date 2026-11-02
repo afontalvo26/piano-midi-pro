@@ -86,6 +86,7 @@ export interface ReferenceStudioProps {
   trackLevels?: Readonly<Record<string, { peak: number; rms: number; clipped: boolean }>>;
   editor: ReactNode;
   instrumentPicker: ReactNode;
+  performancePanel: ReactNode;
   loopEnabled: boolean;
   onLoopChange: (enabled: boolean) => void;
   onSeekTick: (tick: number) => void;
