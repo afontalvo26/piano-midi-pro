@@ -489,6 +489,7 @@ test("project browser stays in the new Studio shell and creates a project withou
   await studio.locator(".ref-project-select").click();
   const dialog=studio.getByRole("dialog",{name:"Gestión de proyectos"});
   await expect(dialog.getByRole("heading",{name:"Tus proyectos"})).toBeVisible();
+  await expect(dialog.getByRole("heading",{name:"Pistas de tus grabaciones MIDI"})).toBeVisible();
   await expect(studio).toBeVisible();
   await dialog.getByRole("textbox",{name:"Nombre del proyecto"}).fill("Prueba modal propia");
   await dialog.getByRole("button",{name:"Crear proyecto"}).click();
