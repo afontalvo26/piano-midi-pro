@@ -112,6 +112,7 @@ test("a muted primary bus preserves an independent audible send", async ({ page 
   const result = await page.evaluate(async () => {
     const { analyzeUserSample } = await import("/src/audio/userSampleAsset.ts");
     const { renderProjectPcm } = await import("/src/audio/renderProjectPcm.ts");
+    const { planProjectAudioExport } = await import("/src/export/audioPlan.ts");
     const { createProjectDocument } = await import("/src/project/model.ts");
     const frames = 12_000;
     const bytes = new ArrayBuffer(44 + frames * 2);
@@ -152,6 +153,10 @@ test("a muted primary bus preserves an independent audible send", async ({ page 
     const reader = { readAsset: async () => analyzed.data };
     const options = { startTick: 0, endTick: 480, tailSeconds: 0,
       sampleRate: 48_000, seed: "mute-send-qa" } as const;
+    const plan = planProjectAudioExport(doc, { ...options, stems: "buses" });
+    let rejectedMutedOnly = false;
+    try { planProjectAudioExport(dryDoc, { ...options, stems: "none" }); }
+    catch { rejectedMutedOnly = true; }
     const [wet, dry, muted] = await Promise.all([
       renderProjectPcm(doc, options, reader),
       renderProjectPcm(dryDoc, options, reader),
@@ -160,12 +165,17 @@ test("a muted primary bus preserves an independent audible send", async ({ page 
     const energy = (data: Float32Array) => data.reduce((sum, x) => sum + x * x, 0);
     return { wetEnergy: energy(wet.left), dryEnergy: energy(dry.left),
       mutedEnergy: energy(muted.left),
-      missingAttacks: wet.report.audio.missingAttacks };
+      missingAttacks: wet.report.audio.missingAttacks,
+      plannedBusSourceIds: plan.stems.filter((stem) => stem.kind === "bus")
+        .flatMap((stem) => stem.sourceTrackIds),
+      mutedOnlyRejected: rejectedMutedOnly };
   });
   expect(result.wetEnergy).toBeGreaterThan(0.01);
   expect(result.dryEnergy).toBeLessThan(result.wetEnergy * 0.01);
   expect(result.mutedEnergy).toBeLessThan(result.wetEnergy * 0.01);
   expect(result.missingAttacks).toBe(0);
+  expect(result.plannedBusSourceIds).toEqual(["source"]);
+  expect(result.mutedOnlyRejected).toBe(true);
 });
 
 test("mobile mixer adds, edits and removes an acyclic send at 320 px", async ({ page }) => {
