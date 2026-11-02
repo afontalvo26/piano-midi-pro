@@ -1198,6 +1198,18 @@ export class LiveStudioEngine {
     this.projectPlayback?.setMasterGainDb(gainDb);
     this.publish();
   }
+  setProjectAutomationLiveOverride(laneId: string, value: number): boolean {
+    if (!this.projectPlayback || this.disposed) return false;
+    this.projectPlayback.setAutomationLiveOverride(laneId, value);
+    this.publish();
+    return true;
+  }
+  releaseProjectAutomationLiveOverride(laneId: string): boolean {
+    if (!this.projectPlayback || this.disposed) return false;
+    this.projectPlayback.releaseAutomationLiveOverride(laneId);
+    this.publish();
+    return true;
+  }
   setProjectTrackEffectComparison(trackId: string, mode: "off" | "original" | "processed"):
     ReturnType<ProjectAudioSink["setTrackEffectComparison"]> | null {
     if (!this.projectPlayback || this.disposed) return null;
