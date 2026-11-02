@@ -17,6 +17,12 @@ export interface ProjectMixerProps {
   canRedo?: boolean;
   meter?: Readonly<Record<string, { peak: number; rms: number; clipped: boolean }>>;
   masterMeter?: { peak: number; rms: number; clipped: boolean };
+  sidechainStatus?: Readonly<Record<string, {
+    sourceTrackId: string | null;
+    reductionDb: number;
+    peakReductionDb: number;
+    error: string | null;
+  }>>;
 }
 
 function meterPercent(value: number): number {
@@ -43,7 +49,7 @@ function reachesTrack(document: ProjectDocumentV1, fromId: string, targetId: str
 
 export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects, onMasterEffects,
   onCreateBus, onRemoveBus,
-  onUndo, onRedo, canUndo, canRedo, meter, masterMeter }: ProjectMixerProps) {
+  onUndo, onRedo, canUndo, canRedo, meter, masterMeter, sidechainStatus }: ProjectMixerProps) {
   const [gainDrafts, setGainDrafts] = useState<Record<string, string>>({});
   const [panDrafts, setPanDrafts] = useState<Record<string, string>>({});
   const [masterDraft, setMasterDraft] = useState<string | null>(null);
@@ -107,6 +113,13 @@ export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects
           !reachesTrack(document, bus.id, track.id));
         const sendDestination = availableSendBuses.some((bus) => bus.id === sendDrafts[track.id])
           ? sendDrafts[track.id]! : availableSendBuses[0]?.id ?? "";
+        const keySources = document.tracks.filter((candidate) =>
+          candidate.id !== track.id && candidate.kind !== "bus");
+        const defaultKey = keySources.find((candidate) => candidate.kind === "drum") ?? keySources[0];
+        const sidechain = mix.sidechain;
+        const reportedSidechain = sidechainStatus?.[track.id];
+        const sidechainAudio = sidechain && reportedSidechain?.sourceTrackId === sidechain.sourceTrackId
+          ? reportedSidechain : undefined;
         return <section key={track.id} className="project-mixer__channel" aria-label={`Canal ${track.name}`}>
           <div className="project-mixer__channel-head"><h3>{track.name}</h3><span>{track.kind}</span></div>
           <div className="project-mixer__controls">
@@ -145,6 +158,78 @@ export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects
             <meter min="0" max="1" value={level?.peak ?? 0} />
             {level?.clipped && <strong role="alert">Clipping</strong>}
           </div>
+          {track.kind !== "bus" && <section className="project-mixer__sidechain"
+            aria-label={`Sidechain de ${track.name}`}>
+            <div className="project-mixer__sidechain-head"><div>
+              <h4>Sidechain Kick → 808/Bass</h4>
+              <p>Detector de audio real · post-insert/post-pan · también se aplica al WAV.</p>
+            </div><button type="button" aria-pressed={!!sidechain}
+              disabled={!sidechain && !defaultKey} onClick={() => {
+                if (sidechain) {
+                  const { sidechain: _sidechain, ...withoutSidechain } = mix;
+                  void _sidechain;
+                  onTrackMix(track.id, withoutSidechain);
+                } else if (defaultKey) {
+                  onTrackMix(track.id, { ...mix, sidechain: {
+                    sourceTrackId: defaultKey.id, thresholdDb: -24, ratio: 4,
+                    attackMs: 5, releaseMs: 120, maxReductionDb: 12,
+                  } });
+                }
+              }}>{sidechain ? "Activo" : "Activar"}</button></div>
+            {sidechain && <><label>Fuente kick / key<select aria-label={`Fuente sidechain de ${track.name}`}
+              value={sidechain.sourceTrackId}
+              onChange={(event) => onTrackMix(track.id, { ...mix, sidechain: {
+                ...sidechain, sourceTrackId: event.target.value } })}>
+              {keySources.map((candidate) => <option value={candidate.id} key={candidate.id}>
+                {candidate.name}</option>)}
+            </select></label>
+            <div className="project-mixer__sidechain-grid">
+              <label>Umbral (dB)<input aria-label={`Umbral sidechain de ${track.name}`}
+                type="number" min="-60" max="0" step="0.5"
+                value={sidechain.thresholdDb} onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value) && value >= -60 && value <= 0) onTrackMix(track.id,
+                    { ...mix, sidechain: { ...sidechain, thresholdDb: value } });
+                }} /></label>
+              <label>Ratio<input aria-label={`Ratio sidechain de ${track.name}`}
+                type="number" min="1" max="20" step="0.1"
+                value={sidechain.ratio} onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value) && value >= 1 && value <= 20) onTrackMix(track.id,
+                    { ...mix, sidechain: { ...sidechain, ratio: value } });
+                }} /></label>
+              <label>Ataque (ms)<input aria-label={`Ataque sidechain de ${track.name}`}
+                type="number" min="0.1" max="250" step="0.1"
+                value={sidechain.attackMs} onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value) && value >= 0.1 && value <= 250) onTrackMix(track.id,
+                    { ...mix, sidechain: { ...sidechain, attackMs: value } });
+                }} /></label>
+              <label>Release (ms)<input aria-label={`Release sidechain de ${track.name}`}
+                type="number" min="1" max="2000" step="1"
+                value={sidechain.releaseMs} onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value) && value >= 1 && value <= 2000) onTrackMix(track.id,
+                    { ...mix, sidechain: { ...sidechain, releaseMs: value } });
+                }} /></label>
+              <label>Reducción máx. (dB)<input aria-label={`Reducción máxima sidechain de ${track.name}`}
+                type="number" min="0" max="36" step="0.5"
+                value={sidechain.maxReductionDb} onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value) && value >= 0 && value <= 36) onTrackMix(track.id,
+                    { ...mix, sidechain: { ...sidechain, maxReductionDb: value } });
+                }} /></label>
+            </div>
+            <div className="project-mixer__sidechain-meter">
+              <div><span>Reducción actual</span>
+                <strong>{(sidechainAudio?.reductionDb ?? 0).toFixed(1)} dB</strong></div>
+              <meter min="0" max={Math.max(1, sidechain.maxReductionDb)}
+                value={sidechainAudio?.reductionDb ?? 0} />
+              {sidechainAudio && <small>Pico de sesión: {sidechainAudio.peakReductionDb.toFixed(1)} dB</small>}
+              {sidechainAudio?.error && <strong role="alert">{sidechainAudio.error}</strong>}
+              {!sidechainAudio && <small>Reproduce o vuelve a preparar el audio para activar el detector.</small>}
+            </div></>}
+          </section>}
           {onTrackEffects && <ProjectEffectsPanel label={track.name} effects={mix.effects}
             onChange={(effects) => onTrackEffects(track.id, effects)} />}
           {buses.length > 0 && <div className="project-mixer__sends" aria-label={`Envíos de ${track.name}`}>
