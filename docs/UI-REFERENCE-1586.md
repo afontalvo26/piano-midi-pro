@@ -1,6 +1,6 @@
 # Studio UI — contrato visual del mockup aprobado
 
-> Alcance **exclusivo UI/UX** de [PR #5](https://github.com/afontalvo26/piano-midi-pro/pull/5). Esta es la **referencia aprobada**, no una propuesta para reinterpretar colores o disposición. No se alteran procesos MIDI, audio, exportación ni modelo de proyectos en este corte.
+> Alcance **exclusivo UI/UX** de [PR #5](https://github.com/afontalvo26/piano-midi-pro/pull/5). Esta es la **referencia aprobada**, no una propuesta para reinterpretar colores o disposición. Se preserva la arquitectura del motor; la conexión de UI añadió soporte de cambio de región de bucle del transporte, lectura de latencia estimada y ajustes de efectos ya soportados. No se ha alterado el mapeo MIDI físico ni el formato de proyectos.
 
 ## Composición de referencia
 
@@ -74,6 +74,6 @@ Los siguientes controles ya tienen **implementación de código** en esta rama, 
 - La UI aún requiere **build y prueba completa en navegador**, incluyendo una comparación real con el screenshot aprobado; el PR continúa en borrador.
 - El selector de biblioteca controla el **instrumento en vivo**. La selección de presets por pista de arreglo necesita correspondencia con el motor de proyectos para los instrumentos WAF; no se asume que cambiar el preset global reescribe pistas.
 - La notación implementada es lectura básica de notas, no grabado profesional ni edición de pentagrama.
-- CPU y latencia física siguen sin estar medidos; no mostrar métricas simuladas.
+- CPU y latencia física siguen sin estar medidos; si el navegador ofrece baseLatency/outputLatency, la cabecera puede mostrar una **estimación del búfer de salida**, no un valor de latencia MIDI o loopback.
 - Quedan tareas del producto no reducidas a UI: funciones de automatización e instrumentos, QA de 113 criterios, dispositivos reales, compatibilidad móvil y licencias.
 - Deben ejecutarse las pruebas de `studio-reference-ui.spec.ts` y `sequencer-transport.spec.ts` con el runner funcional. Un archivo de prueba escrito no constituye aceptación.
