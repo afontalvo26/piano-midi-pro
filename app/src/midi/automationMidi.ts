@@ -1,5 +1,5 @@
-import type { ProjectAutomationLane } from "../project/model.ts";
-import type { AutomationParameterDescriptor } from "../project/automationParameters.ts";
+import type { ProjectAutomationLane, ProjectDocumentV1 } from "../project/model.ts";
+import { projectAutomationBaseValue, type AutomationParameterDescriptor } from "../project/automationParameters.ts";
 import type { MidiValueMode } from "./profile.ts";
 
 export type AutomationMidiTakeover =
@@ -37,14 +37,10 @@ export function automationMidiValueMode(takeover: AutomationMidiTakeover): MidiV
 }
 
 export function automationBaseValue(
-  lane: ProjectAutomationLane,
-  document: { readonly mix: { readonly masterGainDb: number };
-    readonly tracks: readonly { readonly id: string;
-      readonly mix: { readonly gainDb: number; readonly pan: number } }[] },
-): number {
-  if (lane.target.scope === "master") return document.mix.masterGainDb;
-  const track = document.tracks.find((item) => item.id === lane.target.ownerId);
-  return lane.target.parameterId === "pan" ? track?.mix.pan ?? 0 : track?.mix.gainDb ?? 0;
+  lane: ProjectAutomationLane, document: ProjectDocumentV1): number {
+  const value = projectAutomationBaseValue(document, lane.target);
+  if (value === undefined) throw new RangeError("Valor base de automatización no disponible");
+  return value;
 }
 
 export function scaleAutomationMidiValue(raw: number, valueMode: MidiValueMode,
