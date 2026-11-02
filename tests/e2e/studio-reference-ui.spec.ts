@@ -269,14 +269,61 @@ test("loop UI and ruler are connected to transport state",async({page})=>{
   await page.goto("/",{waitUntil:"domcontentloaded"});
   const shell=page.getByTestId("reference-studio");
   await shell.getByRole("button",{name:"Nueva idea"}).click();
-  const loop=shell.getByRole("button",{name:"Región de bucle"});
-  await expect(loop).toHaveAttribute("aria-pressed","false");
-  await loop.click();
-  await expect(loop).toHaveAttribute("aria-pressed","true");
+  const enableLoop=shell.getByRole("button",{name:"Activar bucle"});
+  await expect(enableLoop).toHaveAttribute("aria-pressed","false");
+  await enableLoop.click();
+  const disableLoop=shell.getByRole("button",{name:"Desactivar bucle"});
+  await expect(disableLoop).toHaveAttribute("aria-pressed","true");
   const slider=shell.getByRole("slider",{name:"Mover cabezal de reproducción"});
   await slider.focus();
   await slider.press("ArrowRight");
   await expect(slider).toHaveAttribute("aria-valuenow","240");
-  await loop.click();
-  await expect(loop).toHaveAttribute("aria-pressed","false");
+  await disableLoop.click();
+  await expect(enableLoop).toHaveAttribute("aria-pressed","false");
+});
+
+
+test("the reference loop start and length can be edited and remain musical",async({page})=>{
+  await page.setViewportSize({width:1586,height:992});
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const shell=page.getByTestId("reference-studio");
+  await shell.getByRole("button",{name:"Nueva idea"}).click();
+  await shell.getByRole("button",{name:"Editar región de bucle"}).click();
+  const form=shell.getByRole("form",{name:"Cambiar inicio y final del bucle"});
+  await expect(form).toBeVisible();
+  await form.getByLabel("Desde compás").fill("3");
+  await form.getByLabel("Hasta compás").fill("9");
+  await form.getByRole("button",{name:"Aplicar bucle"}).click();
+  await expect(shell.getByRole("button",{name:"Editar región de bucle"}))
+    .toContainText("Compás 3 – 9");
+  await shell.getByRole("button",{name:"Activar bucle"}).click();
+  await expect(shell.locator(".ref-loop-marker")).toBeVisible();
+});
+
+test("time-signature changes drive bar mapping instead of fixed 4/4 assumptions",async({page})=>{
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const mapped=await page.evaluate(async()=>{
+    const {studioBarStartTick,studioBarNumberAtTick,studioLoopBarRange}=
+      await import("/src/components/studio/studioMusicalBars.ts");
+    const meters=[
+      {tick:0,numerator:4,denominator:4},
+      {tick:7680,numerator:3,denominator:4}
+    ];
+    return {b1:studioBarStartTick(meters,1),
+      b3:studioBarStartTick(meters,3),
+      b4:studioBarStartTick(meters,4),
+      at7900:studioBarNumberAtTick(meters,7900),
+      loop:studioLoopBarRange(meters,3,4)};
+  });
+  expect(mapped).toEqual({b1:0,b3:7680,b4:10560,at7900:3,
+    loop:{startTick:7680,endTick:13440}});
+});
+
+test("reference shell labels MIDI ports generically rather than claiming an unobserved model",async({page})=>{
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const shell=page.getByTestId("reference-studio");
+  await expect(shell.getByRole("button",{name:"Avanzar un compás"})).toBeVisible();
+  await expect(shell.getByRole("button",{name:"Deshacer"})).toBeVisible();
+  await expect(shell.getByRole("button",{name:"Rehacer"})).toBeVisible();
+  await expect(shell.getByText("SMK-37 conectado")).toHaveCount(0);
 });
