@@ -169,13 +169,13 @@ test("four instrument macro controls create real persisted validated processors"
     const mix={gainDb:0,pan:0,mute:false,solo:false,armed:false,
       effects:[],sends:[]};
     const track={id:"test-track",name:"Instrumento",kind:"audio" as const,mix};
-    let doc={...base,tracks:[track],trackOrder:[track.id]};
+    let doc: ReturnType<typeof createProjectDocument>={...base,tracks:[track],trackOrder:[track.id]};
     for(const [kind,value] of [["brightness",38],["body",75],["reverb",42],["dynamics",60]] as const){
       const current=doc.tracks[0]!.mix.effects;
       const next=applyStudioMacro(current,track.id,kind,value);
       const applied=applyCommand(doc,{kind:"replaceTrackEffects",trackId:track.id,
         expected:current,effects:next,at:2});
-      doc=applied.document as typeof doc;
+      doc=applied.document;
     }
     const effects=doc.tracks[0]!.mix.effects;
     return {count:effects.length,ids:effects.map(e=>e.id),
