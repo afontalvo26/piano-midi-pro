@@ -815,3 +815,29 @@
 .ref-inspector-clip-actions{flex-wrap:wrap}
 .ref-inspector-clip-actions button{min-width:75px}
 @media(max-width:650px){.ref-clip-length-editor input{min-height:44px}}
+
+/* ARR-07: viewport navigation; the approved visual design stays in place. */
+.ref-arrangement-toolbar{overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.ref-timeline-nav{display:flex;align-items:center;gap:3px;flex:none}
+.ref-timeline-nav button{height:29px;min-width:26px;padding:3px 5px;
+ border:1px solid #454061;border-radius:7px;background:#22243b;color:#ebe4ff;
+ display:flex;align-items:center;justify-content:center;font-size:16px}
+.ref-timeline-nav button:disabled{opacity:.38;cursor:not-allowed}
+.ref-timeline-location{font-size:10px;min-width:40px;text-align:center;
+ font-variant-numeric:tabular-nums;color:#c6badf;white-space:nowrap}
+.ref-timeline-zoom{display:flex;align-items:center;gap:4px;
+ font-size:10px;color:#c8c0db;white-space:nowrap}
+.ref-timeline-zoom select{min-height:29px;min-width:41px;
+ background:#211e39;color:#fff;border:1px solid #534273;border-radius:7px;padding:1px 3px;
+ font-size:11px}
+.ref-ruler-numbers{grid-template-columns:none;background:#101528}
+.ref-ruler-numbers>span{display:block;width:auto;min-width:20px}
+.ref-track-lane{background:#0d1121}
+.ref-track-lane::before{display:none}
+@media(max-width:650px){
+ .ref-arrangement-toolbar{height:48px;min-height:48px;overflow-x:auto;overflow-y:hidden}
+ .ref-arrange-canvas{height:calc(100% - 48px)}
+ .ref-timeline-nav button,.ref-timeline-zoom select{min-height:44px;min-width:44px}
+ .ref-timeline-nav{order:2}
+ .ref-arrangement-tools{order:3}
+}
