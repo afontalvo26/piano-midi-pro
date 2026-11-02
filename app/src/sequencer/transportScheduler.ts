@@ -141,7 +141,7 @@ function validateEvent(event: TimelineEvent, start: number, end: number): void {
 /** AudioContext time is authoritative; the JS timer only wakes the planner. */
 export class TransportScheduler {
   private readonly options: TransportOptions;
-  private readonly loop: LoopRange | null;
+  private loop: LoopRange | null;
   private readonly horizon: number;
   private readonly startLead: number;
   private readonly wakeMs: number;
@@ -183,6 +183,28 @@ export class TransportScheduler {
   get epoch(): number { return this.epochValue; }
   get isMetronomeEnabled(): boolean { return this.metronomeEnabled; }
   get scheduledUntilTick(): number { return this.cursor; }
+
+  /** Change the musical repeat region without rebuilding instruments or sources.
+   * Every change invalidates the old epoch before any new notes can be planned. */
+  setLoopRange(next: LoopRange | null): void {
+    const normalized = next ? validateLoopRange(next) : null;
+    if (this.loop?.startTick === normalized?.startTick &&
+        this.loop?.endTick === normalized?.endTick) return;
+    const wasPlaying = this.stateValue === "playing";
+    // Preserve the displayed musical position when leaving an earlier loop.
+    const musicalTick = this.snapshot().tick;
+    const tick = normalized && musicalTick >= normalized.endTick
+      ? normalized.startTick : musicalTick;
+    this.invalidate();
+    this.loop = normalized;
+    this.position = tick;
+    this.cursor = tick;
+    this.automationPlannedUntil = tick;
+    if (wasPlaying) {
+      this.stateValue = "paused";
+      this.start(tick);
+    }
+  }
 
   setMetronomeEnabled(enabled: boolean): void {
     if (this.metronomeEnabled === enabled) return;
