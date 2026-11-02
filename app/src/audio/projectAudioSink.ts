@@ -554,7 +554,10 @@ export class ProjectAudioSink implements SequencerSink {
           }
         };
         source.meter.connect(node);
-        Tone.connectSignal(node, slot.sidechainGate.gain);
+        // AudioNode -> AudioParam is additive in Web Audio. Zero the intrinsic
+        // value so the detector's 0..1 signal becomes the complete gain law.
+        slot.sidechainGate.gain.value = 0;
+        Tone.connect(node, slot.sidechainGate.gain);
         slot.sidechainNode = node;
         slot.sidechainSource = source.meter;
         slot.sidechainError = null;
@@ -1234,6 +1237,7 @@ export class ProjectAudioSink implements SequencerSink {
     for (const send of slot.sends) send.dispose();
     if (slot.sidechainNode) {
       try { slot.sidechainSource?.disconnect(slot.sidechainNode); } catch { /* already disconnected */ }
+      try { Tone.disconnect(slot.sidechainNode, slot.sidechainGate.gain); } catch { /* already disconnected */ }
       slot.sidechainNode.port.onmessage = null;
       slot.sidechainNode.port.close();
       slot.sidechainNode.disconnect();
