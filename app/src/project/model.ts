@@ -134,6 +134,8 @@ export interface ProjectDrumPad {
   readonly source: ProjectDrumPadSource | null;
   readonly gainDb: number;
   readonly pan: number;
+  /** 0 = velocity casi fija, 1 = respuesta histórica, 2 = contraste más fuerte. */
+  readonly velocitySensitivity?: number;
   readonly pitchSemitones: number;
   readonly startFrame: number;
   /** Exclusive decoded-frame endpoint; omitted means the complete source. */
