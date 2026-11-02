@@ -2458,7 +2458,53 @@ export default function PianoApp() {
               loadingProgress={instrumentLoadingProgress} onCancel={cancelInstrumentLoad}
               failedId={failedInstrumentId} error={instrumentError} notice={instrumentNotice}
               onSelect={(id) => { void chooseInstrument(id); }} />}
-          editor={projectView ? (<PianoRoll pattern={projectPattern} projectName={projectView?.document.name}
+          editor={workspace === "mixer" && projectView ? (<ProjectMixer document={projectView.document}
+            meter={trackMeters} masterMeter={visibleProjectMeters?.masterMeter}
+            onTrackMix={commitTrackMix} onMasterMix={commitMasterMix}
+            onTrackEffects={commitTrackEffects} onMasterEffects={commitMasterEffects}
+            onCreateBus={createProjectBus} onRemoveBus={removeProjectBus}
+            onUndo={() => { projectSessionRef.current?.undo(); }}
+            onRedo={() => { projectSessionRef.current?.redo(); }}
+            canUndo={projectView.canUndo} canRedo={projectView.canRedo} />) : 
+            workspace === "automation" && projectView ? (<AutomationEditor
+            document={projectView.document} readPlaybackReady={true}
+            availableTargets={automationTargets} effectiveValues={effectiveAutomationValues}
+            playheadTick={projectTick} readPlayheadTick={readProjectTick}
+            saveState={projectView.status}
+            onCommand={(command) => commitAutomationEdit((session) => session.dispatch(command))}
+            onUndo={() => commitAutomationEdit((session) => session.undo())}
+            onRedo={() => commitAutomationEdit((session) => session.redo())}
+            canUndo={projectView.canUndo} canRedo={projectView.canRedo} />) : 
+            workspace === "export" && projectView ? (<ProjectExportPanel busy={exportingWav}
+            progress={wavExportProgress} notice={wavExportNotice}
+            onExport={(options) => { void exportActiveProjectWav(options); }}
+            onCancel={() => wavExportAbortRef.current?.abort()} />) : 
+            workspace === "arrangement" && projectView ? (<Arrangement document={projectView?.document ?? null}
+            playheadTick={projectTick} readPlayheadTick={readProjectTick} saveState={projectView?.status}
+            onLaunchScene={launchProjectScene} onStopScene={stopProjectScene}
+            activeSceneId={projectLauncher?.activeSceneId}
+            queuedSceneId={projectLauncher?.queuedSceneId}
+            queuedStartTick={projectLauncher?.queuedStartTick}
+            performedSceneSegments={projectLauncher?.performedSceneSegments}
+            performanceRevision={projectLauncher?.performanceRevision}
+            onPerformanceCaptured={() => {
+              engine.clearProjectPerformedSceneSegments();
+              refreshProjectLauncher();
+            }}
+            externalError={projectView?.error ?? undefined}
+            onCommand={(command: ProjectCommand) => {
+              if (!projectSessionRef.current) throw new Error("Abre un proyecto antes de editar el arreglo");
+              projectSessionRef.current.dispatch(command);
+            }}
+            onUndo={() => { projectSessionRef.current?.undo(); }}
+            onRedo={() => { projectSessionRef.current?.redo(); }}
+            canUndo={projectView?.canUndo} canRedo={projectView?.canRedo}
+            onOpenPattern={(patternId, trackId) => {
+              setEditorTrackId(trackId);
+              setEditorPatternId(patternId);
+              setWorkspace(trackId === drumTrack?.id ? "drums" : "piano-roll");
+            }} />) : 
+            projectView ? (<PianoRoll pattern={projectPattern} projectName={projectView?.document.name}
             trackName={projectTrack?.name} meter={projectView?.document.meterMap[0]}
             ghostPatterns={rollVisuals.ghostPatterns} allowedPadTriggers={rollVisuals.padTriggers}
             padNames={rollVisuals.padNames}
