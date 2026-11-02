@@ -42,3 +42,24 @@ Registrar: fecha; commit/árbol; build; navegador/versión; sistema/CPU/RAM; SMK
 4. Build de producción y auditoría de assets; audición/loopback física Elite. Pro se valida en una corrida propia cuando haya evidencia.
 
 Ninguna fila está aprobada por la existencia de esta spec. El reporte de ejecución anexará resultados y diferencias reales.
+
+
+## Gate de cierre SDD añadido el 2026-11-01
+
+- Inventario reproducible: `scripts/audit-beatmaker-requirements.mjs`.
+- Expediente individual de 113 IDs: `acceptance-evidence.json`; cada
+  fila comienza como `pending`, incluso si existe código para ella.
+- Verificador: `scripts/verify-beatmaker-acceptance.mjs --check`
+  comprueba integridad del expediente sin declarar nada aceptado.
+  La modalidad `--release` exige expedientes aprobados con evidencia,
+  y ensayo físico real Elite bajo `smk37-elite-physical-evidence.json`.
+- QA software reproducible Windows:
+  `pwsh -File scripts/validate-studio.ps1` y sus logs `.logs/`.
+- GitHub Actions está bloqueado antes de asignar runner según
+  [run 41364098020](https://github.com/afontalvo26/piano-midi-pro/actions/runs/41364098020).
+  No tratar `failure` de este run como fallo comprobado de aplicación.
+
+**Comprobación vía API GitHub realizada:** las 15 specs contienen 113
+IDs de requisito, todos secuenciales y únicos; los siete OGG núcleo
+existen en el árbol fuente. Eso no sustituye la compilación ni la auditoría
+de los archivos generados `dist`.
