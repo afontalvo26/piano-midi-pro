@@ -193,13 +193,17 @@ function cloneClipAt(snapshot: ProjectDocumentV1, clip: ProjectClip,
     }
     const endTick = clock.secondsToTick(absoluteEndUs / 1_000_000);
     if (endTick <= startTick) throw new RangeError("Copia de audio colapsa en ticks");
-    return { ...structuredClone(clip), id: newClipId, startTick,
+    const copy = { ...structuredClone(clip), id: newClipId, startTick,
       lengthTicks: endTick - startTick, absoluteStartUs, absoluteEndUs };
+    delete (copy as { groupId?: string }).groupId;
+    return copy;
   }
   if (requestedStartUs !== undefined) {
     throw new RangeError("Sólo un clip de audio absoluto acepta ancla de microsegundos");
   }
-  return { ...structuredClone(clip), id: newClipId, startTick };
+  const copy = { ...structuredClone(clip), id: newClipId, startTick };
+  delete (copy as { groupId?: string }).groupId;
+  return copy;
 }
 
 function assertExpected<T>(current: readonly T[], expected: readonly T[], label: string): void {
