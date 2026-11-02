@@ -5,6 +5,7 @@ import { PROJECT_808_INSTRUMENT, PROJECT_CLAP_INSTRUMENT, PROJECT_DRUM_INSTRUMEN
   PROJECT_PIANO_INSTRUMENT } from "./audio/projectAudioSink";
 import { PianoKeyboard } from "./components/studio/PianoKeyboard";
 import { ReferenceStudio } from "./components/studio/ReferenceStudio";
+import { applyStudioMacro } from "./components/studio/studioMacros";
 import { LivePerformanceReadout } from "./components/studio/LivePerformanceReadout";
 import { publishLiveStrike } from "./components/studio/livePerformanceStore";
 import { MidiControlPanel } from "./components/midi/MidiControlPanel";
@@ -2452,6 +2453,12 @@ export default function PianoApp() {
           onArrangementCommand={(command) => {
             if (!projectSessionRef.current) throw new Error("Abre un proyecto para editar el arreglo");
             projectSessionRef.current.dispatch(command);
+          }}
+          onMacroChange={(trackId, macro, value) => {
+            const track = projectSessionRef.current?.getSnapshot().document.tracks
+              .find((item)=>item.id===trackId);
+            if(!track) throw new Error("Selecciona una pista para editar sus efectos");
+            commitTrackEffects(trackId, applyStudioMacro(track.mix.effects,trackId,macro,value));
           }}
           activeTrackId={projectTrack?.id}
           saveStatus={projectView?.status ?? "none"}
