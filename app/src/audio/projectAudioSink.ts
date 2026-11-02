@@ -214,9 +214,10 @@ export class ProjectAudioSink implements SequencerSink {
     renderTap?: { readonly busTrackId?: string; readonly directMaster?: boolean }) {
     if (document.ppq !== 960) throw new RangeError("project audio requires 960 PPQ");
     assertSafeAudioRouting(document);
-    if ((renderTap?.busTrackId && renderTap.directMaster) ||
-        (renderTap?.busTrackId && !document.tracks.some((track) =>
-          track.id === renderTap.busTrackId && track.kind === "bus"))) {
+    const tappedBusId = renderTap?.busTrackId;
+    if ((tappedBusId && renderTap?.directMaster) ||
+        (tappedBusId && !document.tracks.some((track) =>
+          track.id === tappedBusId && track.kind === "bus"))) {
       throw new RangeError("Punto de captura de audio inválido");
     }
     this.projectId = document.id;
