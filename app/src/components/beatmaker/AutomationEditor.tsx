@@ -123,8 +123,7 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
   const targetKeys = useMemo(() => new Set(availableTargets.map(automationTargetKey)), [availableTargets]);
   const lane = document.automation.find((item) => item.id === selectedLaneId) ?? document.automation[0] ?? null;
   const descriptor = lane ? projectAutomationParameter(document, lane.target) : undefined;
-  const editable = !!lane && !!descriptor && targetKeys.has(automationTargetKey(lane.target)) &&
-    !lane.points.some((point) => point.shape === "bezier");
+  const editable = !!lane && !!descriptor && targetKeys.has(automationTargetKey(lane.target));
   const selectedPoints = useMemo(() => lane?.points.filter((point) => selectedIds.has(point.id)) ?? [],
     [lane, selectedIds]);
   const selectedPoint = selectedPoints.length === 1 ? selectedPoints[0] : null;
@@ -316,18 +315,22 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
     const form = new FormData(event.currentTarget);
     const tick = Number(form.get("tick"));
     const value = Number(form.get("value"));
-    const shape = form.get("shape") === "step" ? "step" : "linear";
+    const shapeValue = form.get("shape");
+    const shape = shapeValue === "step" ? "step" : shapeValue === "bezier" ? "bezier" : "linear";
+    const curve = shape === "bezier" ? Number(form.get("curve")) : undefined;
     void commit(() => addAutomationPoint(document, lane.id,
-      { id: crypto.randomUUID(), tick, value, shape }));
+      { id: crypto.randomUUID(), tick, value, shape, ...(curve === undefined ? {} : { curve }) }));
   }
 
   function savePoint(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     if (!lane || !selectedPoint || !editable) return;
     const form = new FormData(event.currentTarget);
+    const shapeValue = form.get("shape");
+    const shape = shapeValue === "step" ? "step" : shapeValue === "bezier" ? "bezier" : "linear";
     void commit(() => moveAutomationPoint(document, lane.id, selectedPoint.id,
-      { tick: Number(form.get("tick")), value: Number(form.get("value")),
-        shape: form.get("shape") === "step" ? "step" : "linear" }));
+      { tick: Number(form.get("tick")), value: Number(form.get("value")), shape,
+        curve: shape === "bezier" ? Number(form.get("curve")) : undefined }));
   }
 
   function copySelection(): void {
@@ -550,10 +553,14 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
             min={descriptor?.min} max={descriptor?.max} step="any" defaultValue={baseValue(document, lane)} required /></label>
           <label>Tramo saliente<select name="shape" defaultValue="linear">
             <option value="linear">Lineal</option><option value="step">Escalón</option>
+            <option value="bezier">Bézier suavizada</option>
           </select></label>
+          <label>Curvatura Bézier<input name="curve" type="number" inputMode="decimal"
+            min="-1" max="1" step="0.05" defaultValue="0" />
+            <small>−1 = entrada lenta · 0 = lineal · +1 = entrada rápida</small></label>
           <button type="submit" disabled={busy}>Añadir punto</button>
         </form>
-        {selectedPoint && <form key={`${selectedPoint.id}:${selectedPoint.tick}:${selectedPoint.value}:${selectedPoint.shape}`}
+        {selectedPoint && <form key={`${selectedPoint.id}:${selectedPoint.tick}:${selectedPoint.value}:${selectedPoint.shape}:${selectedPoint.curve ?? 0}`}
           className="automation-editor__form" onSubmit={savePoint}>
           <strong>Punto seleccionado · {selectedPoint.id}</strong>
           <label>Tick exacto<input name="tick" type="number" inputMode="numeric" min={0} step={1}
@@ -562,7 +569,11 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
             min={descriptor?.min} max={descriptor?.max} step="any" defaultValue={selectedPoint.value} required /></label>
           <label>Tramo saliente<select name="shape" defaultValue={selectedPoint.shape}>
             <option value="linear">Lineal</option><option value="step">Escalón</option>
+            <option value="bezier">Bézier suavizada</option>
           </select></label>
+          <label>Curvatura Bézier<input name="curve" type="number" inputMode="decimal"
+            min="-1" max="1" step="0.05" defaultValue={selectedPoint.curve ?? 0} />
+            <small>−1 = entrada lenta · 0 = lineal · +1 = entrada rápida</small></label>
           <button type="submit" disabled={busy}>Aplicar punto</button>
         </form>}
         {clipboard.length > 0 && <div className="automation-editor__paste">
