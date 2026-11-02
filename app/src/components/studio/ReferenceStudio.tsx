@@ -605,7 +605,7 @@ export function ReferenceStudio({
                   </div>
                 </div>;
               })}
-              {playheadVisible && <div className="ref-arrangement-playhead" style={{left:"calc(295px + (100% - 295px) * "+(playheadPercent/100)+")"}} aria-hidden="true"/>}
+              {playheadVisible && <div className="ref-arrangement-playhead" style={{left:"calc(var(--ref-track-info-width) + (100% - var(--ref-track-info-width)) * "+(playheadPercent/100)+")"}} aria-hidden="true"/>}
             </div>
           </div>
         </section>
