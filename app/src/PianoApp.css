@@ -157,3 +157,35 @@
   .piano-app__track-picker { width: 100%; align-items: stretch; flex-direction: column; }
   .piano-app__pedals strong { font-size: 11px; }
 }
+
+/* Reference Studio owns the full viewport. The legacy shell stays reachable
+   only for advanced editors that have not yet been visually migrated. */
+.piano-app--reference {
+  background: #070b17;
+}
+.piano-app--reference > .piano-app__header {
+  display: none;
+}
+.piano-app--reference > .piano-app__main {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  scrollbar-width: none;
+}
+.piano-app__reference-return {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-bottom: 14px;
+}
+.piano-app__reference-return button {
+  border: 1px solid #8b55e8;
+  background: linear-gradient(115deg,#6539b2,#392665);
+  border-radius: 9px;
+  color: #fff;
+  min-height: 44px;
+  padding: 9px 16px;
+  font-weight: 700;
+  box-shadow: 0 4px 16px #6c3bc438;
+}
