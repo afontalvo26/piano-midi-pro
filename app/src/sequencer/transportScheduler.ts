@@ -594,15 +594,18 @@ export class TransportScheduler {
 
   private validateAutomation(event: TimelineAutomation, start: number, end: number): void {
     const target = event.target;
+    const trackTargetValid = target.scope === "track" && !!target.ownerId &&
+      (target.effectId
+        ? !!target.parameterId
+        : target.parameterId === "gainDb" || target.parameterId === "pan");
+    const masterTargetValid = target.scope === "master" &&
+      (target.effectId ? !!target.parameterId : target.parameterId === "masterGainDb");
     if (!event.laneId || !Number.isSafeInteger(event.tick) || event.tick < start ||
         !Number.isSafeInteger(event.endTick) || event.endTick <= event.tick ||
         event.endTick > end || !Number.isSafeInteger(event.sequence) || event.sequence < 0 ||
         !Number.isFinite(event.startValue) || !Number.isFinite(event.endValue) ||
         (event.shape !== "step" && event.shape !== "linear") ||
-        (target.scope === "track" && (!target.ownerId ||
-          (target.parameterId !== "gainDb" && target.parameterId !== "pan"))) ||
-        (target.scope === "master" && target.parameterId !== "masterGainDb") ||
-        (target.scope !== "master" && target.scope !== "track")) {
+        (!trackTargetValid && !masterTargetValid)) {
       throw new RangeError("Evento de automatización inválido");
     }
   }
