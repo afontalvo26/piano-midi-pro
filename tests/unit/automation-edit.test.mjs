@@ -255,3 +255,35 @@ test("clip gain usa ticks locales, Touch queda dentro del clip y la copia conser
   assert.notDeepEqual(copiedLane.points.map((point) => point.id),
     sourceLane.points.map((point) => point.id));
 });
+
+
+test("AUT send gain tiene identidad propia, rango dB y Touch reversible", () => {
+  const busMix = { gainDb: 0, pan: 0, mute: false, solo: false,
+    armed: false, sends: [], effects: [] };
+  const bus = { id: "send-bus", name: "Delay bus", kind: "bus", mix: busMix };
+  const source = { ...track, mix: { ...track.mix, sends: [
+    { id: "send-a", busTrackId: bus.id, gainDb: -18 },
+  ] } };
+  const document = { ...base, tracks: [source, bus], trackOrder: [source.id, bus.id] };
+  const target = { scope: "track", ownerId: source.id, sendId: "send-a",
+    parameterId: "gainDb" };
+  const created = applyCommand(document,
+    createBaseAutomationLane(document, target, 5000, "lane-send"));
+  const lane = created.document.automation[0];
+  assert.equal(lane.target.sendId, "send-a");
+  const touch = applyCommand(created.document,
+    setAutomationWriteMode(created.document, lane.id, "touch", 5001));
+  let id = 0;
+  const written = applyCommand(touch.document,
+    writeAutomationTouchGesture(touch.document, lane.id,
+      [{ tick: 120, value: -24 }, { tick: 240, value: -6 }],
+      5002, () => `send-touch-${++id}`));
+  assert(written.document.automation[0].points.some((point) =>
+    point.tick === 240 && point.value === -6));
+  assert.throws(() => addAutomationPoint(written.document, lane.id,
+    { id: "too-hot", tick: 960, value: 25, shape: "linear" }), /fuera/);
+  assert.deepEqual(applyCommand(written.document, written.inverse).document, touch.document);
+  assert.throws(() => createBaseAutomationLane(document,
+    { scope: "track", ownerId: source.id, sendId: "missing",
+      parameterId: "gainDb" }, 5003, "bad-send"), /no disponible/);
+});
