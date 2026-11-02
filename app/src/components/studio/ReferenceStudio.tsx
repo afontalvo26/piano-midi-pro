@@ -123,6 +123,7 @@ export interface ReferenceStudioProps {
   onTrackSelect: (track: ProjectTrack) => void;
   onOpenPattern: (trackId: string, patternId: string) => void;
   onTrackMix: (trackId: string, mix: ProjectTrack["mix"]) => void;
+  onTrackInstrumentChange: (trackId: string, instrumentId: string) => void;
   onUndo: () => void;
   onRedo: () => void;
   canUndo: boolean;
@@ -151,7 +152,8 @@ export function ReferenceStudio({
   loopStartBar, loopEndBar, onLoopRangeChange, onLoopChange,
   onSeekTick, onArrangementCommand, onMacroChange, onWorkspace, onLibrary, onProjects, onSettings,
   onNew, onPlay, onStop, onRecord, onMetronome, onTempoDraft, onTempoCommit,
-  onTrackSelect, onOpenPattern, onTrackMix, onUndo, onRedo, canUndo, canRedo,
+  onTrackSelect, onOpenPattern, onTrackMix, onTrackInstrumentChange,
+  onUndo, onRedo, canUndo, canRedo,
   onMasterGain, onFullEditor, onFullMixer,
 }: ReferenceStudioProps) {
   const [tool, setTool] = useState<ReferenceArrangementTool>("select");
@@ -592,6 +594,25 @@ export function ReferenceStudio({
           <div className="ref-instrument-picker-header"><strong>Biblioteca de instrumentos</strong>
             <button type="button" onClick={()=>setInstrumentChooserOpen(false)} aria-label="Cerrar biblioteca"><Icon name="close" size={16}/></button>
           </div>
+          {selectedTrack?.kind==="instrument" && <div className="ref-project-instrument">
+            <label htmlFor="ref-project-instrument-id">Banco de la pista: {selectedTrack.name}</label>
+            <select id="ref-project-instrument-id" aria-label="Banco sonoro de pista"
+              value={["salamander-grand","tr808-fischer-core"].includes(
+                selectedTrack.instrument?.instrumentId??"")
+                ? selectedTrack.instrument!.instrumentId : "other"}
+              onChange={(event)=>{
+                try { onTrackInstrumentChange(selectedTrack.id,event.target.value);setEditError(""); }
+                catch(error){setEditError(error instanceof Error?error.message:"No se pudo cambiar el banco");}
+              }}>
+              {selectedTrack.instrument?.instrumentId &&
+                !["salamander-grand","tr808-fischer-core"].includes(selectedTrack.instrument.instrumentId)
+                && <option value="other" disabled>{selectedTrack.instrument.instrumentId} · banco externo</option>}
+              {!selectedTrack.instrument && <option value="other" disabled>Sin instrumento asignado</option>}
+              <option value="salamander-grand">Piano Salamander · grabación local</option>
+              <option value="tr808-fischer-core">Bajo 808 Fischer · grabación local</option>
+            </select>
+            <small>Este selector guarda el banco de esta pista. El catálogo inferior cambia sólo el sonido de interpretación en vivo.</small>
+          </div>}
           {instrumentPicker}
           <button type="button" className="ref-instrument-picker-advanced" onClick={onLibrary}>Abrir configuración completa</button>
         </div> : inspector==="instrument"?<>
