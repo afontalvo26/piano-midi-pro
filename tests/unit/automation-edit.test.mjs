@@ -161,3 +161,41 @@ test("Touch reemplaza sólo el tramo tocado, vuelve a read curve y deshace como 
     automation: [{ ...lane, writeMode: "read" }] }, lane.id,
     [{ tick: 480, value: -6 }]), /Activa Touch/);
 });
+
+
+test("AUT effect lane usa el rango real, Touch y CAS sin reconstruir el efecto", () => {
+  const filter = { id: "filter-a", kind: "filter", enabled: true,
+    parameters: { type: "lowpass", cutoffHz: 12000, q: 0.7 } };
+  const document = { ...base, tracks: [{ ...track, mix: { ...track.mix,
+    effects: [filter] } }] };
+  const target = { scope: "track", ownerId: track.id, effectId: filter.id,
+    parameterId: "cutoffHz" };
+  const created = applyCommand(document,
+    createBaseAutomationLane(document, target, 3000, "lane-filter"));
+  const touchMode = applyCommand(created.document,
+    setAutomationWriteMode(created.document, "lane-filter", "touch", 3001));
+  const first = applyCommand(touchMode.document,
+    addAutomationPoint(touchMode.document, "lane-filter",
+      { id: "f0", tick: 0, value: 12000, shape: "linear" }, 3002));
+  const second = applyCommand(first.document,
+    addAutomationPoint(first.document, "lane-filter",
+      { id: "f1", tick: 960, value: 400, shape: "step" }, 3003));
+  let id = 0;
+  const touched = applyCommand(second.document,
+    writeAutomationTouchGesture(second.document, "lane-filter",
+      [{ tick: 240, value: 8000 }, { tick: 360, value: 6000 }],
+      3004, () => `fx-touch-${++id}`));
+  assert(touched.document.automation[0].points.some((point) =>
+    point.tick === 360 && point.value === 6000));
+  assert.throws(() => addAutomationPoint(touched.document, "lane-filter",
+    { id: "bad", tick: 1920, value: 20001, shape: "linear" }), /fuera/);
+  assert.deepEqual(applyCommand(touched.document, touched.inverse).document, second.document);
+
+  const saturation = { id: "sat-a", kind: "saturation", enabled: true,
+    parameters: { drive: 0.2, wet: 0.3 } };
+  const withSat = { ...document, tracks: [{ ...track, mix: { ...track.mix,
+    effects: [saturation] } }] };
+  assert.throws(() => createBaseAutomationLane(withSat,
+    { scope: "track", ownerId: track.id, effectId: saturation.id,
+      parameterId: "drive" }, 3010, "lane-drive"), /no disponible/);
+});
