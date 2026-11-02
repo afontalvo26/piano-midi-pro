@@ -1161,6 +1161,10 @@ export class LiveStudioEngine {
       void this.setMetronome(this.metronome);
     }
   }
+  setProjectLoopRange(range: LoopRange | null): void {
+    this.projectPlayback?.setLoopRange(range);
+    this.publish();
+  }
   seekProjectPlayback(tick: number): void { this.projectPlayback?.seek(tick); this.publish(); }
   setProjectTrackMute(trackId: string, muted: boolean): void {
     this.projectPlayback?.setTrackMute(trackId, muted);
