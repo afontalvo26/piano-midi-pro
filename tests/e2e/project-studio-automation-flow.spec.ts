@@ -32,6 +32,17 @@ test("Studio automatiza master, reproduce valor efectivo, deshace, recarga y exp
   await expect(editor.locator(".automation-editor__canvas")).toHaveAttribute("aria-label", /3 puntos/);
   await page.getByRole("button", { name: "Reproducir" }).tap();
   await expect(editor.getByText(/Valor efectivo .* dueño read/)).toBeVisible({ timeout: 20_000 });
+
+  // AUT-03: Touch owns the parameter while held; scheduled read automation cannot steal it.
+  await editor.getByRole("button", { name: "Touch" }).tap();
+  const touchFader = editor.getByRole("slider", { name: "Fader Touch de automatización" });
+  await touchFader.focus();
+  await page.keyboard.down("ArrowRight");
+  await expect(editor.getByText(/Valor efectivo .* dueño physical/)).toBeVisible({ timeout: 20_000 });
+  await page.keyboard.up("ArrowRight");
+  await expect(editor.getByText(/Valor efectivo .* dueño read/)).toBeVisible({ timeout: 20_000 });
+  await expect(editor.locator(".automation-editor__save")).toHaveText("Guardado", { timeout: 20_000 });
+
   await page.getByRole("button", { name: "Detener" }).tap();
   await expect(editor.locator(".automation-editor__save")).toHaveText("Guardado", { timeout: 20_000 });
   await page.reload();
