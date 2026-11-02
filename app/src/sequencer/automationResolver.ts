@@ -84,8 +84,11 @@ function resolveLane(document: ProjectDocumentV1, lane: ProjectAutomationLane,
     const target: BaseTarget = lane.target.effectId
       ? { scope: "track", ownerId: track.id, effectId: lane.target.effectId,
         parameterId: lane.target.parameterId }
-      : { scope: "track", ownerId: track.id,
-        parameterId: lane.target.parameterId as "gainDb" | "pan" };
+      : lane.target.sendId
+        ? { scope: "track", ownerId: track.id, sendId: lane.target.sendId,
+          parameterId: "gainDb" }
+        : { scope: "track", ownerId: track.id,
+          parameterId: lane.target.parameterId as "gainDb" | "pan" };
     return { id: lane.id, target, base, points: lane.points, sequence };
   }
   const target: BaseTarget = lane.target.effectId
