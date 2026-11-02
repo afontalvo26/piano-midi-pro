@@ -88,12 +88,16 @@ export class MonoUserSampleEngine {
     this.saturation = (settings.saturation ?? 0) > 0
       ? new Tone.Distortion({ distortion: settings.saturation!, wet: 1, oversample: "4x" })
       : null;
-    if (this.saturation) this.voiceBus.connect(this.saturation).connect(destination);
-    else this.voiceBus.connect(destination);
+    if (this.saturation) {
+      this.voiceBus.connect(this.saturation);
+      this.saturation.connect(destination);
+    } else this.voiceBus.connect(destination);
     if (settings.subGainDb !== undefined) {
       this.subFilter = new Tone.Filter({ type: "lowpass", frequency: 90, Q: 0.7, rolloff: -24 });
       this.subGain = new Tone.Gain(10 ** (settings.subGainDb / 20));
-      this.voiceBus.connect(this.subFilter).connect(this.subGain).connect(destination);
+      this.voiceBus.connect(this.subFilter);
+      this.subFilter.connect(this.subGain);
+      this.subGain.connect(destination);
     } else {
       this.subFilter = null;
       this.subGain = null;
