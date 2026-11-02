@@ -1,5 +1,5 @@
 import type { ProjectAutomationLane, ProjectDocumentV1 } from "../project/model.ts";
-import { baseAutomationParameter } from "../project/automationParameters.ts";
+import { projectAutomationBaseValue, projectAutomationParameter } from "../project/automationParameters.ts";
 import type { AutomationResolver, TimelineAutomation } from "./timelineEvents.ts";
 import { MusicalClock } from "./musicalClock.ts";
 
@@ -44,27 +44,43 @@ function valueAt(lane: ResolvedLane, tick: number): number {
 
 function resolveLane(document: ProjectDocumentV1, lane: ProjectAutomationLane,
   sequence: number): ResolvedLane | null {
-  const descriptor = baseAutomationParameter(lane.target);
-  if (lane.points.length === 0 && !descriptor) return null;
-  if (!descriptor || lane.target.scope === "clip" || lane.target.effectId !== undefined ||
-      (lane.target.scope === "track" && lane.target.parameterId !== "gainDb" &&
-        lane.target.parameterId !== "pan") ||
-      (lane.target.scope === "master" && lane.target.parameterId !== "masterGainDb")) {
+  const descriptor = projectAutomationParameter(document, lane.target);
+  if (!descriptor) {
+    if (lane.target.effectId) {
+      const effect = lane.target.scope === "master"
+        ? document.mix.masterEffects.find((item) => item.id === lane.target.effectId)
+        : lane.target.scope === "track"
+          ? document.tracks.find((track) => track.id === lane.target.ownerId)?.mix.effects
+            .find((item) => item.id === lane.target.effectId)
+          : undefined;
+      // Bypassed effects preserve their lanes but contribute no audible automation.
+      if (effect && !effect.enabled) return null;
+    }
+    if (lane.points.length === 0) return null;
     throw new Error(`Automatización ${lane.id}: parámetro sin reproducción live/WAV`);
+  }
+  if (lane.target.scope === "clip") {
+    throw new Error(`Automatización ${lane.id}: clip gain aún no usa el scheduler de mixer`);
   }
   if (lane.points.some((point) => point.shape === "bezier")) {
     throw new Error(`Automatización ${lane.id}: curva bezier aún no reproducible`);
   }
+  const base = projectAutomationBaseValue(document, lane.target);
+  if (base === undefined) throw new Error(`Automatización ${lane.id}: valor base ausente`);
   if (lane.target.scope === "track") {
     const track = document.tracks.find((item) => item.id === lane.target.ownerId);
     if (!track) throw new Error(`Automatización ${lane.id}: pista ausente`);
-    return { id: lane.id, target: { scope: "track", ownerId: track.id,
-      parameterId: lane.target.parameterId as "gainDb" | "pan" },
-    base: lane.target.parameterId === "gainDb" ? track.mix.gainDb : track.mix.pan,
-    points: lane.points, sequence };
+    const target: BaseTarget = lane.target.effectId
+      ? { scope: "track", ownerId: track.id, effectId: lane.target.effectId,
+        parameterId: lane.target.parameterId }
+      : { scope: "track", ownerId: track.id,
+        parameterId: lane.target.parameterId as "gainDb" | "pan" };
+    return { id: lane.id, target, base, points: lane.points, sequence };
   }
-  return { id: lane.id, target: { scope: "master", parameterId: "masterGainDb" },
-    base: document.mix.masterGainDb, points: lane.points, sequence };
+  const target: BaseTarget = lane.target.effectId
+    ? { scope: "master", effectId: lane.target.effectId, parameterId: lane.target.parameterId }
+    : { scope: "master", parameterId: "masterGainDb" };
+  return { id: lane.id, target, base, points: lane.points, sequence };
 }
 
 /** Pure tick-domain planner; tempo boundaries split linear segments for exact ramps. */
