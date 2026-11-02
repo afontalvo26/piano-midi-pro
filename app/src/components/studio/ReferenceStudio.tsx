@@ -161,6 +161,7 @@ export function ReferenceStudio({
   const clockPosition = Math.floor(tick / ticksPerBar) + 1;
   const selectedTrack = tracks.find((track) => track.id === activeTrackId) ?? tracks[0];
   const panelTitle = selectedTrack?.name ?? instrumentName;
+  const selectedClip = document?.clips.find((clip)=>clip.id===playingSelection);
   const isPlaying = transport === "playing";
   async function executeEdit(factory: () => ProjectCommand | null): Promise<void> {
     try {
@@ -518,7 +519,34 @@ export function ReferenceStudio({
             </div>
           </div>
         </>:<div className="ref-inspection-content">
-          <h3>{panelTitle}</h3><p>Selecciona un clip, una pista o un instrumento para ver sus propiedades.</p>
+          <h3>Inspector · {panelTitle}</h3>
+          <div className="ref-inspector-details">
+            <div><span>Tipo de pista</span><strong>{selectedTrack?.kind ?? "Sin pista"}</strong></div>
+            <div><span>Ganancia</span><strong>{selectedTrack?.mix.gainDb.toFixed(1) ?? "—"} dB</strong></div>
+            <div><span>Envíos</span><strong>{selectedTrack?.mix.sends.length ?? 0}</strong></div>
+            <div><span>Procesadores</span><strong>{selectedTrack?.mix.effects.filter((fx)=>fx.enabled).length ?? 0}</strong></div>
+          </div>
+          {selectedClip ? <div className="ref-inspector-clip">
+            <h4>Clip seleccionado</h4>
+            <p>{selectedClip.kind==="pattern" ? "Patrón MIDI" : "Grabación de audio"} ·
+              Compás {Math.floor(selectedClip.startTick/ticksPerBar)+1}</p>
+            <p>Duración: {(selectedClip.lengthTicks/ticksPerBar).toFixed(2)} compases</p>
+            <div className="ref-inspector-clip-actions">
+              <button type="button" onClick={()=>{if(!document)return;
+                void executeEdit(()=>({kind:"replaceClips", expected:document.clips,
+                  clips:document.clips.map((clip)=>clip.id===selectedClip.id?
+                    {...clip,muted:!clip.muted}:clip),at:Date.now()}));
+              }}>{selectedClip.muted?"Activar clip":"Silenciar clip"}</button>
+              <button type="button" onClick={()=>{if(!document)return;
+                void executeEdit(()=>({kind:"removeClip",clipId:selectedClip.id,at:Date.now()}));
+                setPlayingSelection(null);
+              }}>Eliminar clip</button>
+            </div>
+            {selectedClip.kind==="pattern"&&<button type="button"
+              onClick={()=>onOpenPattern(selectedClip.trackId,selectedClip.sourceId)}>
+              Editar notas del clip
+            </button>}
+          </div> : <p>Selecciona un clip del arreglo para editarlo aquí.</p>}
           <button type="button" onClick={onFullEditor}>Abrir inspector completo</button>
         </div>}
         <div className="ref-midi-panel">
