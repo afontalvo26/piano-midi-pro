@@ -2573,7 +2573,7 @@ export default function PianoApp() {
           onFullMixer={() => { setWorkspace("mixer"); setReferenceStudioOpen(false); }}
           notationPanel={<StudioScore pattern={projectPattern} meter={projectView?.document.meterMap[0]}
             onOpenEditor={()=>{setWorkspace("piano-roll");setReferenceStudioOpen(false);}} />}
-          projectPanel={<ProjectBrowser projects={projects} loading={projectsLoading}
+          projectPanel={<div className="ref-project-library"><ProjectBrowser projects={projects} loading={projectsLoading}
             error={projectsError} activeProjectId={projectView?.document.id}
             onCreate={async(name)=>{await createProject(name);setReferenceProjectsOpen(false);}}
             onOpen={async(id)=>{await openProject(id);setReferenceProjectsOpen(false);}}
@@ -2584,7 +2584,13 @@ export default function PianoApp() {
             onRecoverDraft={async(projectId,sessionId)=>{
               await recoverProjectDraft(projectId,sessionId);setReferenceProjectsOpen(false);
             }}
-            onDiscardDraft={(projectId,sessionId)=>projectRepository.discardDraft(projectId,sessionId)} />}
+            onDiscardDraft={(projectId,sessionId)=>projectRepository.discardDraft(projectId,sessionId)} />
+            <RecordedTracks takes={takes} loading={takesLoading} error={takesError}
+              onRename={async(id,name)=>{await library.rename(id,name);await refreshTakes();}}
+              onExport={exportTake}
+              onDelete={async(id)=>{await library.delete(id);await refreshTakes();}}
+              onImportToProject={projectView?importTakeToProject:undefined} />
+          </div>}
           recordingPanel={projectView && projectTrack && projectPattern ? (
             <RecordedOverdubPanel key={`${projectView.document.id}:${projectTrack.id}:${projectPattern.id}`}
                 document={projectView.document} trackId={projectTrack.id} patternId={projectPattern.id}
