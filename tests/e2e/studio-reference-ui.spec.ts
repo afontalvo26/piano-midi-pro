@@ -415,3 +415,25 @@ test("shared pattern quantization requires Make Unique and leaves sibling notes 
   });
   expect(result).toEqual({rejected:true,otherStart:125,targetStart:240,differentPattern:true});
 });
+
+
+test("compact inspector trims and duplicates MIDI clips using project history",async({page})=>{
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  await page.setViewportSize({width:1586,height:992});
+  const studio=page.getByTestId("reference-studio");
+  await studio.getByRole("button",{name:"Nueva idea"}).click();
+  const row=studio.locator(".ref-track-row").first();
+  await row.locator(".ref-clip").first().click();
+  await studio.getByRole("button",{name:"Inspector",exact:true}).click();
+  const length=studio.getByRole("spinbutton",{name:"Duración del clip en ticks"});
+  await expect(length).toHaveValue("15360");
+  await length.fill("9600");
+  await length.press("Tab");
+  await expect(length).toHaveValue("9600");
+  await studio.getByRole("button",{name:"Duplicar clip"}).click();
+  await expect(row.locator(".ref-clip")).toHaveCount(2);
+  await studio.getByRole("button",{name:"Deshacer"}).click();
+  await expect(row.locator(".ref-clip")).toHaveCount(1);
+  await studio.getByRole("button",{name:"Rehacer"}).click();
+  await expect(row.locator(".ref-clip")).toHaveCount(2);
+});
