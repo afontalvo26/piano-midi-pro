@@ -92,6 +92,20 @@ test("saved arrangement exports aligned master and stems from the isolated audio
       validateWavPcm(filtered.files[0]!.bytes).frames === frames;
     const fxDiff = filtered.files[0]!.bytes.some((byte, index) =>
       byte !== exported.files[0]!.bytes[index]);
+    const masterFxDocument = { ...document, mix: { ...document.mix, masterEffects: [
+      { id: "master-filter", kind: "filter", enabled: true,
+        parameters: { type: "lowpass", cutoffHz: 180, q: 0.7 } },
+    ] } };
+    const masterFxExport = await exportProjectWav({ ...revision,
+      document: masterFxDocument, hash: await hashProjectDocument(masterFxDocument) }, reader,
+      { sampleRate: 48_000, stems: "tracks", format: "pcm16", tailSeconds: 0,
+        dither: false });
+    const sameBytes = (left: Uint8Array, right: Uint8Array) =>
+      left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
+    const trackStemsExcludeMasterFx = masterFxExport.files.filter((file) => file.kind === "track")
+      .every((file, index) => sameBytes(file.bytes,
+        exported.files.filter((candidate) => candidate.kind === "track")[index]!.bytes));
+    const masterFxChangesMaster = !sameBytes(masterFxExport.files[0]!.bytes, exported.files[0]!.bytes);
     const blockedNormalize = await rejected(revision,
       { sampleRate: 48_000, stems: "tracks", format: "pcm16", tailSeconds: 0,
         normalizePeakDbfs: -1 });
@@ -102,7 +116,9 @@ test("saved arrangement exports aligned master and stems from the isolated audio
     const manifestNameLength = zipView.getUint16(26, true);
     const manifest = JSON.parse(new TextDecoder().decode(zipBytes.subarray(
       30 + manifestNameLength, 30 + manifestNameLength + manifestLength)));
-    return { details, cancelled, blockedFx, blockedNormalize, fxAccepted, fxDiff, progress,
+    return { details, cancelled, blockedFx, blockedNormalize, fxAccepted, fxDiff,
+      trackStemsExcludeMasterFx, masterFxChangesMaster,
+      masterFxIncluded: masterFxExport.masterEffectsIncluded, progress,
       revisionHash: exported.revisionHash, additive: exported.stemsAdditive,
       studioChainIncluded: exported.studioGlobalChainIncluded,
       omitted: exported.plan.omittedSourceTrackIds,
@@ -128,6 +144,9 @@ test("saved arrangement exports aligned master and stems from the isolated audio
   expect(result.blockedFx).toMatch(/parámetros no coinciden/);
   expect(result.fxAccepted).toBe(true);
   expect(result.fxDiff).toBe(true);
+  expect(result.trackStemsExcludeMasterFx).toBe(true);
+  expect(result.masterFxChangesMaster).toBe(true);
+  expect(result.masterFxIncluded).toBe(true);
   expect(result.blockedNormalize).toMatch(/normalización individual/);
   expect(result.additive).toBe(false);
   expect(result.studioChainIncluded).toBe(false);
