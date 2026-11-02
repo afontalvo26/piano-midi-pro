@@ -81,14 +81,12 @@ export function ProjectBusResamplePanel({ document, busy, progress, notice,
       </div>
       {!destinations.length && <div className="bus-resample__empty"><p>Falta una pista de audio destino vacía.</p>
         <button type="button" disabled={busy} onClick={onCreateDestination}>Crear pista destino</button></div>}
-      {!!destinations.length && <p className={routedSourceCount && !routes.hasUnsupportedSends ? "bus-resample__facts" : "bus-resample__warning"}>
-        {routes.hasUnsupportedSends
-          ? "Este bus tiene envíos en una ruta incluida. El resampling con envíos todavía no está disponible."
-          : routedSourceCount
-            ? `${routedSourceCount} ${routedSourceCount === 1 ? "pista fuente" : "pistas fuente"} hacia este bus, incluidas las conexiones por sub-buses.`
-            : "No hay pistas fuente que lleguen a este bus. Enruta una pista antes de renderizar."}</p>}
+      {!!destinations.length && <p className={routedSourceCount ? "bus-resample__facts" : "bus-resample__warning"}>
+        {routedSourceCount
+          ? `${routedSourceCount} ${routedSourceCount === 1 ? "pista fuente" : "pistas fuente"} hacia este bus; ${routes.includedSendIds.length} ${routes.includedSendIds.length === 1 ? "envío incluido" : "envíos incluidos"}, también por sub-buses.`
+          : "No hay pistas fuente que lleguen a este bus. Enruta una pista antes de renderizar."}</p>}
       <div className="bus-resample__actions">
-        <button type="button" className="bus-resample__primary" disabled={busy || !valid || !routedSourceCount || routes.hasUnsupportedSends}
+        <button type="button" className="bus-resample__primary" disabled={busy || !valid || !routedSourceCount}
           onClick={() => onRender({ sourceBusTrackId: selectedBusId,
             destinationTrackId: selectedDestinationId, startTick: parsedStart,
             endTick: parsedEnd, sampleRate, tailSeconds: parsedTail })}>
