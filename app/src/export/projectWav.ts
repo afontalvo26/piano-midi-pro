@@ -130,7 +130,7 @@ export async function exportProjectWav(revision: ProjectRevision, assetReader: U
     emit(onProgress, { phase: "render", fileIndex: index, fileCount: targets.length,
       stemId: target.id });
     const selected = target.kind === "master" ? {}
-      : target.kind === "track" ? { trackId: target.id }
+      : target.kind === "track" ? { trackId: target.id, tapTrackOutput: true }
       : target.kind === "bus"
         ? { trackIds: target.sourceTrackIds, tapBusTrackId: target.id }
         : { trackIds: target.sourceTrackIds, tapDirectMaster: true };
