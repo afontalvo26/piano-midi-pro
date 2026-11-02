@@ -1,8 +1,8 @@
 import type { ProjectClip, ProjectDocumentV1 } from "../../project/model.ts";
 import type { ProjectCommand } from "../../project/commands.ts";
-import { createArrangementClip, editArrangementClip,
+import { createArrangementClip, duplicateArrangementClip, editArrangementClip,
   splitArrangementClip } from "../../composition/arrangementModel.ts";
-import { shiftArrangementAudioClip,
+import { duplicateArrangementAudioClip, shiftArrangementAudioClip,
   splitArrangementAudioClip } from "../../composition/audioArrangement.ts";
 
 export type ReferenceArrangementTool = "select" | "draw" | "cut";
@@ -89,4 +89,36 @@ export function quantizeStudioClip(document: ProjectDocumentV1,
       note.durationTick === pattern.notes[index]!.durationTick)) return null;
   return { kind: "replacePattern", expectedVersion: pattern.version,
     pattern: { ...pattern, version: pattern.version + 1, notes }, at: Date.now() };
+}
+
+
+/** Duplicate into a new clip instance without copying or overwriting its source. */
+export function duplicateStudioClip(document:ProjectDocumentV1,clipId:string):ProjectCommand {
+  const clip=document.clips.find((item)=>item.id===clipId);
+  if(!clip)throw new RangeError("Clip inexistente");
+  return clip.kind==="pattern"
+    ? duplicateArrangementClip(document,clipId)
+    : duplicateArrangementAudioClip(document,clipId);
+}
+
+/** Clip-length trim is restricted to MIDI until audio frame/time anchors are edited. */
+export function resizeStudioPatternClip(document:ProjectDocumentV1,clipId:string,
+  lengthTicks:number):ProjectCommand|null{
+  const clip=document.clips.find((item)=>item.id===clipId);
+  if(!clip || clip.kind!=="pattern")
+    throw new RangeError("La duración de una toma de audio se cambia en el editor de audio completo");
+  if(!Number.isSafeInteger(lengthTicks)||lengthTicks<1)
+    throw new RangeError("La duración debe ser al menos un tick entero");
+  if(lengthTicks===clip.lengthTicks)return null;
+  if(clip.startTick+lengthTicks>Number.MAX_SAFE_INTEGER)
+    throw new RangeError("El clip supera el límite musical");
+  const pattern=document.patterns.find((item)=>item.id===clip.sourceId);
+  if(!pattern)throw new RangeError("No existe el patrón fuente");
+  if(clip.loopMode==="none" && lengthTicks+clip.sourceOffsetTick>pattern.lengthTicks)
+    throw new RangeError("La duración supera el patrón. Activa loop o recorta hasta su extremo");
+  return editArrangementClip(document,clipId,{
+    startTick:clip.startTick,lengthTicks,sourceOffsetTick:clip.sourceOffsetTick,
+    loopMode:clip.loopMode,tailPolicy:clip.tailPolicy,
+    transpose:clip.transpose,gainDb:clip.gainDb,muted:clip.muted,
+  });
 }
