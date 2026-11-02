@@ -77,6 +77,9 @@ export interface ReferenceStudioProps {
   workspace: StudioWorkspace;
   activeTrackId?: string;
   saveStatus: string;
+  problem?: string;
+  loadingLabel?: string;
+  onRetrySave: () => void;
   transport: string;
   tick: number;
   bpm: string;
@@ -135,7 +138,7 @@ function Meter({ peak, tall = false }: { peak?: number; tall?: boolean }) {
 }
 
 export function ReferenceStudio({
-  document, workspace, activeTrackId, saveStatus, transport, tick, bpm,
+  document, workspace, activeTrackId, saveStatus, problem, loadingLabel, onRetrySave, transport, tick, bpm,
   metronome, recording, midiConnected, midiStatus, outputLatencyEstimateMs, instrumentName, instrumentCategory,
   masterLevel, trackLevels, editor, instrumentPicker, performancePanel, notationPanel, loopEnabled,
   loopStartBar, loopEndBar, onLoopRangeChange, onLoopChange,
@@ -328,6 +331,15 @@ export function ReferenceStudio({
       <div className="ref-sidebar-footer"><strong>UN SOLO FLUJO CREATIVO</strong>
         <span>Interpreta · Crea · Arregla · Mezcla · Exporta</span></div>
     </aside>
+    {(problem || saveStatus==="error" || saveStatus==="conflict") && <div
+      className="ref-global-alert" role="alert">
+      <Icon name="close" size={16}/>
+      <span>{problem || (saveStatus==="conflict" ? "Conflicto al guardar: revisa la sesión" :
+        "No se pudo guardar el proyecto")}</span>
+      {(saveStatus==="error" || saveStatus==="conflict")&&
+        <button type="button" onClick={onRetrySave}>Reintentar guardado</button>}
+    </div>}
+    {loadingLabel && <div className="ref-global-progress" role="status">{loadingLabel}</div>}
     <div className="ref-main-grid">
       <div className="ref-center-stack">
         <section className="ref-arrangement" aria-label="Arreglo del proyecto">
