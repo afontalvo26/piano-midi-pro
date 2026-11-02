@@ -820,12 +820,30 @@ function validateAutomation(value: unknown, tracks: Map<string, JsonObject>, cli
       if (target.scope === "clip" && !clips.has(owner)) invalid(`${path}.target.ownerId`, "clip inexistente");
     }
     const effectId = target.effectId === undefined ? undefined : id(target.effectId, `${path}.target.effectId`);
+    const sendId = target.sendId === undefined ? undefined : id(target.sendId, `${path}.target.sendId`);
+    if (effectId !== undefined && sendId !== undefined) {
+      invalid(`${path}.target`, "effectId y sendId son destinos excluyentes");
+    }
+    if (sendId !== undefined && target.scope !== "track") {
+      invalid(`${path}.target.sendId`, "un send pertenece únicamente a una pista");
+    }
     const ownerClip = target.scope === "clip" ? clips.get(target.ownerId as string) : undefined;
-    const destination = JSON.stringify([target.scope, target.ownerId, effectId, target.parameterId]);
+    const destination = JSON.stringify([target.scope, target.ownerId, effectId, sendId,
+      target.parameterId]);
     if (destinations.has(destination)) invalid(path, "dos curvas gobiernan el mismo parámetro");
     destinations.add(destination);
     let valueRange: readonly [number, number] = [-1e12, 1e12];
-    if (effectId !== undefined) {
+    if (sendId !== undefined) {
+      if (target.parameterId !== "gainDb") {
+        invalid(`${path}.target.parameterId`, "un send sólo admite automatización gainDb");
+      }
+      const track = tracks.get(target.ownerId as string);
+      const mix = object(track?.mix, `tracks.${target.ownerId}.mix`);
+      const sends = array(mix.sends, `${path}.target.sendId.chain`, 128);
+      const sendValue = sends.find((candidate) => object(candidate, "send").id === sendId);
+      if (!sendValue) invalid(`${path}.target.sendId`, "send automatizado inexistente");
+      valueRange = [-120, 24];
+    } else if (effectId !== undefined) {
       if (target.scope === "clip") invalid(`${path}.target.effectId`, "un clip no tiene cadena de efectos");
       const mix = target.scope === "master" ? object(masterMix, "mix") :
         object(tracks.get(target.ownerId as string)?.mix, `tracks.${target.ownerId}.mix`);
