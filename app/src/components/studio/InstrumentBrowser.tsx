@@ -10,6 +10,7 @@ import "./InstrumentBrowser.css";
 
 export interface InstrumentBrowserProps {
   activeId: string;
+  initialOpen?: boolean;
   loadingId: string | null;
   loadingProgress: { loaded: number; total: number; decodedPcmBytes: number } | null;
   onCancel: () => void;
@@ -36,9 +37,9 @@ function sourceLabel(instrument: InstrumentDefinition): string {
 }
 
 export function InstrumentBrowser({
-  activeId, loadingId, loadingProgress, onCancel, failedId, error, notice, onSelect,
+  activeId, initialOpen = false, loadingId, loadingProgress, onCancel, failedId, error, notice, onSelect,
 }: InstrumentBrowserProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [engineFilter, setEngineFilter] = useState<InstrumentEngineId | "all">("all");
   const active = getInstrument(activeId) ?? getInstrument(DEFAULT_INSTRUMENT_ID)!;
