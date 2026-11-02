@@ -11,7 +11,7 @@ import { addArrangementSection, captureArrangementPerformance, captureArrangemen
 import { quantizeSceneLaunchTick } from "../../composition/resolveProjectTimeline.ts";
 import { addArrangementAudioCrossfade, duplicateArrangementAudioClip,
   editArrangementAudioClip, removeArrangementAudioClip, removeArrangementAudioCrossfade,
-  shiftArrangementAudioClip, splitArrangementAudioClip } from "../../composition/audioArrangement.ts";
+  splitArrangementAudioClip } from "../../composition/audioArrangement.ts";
 import { AudioClipInspector } from "./AudioClipInspector.tsx";
 import { ClipInspector } from "./ClipInspector.tsx";
 import { SceneInspector } from "./SceneInspector.tsx";
