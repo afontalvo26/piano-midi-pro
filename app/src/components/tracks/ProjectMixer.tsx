@@ -23,6 +23,12 @@ export interface ProjectMixerProps {
     peakReductionDb: number;
     error: string | null;
   }>>;
+  effectComparisonStatus?: Readonly<Record<string, {
+    mode: "off" | "original" | "processed";
+    originalDb: number;
+    processedDb: number;
+  }>>;
+  onTrackEffectComparison?: (trackId: string, mode: "off" | "original" | "processed") => void;
 }
 
 function meterPercent(value: number): number {
@@ -49,7 +55,8 @@ function reachesTrack(document: ProjectDocumentV1, fromId: string, targetId: str
 
 export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects, onMasterEffects,
   onCreateBus, onRemoveBus,
-  onUndo, onRedo, canUndo, canRedo, meter, masterMeter, sidechainStatus }: ProjectMixerProps) {
+  onUndo, onRedo, canUndo, canRedo, meter, masterMeter, sidechainStatus,
+  effectComparisonStatus, onTrackEffectComparison }: ProjectMixerProps) {
   const [gainDrafts, setGainDrafts] = useState<Record<string, string>>({});
   const [panDrafts, setPanDrafts] = useState<Record<string, string>>({});
   const [masterDraft, setMasterDraft] = useState<string | null>(null);
@@ -120,6 +127,10 @@ export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects
         const reportedSidechain = sidechainStatus?.[track.id];
         const sidechainAudio = sidechain && reportedSidechain?.sourceTrackId === sidechain.sourceTrackId
           ? reportedSidechain : undefined;
+        const comparison = effectComparisonStatus?.[track.id] ?? {
+          mode: "off" as const, originalDb: 0, processedDb: 0,
+        };
+        const hasActiveEffects = mix.effects.some((effect) => effect.enabled);
         return <section key={track.id} className="project-mixer__channel" aria-label={`Canal ${track.name}`}>
           <div className="project-mixer__channel-head"><h3>{track.name}</h3><span>{track.kind}</span></div>
           <div className="project-mixer__controls">
@@ -158,6 +169,24 @@ export function ProjectMixer({ document, onTrackMix, onMasterMix, onTrackEffects
             <meter min="0" max="1" value={level?.peak ?? 0} />
             {level?.clipped && <strong role="alert">Clipping</strong>}
           </div>
+          {onTrackEffectComparison && <section className="project-mixer__comparison"
+            aria-label={`Comparación A/B de ${track.name}`}>
+            <div><h4>A/B de efectos · nivel compensado</h4>
+              <small>Temporal: no modifica ni guarda la cadena.</small></div>
+            <div className="project-mixer__comparison-buttons">
+              <button type="button" disabled={!hasActiveEffects}
+                aria-pressed={comparison.mode === "original"}
+                onClick={() => onTrackEffectComparison(track.id, "original")}>A · Original</button>
+              <button type="button" disabled={!hasActiveEffects}
+                aria-pressed={comparison.mode === "processed"}
+                onClick={() => onTrackEffectComparison(track.id, "processed")}>B · Procesada</button>
+              <button type="button" disabled={comparison.mode === "off"}
+                onClick={() => onTrackEffectComparison(track.id, "off")}>Salir A/B</button>
+            </div>
+            {comparison.mode !== "off" && <p>Compensación segura:
+              A {comparison.originalDb.toFixed(1)} dB · B {comparison.processedDb.toFixed(1)} dB.
+              Nunca se amplifica para igualar.</p>}
+          </section>}
           {track.kind !== "bus" && <section className="project-mixer__sidechain"
             aria-label={`Sidechain de ${track.name}`}>
             <div className="project-mixer__sidechain-head"><div>
