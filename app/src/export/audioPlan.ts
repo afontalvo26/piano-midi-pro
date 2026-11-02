@@ -48,15 +48,25 @@ function sourceTracks(document: ProjectDocumentV1): readonly ProjectTrack[] {
   }).filter((track) => track.kind !== "bus");
 }
 
-function routingChain(track: ProjectTrack, byId: ReadonlyMap<string, ProjectTrack>): readonly string[] {
-  const path: string[] = [];
-  let current = track.mix.outputBusTrackId;
-  while (current) {
-    if (path.includes(current)) throw new RangeError("Ciclo de buses en exportación de audio");
-    path.push(current);
-    current = byId.get(current)?.mix.outputBusTrackId;
-  }
-  return path;
+/** Choose audibly routed sources, including send-only solo and muted main buses. */
+function sourceCanReachOutput(track: ProjectTrack,
+  byId: ReadonlyMap<string, ProjectTrack>, hasSolo: boolean): boolean {
+  const active = new Set<string>();
+  const visit = (id: string, soloAlongPath: boolean): boolean => {
+    if (active.has(id)) throw new RangeError("Ciclo de buses en exportación de audio");
+    const current = byId.get(id);
+    if (!current || current.mix.mute) return false;
+    active.add(id);
+    const solo = soloAlongPath || current.mix.solo;
+    const hasDirectOutput = !current.mix.outputBusTrackId && (!hasSolo || solo);
+    const next = [current.mix.outputBusTrackId,
+      ...current.mix.sends.map((send) => send.busTrackId)]
+      .filter((dest): dest is string => dest !== undefined);
+    const audible = hasDirectOutput || next.some((dest) => visit(dest, solo));
+    active.delete(id);
+    return audible;
+  };
+  return visit(track.id, false);
 }
 
 /** Read-only preflight; unsupported DSP never disappears silently in a WAV. */
@@ -105,12 +115,8 @@ export function planProjectAudioExport(document: ProjectDocumentV1,
     (clip.kind === "audio" || soundingPatterns.has(clip.sourceId)))
     .map((clip) => clip.trackId));
   const hasSolo = document.tracks.some((track) => track.mix.solo);
-  const sources = allSources.filter((track) => {
-    if (!clipTrackIds.has(track.id) || track.mix.mute) return false;
-    const chain = routingChain(track, byId);
-    if (chain.some((id) => byId.get(id)?.mix.mute)) return false;
-    return !hasSolo || track.mix.solo || chain.some((id) => byId.get(id)?.mix.solo);
-  });
+  const sources = allSources.filter((track) =>
+    clipTrackIds.has(track.id) && sourceCanReachOutput(track, byId, hasSolo));
   const activeIds = new Set(sources.map((track) => track.id));
   const omittedSourceTrackIds = allSources.filter((track) => !activeIds.has(track.id))
     .map((track) => track.id);
