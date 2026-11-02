@@ -2513,6 +2513,12 @@ export default function PianoApp() {
             ? "Gran Piano Clásico" : getInstrument(activeInstrumentId)?.category ?? "Seleccionar instrumento"}
           masterLevel={visibleProjectMeters?.masterMeter}
           trackLevels={trackMeters}
+          projectAudioTracks={visibleProjectMeters?.tracks}
+          onPrepareProjectAudio={()=>{
+            void prepareProjectAudio().catch((cause:unknown)=>
+              setProjectsError(cause instanceof Error?cause.message:
+                "No se pudo preparar el audio del proyecto"));
+          }}
           onWorkspace={(id) => setWorkspace(id)}
           onLibrary={() => { setWorkspace("performance"); setReferenceStudioOpen(false); }}
           onProjects={() => {setReferenceProjectsOpen(true); void refreshProjects();}}
