@@ -10,6 +10,8 @@ import { addAutomationPoint, automationTargetKey, copySelectedAutomationPoints, 
   writeAutomationTouchGesture } from "../../composition/automationEdit.ts";
 import type { AutomationPointCopy, AutomationTouchSample,
   BaseAutomationTarget } from "../../composition/automationEdit.ts";
+import { parseAutomationMidiAction,
+  type AutomationMidiTakeover } from "../../midi/automationMidi.ts";
 import { AUTOMATION_CANVAS_HEIGHT, AUTOMATION_CANVAS_TOP, AUTOMATION_CANVAS_BOTTOM,
   automationTickAtX, automationValueAtY, drawAutomationLane,
   drawAutomationPlayhead, hitAutomationPoint } from "../../composition/automationCanvas.ts";
@@ -27,6 +29,9 @@ export interface AutomationEditorProps {
   readonly effectiveValues?: readonly AutomationValueSnapshot[];
   /** Immediate audio preview while a Touch gesture owns the control. */
   readonly onTouchPreview?: (target: ProjectAutomationLane["target"], value: number) => void;
+  readonly midiLearnAction?: string | null;
+  readonly onMidiLearn?: (laneId: string, takeover: AutomationMidiTakeover) => void;
+  readonly onCancelMidiLearn?: () => void;
   readonly onCommand: (command: ProjectCommand) => void | Promise<void>;
   readonly onUndo?: () => void | Promise<void>;
   readonly onRedo?: () => void | Promise<void>;
@@ -92,7 +97,8 @@ export function AutomationEditor(props: AutomationEditorProps) {
 }
 
 function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
-  readPlayheadTick, effectiveValues, onTouchPreview, onCommand, onUndo, onRedo, canUndo, canRedo,
+  readPlayheadTick, effectiveValues, onTouchPreview, midiLearnAction, onMidiLearn,
+  onCancelMidiLearn, onCommand, onUndo, onRedo, canUndo, canRedo,
   saveState }: AutomationEditorProps & { readonly document: ProjectDocumentV1 }) {
   const [selectedLaneId, setSelectedLaneId] = useState(document.automation[0]?.id ?? "");
   const [targetChoice, setTargetChoice] = useState("");
@@ -100,6 +106,7 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
   const [clipboard, setClipboard] = useState<readonly AutomationPointCopy[]>([]);
   const [tool, setTool] = useState<Tool>("navigate");
   const [multiSelect, setMultiSelect] = useState(false);
+  const [midiTakeover, setMidiTakeover] = useState<AutomationMidiTakeover>("pickup");
   const [zoomIndex, setZoomIndex] = useState(1);
   const [snapTicks, setSnapTicks] = useState<number>(120);
   const [pasteTick, setPasteTick] = useState("0");
@@ -122,6 +129,8 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
     [lane, selectedIds]);
   const selectedPoint = selectedPoints.length === 1 ? selectedPoints[0] : null;
   const effectiveValue = effectiveValues?.find((item) => item.laneId === lane?.id);
+  const learnedPending = parseAutomationMidiAction(midiLearnAction ?? "");
+  const learningThisLane = learnedPending?.laneId === lane?.id;
   useEffect(() => {
     if (!lane || !descriptor || touchSamplesRef.current) return;
     const value = effectiveValue?.value ?? baseValue(document, lane);
@@ -444,6 +453,23 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
           {descriptor?.unit === "dB" ? " dB" : ""}</output>
         <small>Touch escribe un solo gesto reversible y vuelve suavemente a la curva al soltar.</small>
       </div>
+      {onMidiLearn && <div className="automation-editor__midi-learn">
+        <label>Takeover MIDI<select aria-label="Takeover MIDI Learn" value={midiTakeover}
+          disabled={learningThisLane}
+          onChange={(event) => setMidiTakeover(event.target.value as AutomationMidiTakeover)}>
+          <option value="pickup">Pickup · sin salto</option>
+          <option value="absolute">Absoluto 0–127</option>
+          <option value="relative-twos-complement">Relativo · complemento a 2</option>
+          <option value="relative-binary-offset">Relativo · offset 64</option>
+        </select></label>
+        {!learningThisLane ? <button type="button" disabled={!editable || busy}
+          onClick={() => { if (lane) onMidiLearn(lane.id, midiTakeover); }}>
+          MIDI Learn</button> :
+          <button type="button" onClick={onCancelMidiLearn}>Cancelar Learn</button>}
+        <p>{learningThisLane
+          ? "Mueve ahora el fader/knob físico. Solo se aprenderá el mensaje observado, con puerto, canal y banco actuales."
+          : "Pickup espera a que el control físico alcance el valor software; los modos relativos no saltan a una posición absoluta."}</p>
+      </div>}
       <div className="automation-editor__toolbar">
         <div role="group" aria-label="Herramienta de automatización">
           <button type="button" aria-pressed={tool === "navigate"} onClick={() => setTool("navigate")}>Desplazar</button>
