@@ -315,3 +315,76 @@ test("soloing an auxiliary bus silences direct-master leakage without muting its
   expect(energy.direct).toBeLessThan(energy.selected*.03);
   expect(energy.missing).toBe(0);
 });
+
+
+test("AUT send lane modula el retorno auxiliar sin confundirlo con gain de pista", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto("/", { waitUntil: "domcontentloaded", timeout: 15_000 });
+  const result = await page.evaluate(async () => {
+    const { analyzeUserSample } = await import("/src/audio/userSampleAsset.ts");
+    const { renderProjectPcm } = await import("/src/audio/renderProjectPcm.ts");
+    const { createProjectDocument } = await import("/src/project/model.ts");
+    const { validateProjectDocument } = await import("/src/project/validate.ts");
+    const rate = 48_000, frames = 24_000;
+    const bytes = new ArrayBuffer(44 + frames * 2);
+    const view = new DataView(bytes);
+    const ascii = (offset: number, value: string) => {
+      for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));
+    };
+    ascii(0, "RIFF"); view.setUint32(4, bytes.byteLength - 8, true); ascii(8, "WAVE");
+    ascii(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true); view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true); ascii(36, "data"); view.setUint32(40, frames * 2, true);
+    for (let frame = 0; frame < frames; frame++) {
+      view.setInt16(44 + frame * 2, Math.round(Math.sin(frame * 0.045) * 4500), true);
+    }
+    const sample = await analyzeUserSample(new Blob([bytes], { type: "audio/wav" }),
+      "send-automation", new OfflineAudioContext(1, 1, rate));
+    const baseMix = { gainDb: -6, pan: 0, mute: false, solo: false,
+      armed: false, effects: [], sends: [] };
+    const source = { id: "source", name: "Source", kind: "audio" as const,
+      mix: { ...baseMix, sends: [{ id: "aux-send", busTrackId: "aux", gainDb: -24 }] } };
+    const bus = { id: "aux", name: "Aux", kind: "bus" as const, mix: baseMix };
+    const clip = { id: "clip", trackId: source.id, kind: "audio" as const,
+      sourceId: sample.ref.id, startTick: 0, lengthTicks: 960, sourceOffsetTick: 0,
+      sourceStartFrame: 0, sourceEndFrame: frames, fadeInFrames: 0, fadeOutFrames: 0,
+      gainDb: 0, muted: false, transpose: 0, loopMode: "none" as const,
+      tailPolicy: "cut" as const };
+    const base = createProjectDocument({ id: "send-aut-pcm", at: 1 });
+    const dry = { ...base, tracks: [source, bus], trackOrder: [source.id, bus.id],
+      assets: [sample.ref], clips: [clip] };
+    const automated = { ...dry, automation: [{
+      id: "lane-send", target: { scope: "track" as const, ownerId: source.id,
+        sendId: "aux-send", parameterId: "gainDb" }, points: [
+        { id: "s0", tick: 0, value: -24, shape: "linear" as const },
+        { id: "s1", tick: 960, value: 0, shape: "step" as const },
+      ],
+    }] };
+    validateProjectDocument(automated);
+    const reader = { readAsset: async () => sample.data };
+    const options = { startTick: 0, endTick: 960, sampleRate: rate,
+      tailSeconds: 0, seed: "send-aut-pcm", trackIds: [source.id],
+      tapBusTrackId: bus.id } as const;
+    const [staticBus, automatedBus, trackTap] = await Promise.all([
+      renderProjectPcm(dry, options, reader),
+      renderProjectPcm(automated, options, reader),
+      renderProjectPcm(automated, { startTick: 0, endTick: 960, sampleRate: rate,
+        tailSeconds: 0, seed: "send-aut-track", trackId: source.id,
+        tapTrackOutput: true }, reader),
+    ]);
+    const energy = (pcm: Float32Array) => pcm.reduce((sum, value) => sum + value * value, 0);
+    return {
+      staticBus: energy(staticBus.left),
+      automatedBus: energy(automatedBus.left),
+      trackTap: energy(trackTap.left),
+      trackGainDb: automated.tracks[0].mix.gainDb,
+      finite: automatedBus.left.every(Number.isFinite),
+    };
+  });
+  expect(result.staticBus).toBeGreaterThan(0);
+  expect(result.automatedBus).toBeGreaterThan(result.staticBus * 4);
+  expect(result.trackTap).toBeGreaterThan(result.automatedBus);
+  expect(result.trackGainDb).toBe(-6);
+  expect(result.finite).toBe(true);
+});
