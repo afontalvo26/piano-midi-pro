@@ -81,3 +81,11 @@ Estas intervenciones posteriores **no** cambian el estado de los 113 criterios n
 | QLT-09 | Se amplió el workflow de referencia para incluir regresiones de routing PCM además de UI/transport. | GitHub Actions sigue sin ejecutar pasos del job; no asumir build o test verde. |
 
 **Regla:** todos los criterios siguen `pending` hasta obtener artefactos firmados/identificados por el commit que superan sus pruebas de producción, audio y hardware pertinentes. Este documento no altera la matriz de aceptación.
+
+
+### Instrument inspector after playback preparation
+
+- **INS-06 / UXP-05:** the instrument card no longer displays an unconditional «✓ Activo». It reads the true `ProjectAudioDiagnostics.tracks` status of the selected project track: **Audio sin preparar**, **Preparando**, **Audio listo** or **Error de banco**, including the concrete error string. «Preparar audio del proyecto» calls the real preparation path.
+- The sound displayed follows the **selected track bank** (Salamander or 808), not the separate global live-instrument picker. The project engine still needs browser validation, integrity verification of installed banks, and audio-loopback tests.
+- Written regression: `tests/e2e/studio-reference-ui.spec.ts` checks an unloaded bank is not falsely labeled ready and that changing the selected project track updates the visible bank.
+- **MIX-04 is still missing:** sidechain audio detector, explicit kick source, attack/release/ratio, live/offline equivalence and reduction meter. The solo/send isolation fix belongs to **MIX-05**, not MIX-04.
