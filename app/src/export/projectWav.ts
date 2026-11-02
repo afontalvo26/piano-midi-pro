@@ -130,7 +130,9 @@ export async function exportProjectWav(revision: ProjectRevision, assetReader: U
       stemId: target.id });
     const selected = target.kind === "master" ? {}
       : target.kind === "track" ? { trackId: target.id }
-        : { trackIds: target.sourceTrackIds };
+      : target.kind === "bus"
+        ? { trackIds: target.sourceTrackIds, tapBusTrackId: target.id }
+        : { trackIds: target.sourceTrackIds, tapDirectMaster: true };
     const rendered = await renderProjectPcm(revision.document, {
       startTick: plan.startTick, endTick: plan.endTick, sampleRate: plan.sampleRate,
       tailSeconds: plan.tailSeconds, seed, ...selected,
