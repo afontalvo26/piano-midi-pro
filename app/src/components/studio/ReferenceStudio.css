@@ -537,3 +537,25 @@
  .ref-editor-context{display:none}
  .ref-channel{flex:0 0 155px}
 }
+
+/* The transport stays reachable on compact screens without ever widening
+   the document; this is an internal toolbar scroll, not a page scrollbar. */
+@media (max-width: 650px) {
+  .ref-topbar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    overscroll-behavior-inline: contain;
+  }
+  .ref-topbar::-webkit-scrollbar { display: none; }
+  .ref-brand, .ref-project-select, .ref-tempo, .ref-transport { flex-shrink: 0; }
+  .ref-transport { margin-left: 0; }
+  .ref-midi-summary { display: none; }
+  .ref-mixer { max-width: 100%; }
+}
+/* Click or keyboard focus always shows the selected track and clip. */
+.ref-track-row:focus-within .ref-track-info,
+.ref-track-row:hover .ref-track-info { background-color: #25233d; }
+.ref-clip:focus-visible { outline: 2px solid #ebc5ff; outline-offset: 1px; }
+.ref-pan input:focus-visible,
+.ref-channel-fader input:focus-visible { outline: 2px solid #30f8e0; outline-offset: 4px; }
