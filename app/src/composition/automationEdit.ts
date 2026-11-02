@@ -1,11 +1,15 @@
 import type { ProjectAutomationLane, ProjectAutomationPoint,
   ProjectDocumentV1 } from "../project/model.ts";
 import type { ProjectCommand } from "../project/commands.ts";
-import { baseAutomationParameter } from "../project/automationParameters.ts";
+import { projectAutomationBaseValue, projectAutomationParameter } from "../project/automationParameters.ts";
 
 export type BaseAutomationTarget =
-  | { readonly scope: "track"; readonly ownerId: string; readonly parameterId: "gainDb" | "pan" }
-  | { readonly scope: "master"; readonly parameterId: "masterGainDb" };
+  | { readonly scope: "track"; readonly ownerId: string; readonly parameterId: "gainDb" | "pan";
+      readonly effectId?: undefined }
+  | { readonly scope: "master"; readonly parameterId: "masterGainDb"; readonly effectId?: undefined }
+  | { readonly scope: "track"; readonly ownerId: string; readonly effectId: string;
+      readonly parameterId: string }
+  | { readonly scope: "master"; readonly effectId: string; readonly parameterId: string };
 
 export function automationTargetKey(target: ProjectAutomationLane["target"]): string {
   return JSON.stringify([target.scope, target.ownerId ?? null, target.effectId ?? null,
@@ -33,20 +37,18 @@ function command(document: ProjectDocumentV1, laneId: string,
 }
 
 function assertBaseTarget(document: ProjectDocumentV1, target: BaseAutomationTarget): void {
-  if (!baseAutomationParameter(target) || (target.scope === "track" &&
+  if (!projectAutomationParameter(document, target) || (target.scope === "track" &&
     !document.tracks.some((track) => track.id === target.ownerId))) {
     throw new RangeError("Parámetro de automatización no disponible");
   }
-  if (document.automation.some((lane) =>
-    lane.target.scope === target.scope && lane.target.parameterId === target.parameterId &&
-    lane.target.ownerId === (target.scope === "track" ? target.ownerId : undefined) &&
-    lane.target.effectId === undefined)) {
+  if (document.automation.some((lane) => automationTargetKey(lane.target) === automationTargetKey(target))) {
     throw new RangeError("El parámetro ya tiene una curva");
   }
 }
 
-function assertPoint(lane: ProjectAutomationLane, point: ProjectAutomationPoint): void {
-  const descriptor = baseAutomationParameter(lane.target);
+function assertPoint(document: ProjectDocumentV1, lane: ProjectAutomationLane,
+  point: ProjectAutomationPoint): void {
+  const descriptor = projectAutomationParameter(document, lane.target);
   if (!descriptor || !point.id || !Number.isSafeInteger(point.tick) || point.tick < 0 ||
       !Number.isFinite(point.value) || point.value < descriptor.min || point.value > descriptor.max ||
       (point.shape !== "step" && point.shape !== "linear" && point.shape !== "bezier") ||
@@ -60,7 +62,7 @@ function replacePoints(document: ProjectDocumentV1, lane: ProjectAutomationLane,
   points: readonly ProjectAutomationPoint[], at: number): ProjectCommand {
   const ordered = [...points].sort((left, right) => left.tick - right.tick || left.id.localeCompare(right.id));
   if (ordered.some((point, index) => {
-    assertPoint(lane, point);
+    assertPoint(document, lane, point);
     return index > 0 && ordered[index - 1]!.tick === point.tick;
   }) || new Set(ordered.map((point) => point.id)).size !== ordered.length) {
     throw new RangeError("Puntos duplicados en tick o identidad");
@@ -93,9 +95,9 @@ export interface AutomationTouchSample {
 }
 
 function baseLaneValue(document: ProjectDocumentV1, lane: ProjectAutomationLane): number {
-  if (lane.target.scope === "master") return document.mix.masterGainDb;
-  const track = document.tracks.find((item) => item.id === lane.target.ownerId);
-  return lane.target.parameterId === "pan" ? track?.mix.pan ?? 0 : track?.mix.gainDb ?? 0;
+  const value = projectAutomationBaseValue(document, lane.target);
+  if (value === undefined) throw new RangeError("Valor base de automatización no disponible");
+  return value;
 }
 
 function laneValueAt(document: ProjectDocumentV1, lane: ProjectAutomationLane, tick: number): number {
@@ -115,8 +117,8 @@ export function writeAutomationTouchGesture(document: ProjectDocumentV1, laneId:
   nextId: () => string = () => crypto.randomUUID()): ProjectCommand {
   const lane = laneById(document, laneId);
   if (lane.writeMode !== "touch") throw new Error("Activa Touch antes de grabar automatización");
-  const descriptor = baseAutomationParameter(lane.target);
-  if (!descriptor || lane.target.scope === "clip" || lane.target.effectId !== undefined) {
+  const descriptor = projectAutomationParameter(document, lane.target);
+  if (!descriptor || lane.target.scope === "clip") {
     throw new Error("El parámetro no admite Touch");
   }
   const byTick = new Map<number, number>();
