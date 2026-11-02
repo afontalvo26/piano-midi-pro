@@ -198,6 +198,10 @@ export function ReferenceStudio({
   const startTick = barTicks[0]!;
   const endTick = barTicks[bars]!;
   const viewportTicks = endTick-startTick;
+  const loopTickStart = loopEnabled ? studioBarStartTick(meterMap,loopStartBar) : 0;
+  const loopTickEnd = loopEnabled ? studioBarStartTick(meterMap,loopEndBar+1) : 0;
+  const visibleLoopStart = Math.max(startTick,loopTickStart);
+  const visibleLoopEnd = Math.min(endTick,loopTickEnd);
   const playheadVisible = tick>=startTick && tick<=endTick;
   const playheadPercent = Math.min(100, Math.max(0, (tick-startTick)/viewportTicks * 100));
   const clockPosition = studioBarNumberAtTick(meterMap,Math.max(0,tick));
@@ -368,6 +372,36 @@ export function ReferenceStudio({
                 aria-controls="ref-loop-range-editor" onClick={()=>setLoopEditorOpen(!loopEditorOpen)}>
                 Compás {loopStartBar} – {loopEndBar} <Icon name="chevron" size={14}/></button>
             </div>
+            <div className="ref-timeline-nav" role="group" aria-label="Navegación del arreglo">
+              <button type="button" aria-label="Compases anteriores" title="Desplazar ventana hacia atrás"
+                disabled={timelineStartBar===1}
+                onClick={()=>setTimelineStartBar((bar)=>Math.max(1,bar-timelineBars))}>‹</button>
+              <span aria-live="polite" className="ref-timeline-location">
+                {timelineStartBar}–{timelineStartBar+timelineBars-1}
+              </span>
+              <button type="button" aria-label="Compases siguientes" title="Desplazar ventana hacia adelante"
+                disabled={timelineStartBar>=999_999-timelineBars}
+                onClick={()=>setTimelineStartBar((bar)=>Math.min(999_999-timelineBars,bar+timelineBars))}>›</button>
+              <label className="ref-timeline-zoom">Zoom
+                <select aria-label="Compases visibles" value={timelineBars}
+                  onChange={(event)=>{
+                    const next=Number(event.target.value);
+                    if(next===4||next===8||next===16||next===32){
+                      setTimelineBars(next);
+                      setTimelineStartBar((bar)=>Math.min(bar,999_999-next));
+                    }
+                  }}>
+                  <option value={4}>4</option><option value={8}>8</option>
+                  <option value={16}>16</option><option value={32}>32</option>
+                </select>
+              </label>
+              <button type="button" aria-label="Centrar cabezal" title="Mostrar compases alrededor del cabezal"
+                onClick={()=>setTimelineStartBar(Math.max(1,
+                  Math.min(999_999-timelineBars,
+                    studioBarNumberAtTick(meterMap,Math.max(0,tick))-Math.floor(timelineBars/2))))}>
+                <Icon name="select" size={14}/>
+              </button>
+            </div>
             <div className="ref-arrangement-tools" role="group" aria-label="Herramientas de edición">
               {(["select","draw","cut"] as const).map((value) =>
                 <button type="button" key={value} className={tool === value ? "is-selected" : ""}
@@ -433,10 +467,10 @@ export function ReferenceStudio({
                 {barTicks.slice(1,bars).map((barTick,index)=>
                   <i className="ref-bar-guide" aria-hidden="true" key={index}
                     style={{left: ((barTick-startTick)/viewportTicks*100)+"%"}} />)}
-                {loopEnabled && <div className="ref-loop-marker"
-                  style={{left: Math.min(100,studioBarStartTick(meterMap,loopStartBar)/endTick*100)+"%",
-                    width: Math.max(0,Math.min(endTick,studioBarStartTick(meterMap,loopEndBar+1))-
-                      studioBarStartTick(meterMap,loopStartBar))/endTick*100)+"%"}} />}
+                {loopEnabled && visibleLoopEnd>visibleLoopStart &&
+                  <div className="ref-loop-marker" aria-hidden="true"
+                    style={{left:((visibleLoopStart-startTick)/viewportTicks*100)+"%",
+                      width:((visibleLoopEnd-visibleLoopStart)/viewportTicks*100)+"%"}} />}
                 {playheadVisible && <div className="ref-playhead-triangle" style={{left:playheadPercent+"%"}}/>}
               </div>
             </div>
