@@ -448,6 +448,9 @@ function validateTracks(value: unknown, allIds: Set<string>): Map<string, JsonOb
       finite(sidechain.ratio, `${path}.mix.sidechain.ratio`, 1, 20);
       finite(sidechain.attackMs, `${path}.mix.sidechain.attackMs`, 0.1, 250);
       finite(sidechain.releaseMs, `${path}.mix.sidechain.releaseMs`, 1, 2000);
+      if (sidechain.lookaheadMs !== undefined) {
+        finite(sidechain.lookaheadMs, `${path}.mix.sidechain.lookaheadMs`, 0, 50);
+      }
       finite(sidechain.maxReductionDb, `${path}.mix.sidechain.maxReductionDb`, 0, 36);
     }
     array(mix.sends, `${path}.mix.sends`, 128).forEach((sendValue, sendIndex) => {
