@@ -111,3 +111,14 @@ las nuevas propuestas NO heredan sus resultados de aceptación.
 **No afirmar aprobado:** el último run aún falló con **0 pasos de job**; su descarga de logs devolvió `BlobNotFound` desde GitHub. El repositorio tampoco puede clonarse desde el contenedor por falla DNS de `github.com`. Sin build, lint, PCM real, Playwright ni hardware comprobado, no hay base para cambiar las 113 filas de `acceptance-evidence.json`.
 
 Bloqueos: runner de CI y logs, certificados físicos SMK-37, fidelidad visual screenshot desktop/móvil, bibliotecas/paquetes/licencias faltantes, pruebas de sesiones largas y mezcla de buses anidados. Conservar PR en borrador.
+
+
+## Anexo de continuidad — estado real de bancos y pistas armadas
+
+- La tarjeta de la pista ahora informa `loading/ready/error` desde `ProjectAudioDiagnostics.tracks`, y «Audio sin preparar» cuando no existe grafo activo. No presenta ✓ de banco activo sin confirmación del motor. Incluye **Preparar audio del proyecto**, que reutiliza el flujo con integridad y mensajes de error.
+- `selectMidiRecordingTarget(document,selectedTrackId)` da prioridad a una pista MIDI armada; si existen varias armadas, exige elegir una entre ellas. Mantiene la opción de grabación de toma libre cuando no hay pista armada. `PianoApp.startRecording` resuelve la selección **antes** de iniciar el recorder.
+- El arreglo compacto incluye armado MIDI (R) en cada pista MIDI y una opción equivalente en el inspector; el botón de grabación indica el destino o por qué requiere elección.
+- Pruebas E2E escritas: información honesta de bancos sin preparar, cambio de banco seleccionado, prioridad del armado, bloqueo de ambigüedad y título del botón de grabación. **Aún no ejecutadas.**
+- No se ha implementado el sidechain de audio MIX-04 ni la comparación A/B nivelada MIX-06. El arreglo de rutas solo pertenece al criterio MIX-05 y debe pasar pruebas PCM antes de aceptación.
+
+La matriz de los 113 permanece intacta y en `pending`. El flujo de grabación de audio (`AudioInputSession`) no se confunde con la toma MIDI (`MidiRecorder`).
