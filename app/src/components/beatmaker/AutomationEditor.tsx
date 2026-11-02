@@ -417,6 +417,16 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
               sampleTouch(Number(event.currentTarget.value));
             }}
             onChange={(event) => sampleTouch(Number(event.currentTarget.value))}
+            onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End",
+                "PageUp", "PageDown"].includes(event.key) || touchSamplesRef.current) return;
+              touchSamplesRef.current = [];
+              sampleTouch(Number(event.currentTarget.value));
+            }}
+            onKeyUp={(event) => {
+              if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End",
+                "PageUp", "PageDown"].includes(event.key)) finishTouch();
+            }}
             onPointerUp={(event) => {
               if (event.currentTarget.hasPointerCapture(event.pointerId)) {
                 event.currentTarget.releasePointerCapture(event.pointerId);
