@@ -1,5 +1,8 @@
 import { useMemo, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { ProjectDocumentV1, ProjectTrack } from "../../project/model";
+import type { ProjectCommand } from "../../project/commands.ts";
+import { drawStudioClip, cutStudioClip, moveStudioClip, quantizeStudioClip,
+  snapStudioTick, type ReferenceArrangementTool } from "./referenceArrangementActions.ts";
 import { subscribeLivePerformance, getLivePerformanceSnapshot } from "./livePerformanceStore";
 import referenceGrandPiano from "./reference-grand-piano.svg";
 import "./ReferenceStudio.css";
@@ -83,6 +86,10 @@ export interface ReferenceStudioProps {
   trackLevels?: Readonly<Record<string, { peak: number; rms: number; clipped: boolean }>>;
   editor: ReactNode;
   instrumentPicker: ReactNode;
+  loopEnabled: boolean;
+  onLoopChange: (enabled: boolean) => void;
+  onSeekTick: (tick: number) => void;
+  onArrangementCommand: (command: ProjectCommand) => void | Promise<void>;
   onWorkspace: (value: StudioWorkspace) => void;
   onLibrary: () => void;
   onProjects: () => void;
@@ -115,15 +122,16 @@ function Meter({ peak, tall = false }: { peak?: number; tall?: boolean }) {
 export function ReferenceStudio({
   document, workspace, activeTrackId, saveStatus, transport, tick, bpm,
   metronome, recording, midiConnected, midiStatus, instrumentName, instrumentCategory,
-  masterLevel, trackLevels, editor, instrumentPicker, onWorkspace, onLibrary, onProjects, onSettings,
+  masterLevel, trackLevels, editor, instrumentPicker, loopEnabled, onLoopChange,
+  onSeekTick, onArrangementCommand, onWorkspace, onLibrary, onProjects, onSettings,
   onNew, onPlay, onStop, onRecord, onMetronome, onTempoDraft, onTempoCommit,
   onTrackSelect, onOpenPattern, onTrackMix, onMasterGain, onFullEditor, onFullMixer,
 }: ReferenceStudioProps) {
-  const [tool, setTool] = useState<"select" | "draw" | "cut">("select");
+  const [tool, setTool] = useState<ReferenceArrangementTool>("select");
   const [inspector, setInspector] = useState<"instrument" | "inspect">("instrument");
   const [instrumentChooserOpen, setInstrumentChooserOpen] = useState(false);
   const [mixerOpen, setMixerOpen] = useState(true);
-  const [loopOn, setLoopOn] = useState(false);
+  const [editError, setEditError] = useState("");
   const [macroValues, setMacroValues] = useState([72, 85, 28, 78]);
   const [channelDrafts, setChannelDrafts] = useState<Record<string, {pan?: number; gainDb?: number}>>({});
   const [masterDraft, setMasterDraft] = useState<number | null>(null);
@@ -146,6 +154,22 @@ export function ReferenceStudio({
   const selectedTrack = tracks.find((track) => track.id === activeTrackId) ?? tracks[0];
   const panelTitle = selectedTrack?.name ?? instrumentName;
   const isPlaying = transport === "playing";
+  async function executeEdit(factory: () => ProjectCommand | null): Promise<void> {
+    try {
+      const command = factory();
+      if (!command) { setEditError("No hay cambios que guardar."); return; }
+      await onArrangementCommand(command);
+      setEditError("");
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : "No se pudo completar la edición.");
+    }
+  }
+  function rulerTick(clientX: number, left: number, width: number): number {
+    if (width <= 0) return 0;
+    const percent = Math.max(0, Math.min(1, (clientX - left) / width));
+    return snapStudioTick(percent * endTick);
+  }
+
   const saveLabel = saveStatus === "clean" ? "Guardado" :
     saveStatus === "saving" ? "Guardando…" : saveStatus === "pending" ? "Por guardar" :
     saveStatus === "conflict" ? "Conflicto" : saveStatus === "error" ? "Error al guardar" : "Sin proyecto";
@@ -257,9 +281,9 @@ export function ReferenceStudio({
               <button type="button" aria-label="Ver mezclador" onClick={()=>onWorkspace("mixer")}><Icon name="sliders" size={18}/></button>
             </div>
             <div className="ref-loop-region">
-              <button type="button" onClick={()=>setLoopOn(!loopOn)} aria-pressed={loopOn}>
+              <button type="button" onClick={()=>onLoopChange(!loopEnabled)} aria-pressed={loopEnabled}>
                 <Icon name="layers" size={16}/> Región de bucle</button>
-              <button type="button" className={loopOn ? "is-selected" : ""} onClick={()=>setLoopOn(!loopOn)}>
+              <button type="button" className={loopEnabled ? "is-selected" : ""} onClick={()=>onLoopChange(!loopEnabled)}>
                 Compás 5 – 12 <Icon name="chevron" size={14}/></button>
             </div>
             <div className="ref-arrangement-tools" role="group" aria-label="Herramientas de edición">
@@ -271,15 +295,32 @@ export function ReferenceStudio({
               <button type="button" title="Editor completo" aria-label="Editor de arreglo completo"
                 onClick={()=>{onWorkspace("arrangement");onFullEditor();}}><Icon name="maximize" size={17}/></button>
             </div>
-            <button type="button" className="ref-quantize" onClick={onFullEditor}>Cuantizar&nbsp; 1/16 <Icon name="chevron" size={13}/></button>
-            <button type="button" className="ref-more" onClick={onFullEditor} aria-label="Más herramientas">···</button>
+            <button type="button" className="ref-quantize" onClick={()=>{
+              if(!document || !playingSelection){setEditError("Selecciona un clip MIDI para cuantizar.");return;}
+              void executeEdit(()=>quantizeStudioClip(document,playingSelection));
+            }}>Cuantizar&nbsp; 1/16 <Icon name="chevron" size={13}/></button>
+            <button type="button" className="ref-more" onClick={()=>{onWorkspace("arrangement");onFullEditor();}} aria-label="Más herramientas del arreglo">···</button>
           </div>
+          {editError && <div className="ref-edit-error" role="alert">
+            <span>{editError}</span><button type="button" aria-label="Cerrar aviso" onClick={()=>setEditError("")}><Icon name="close" size={13}/></button>
+          </div>}
           <div className="ref-arrange-canvas">
             <div className="ref-track-ruler">
               <div className="ref-ruler-label"/>
-              <div className="ref-ruler-numbers">
+              <div className="ref-ruler-numbers" role="slider"
+                aria-label="Mover cabezal de reproducción" aria-valuemin={0}
+                aria-valuemax={endTick} aria-valuenow={Math.max(0,Math.min(endTick,tick))}
+                tabIndex={0} onClick={(event)=>{
+                  const rect=event.currentTarget.getBoundingClientRect();
+                  onSeekTick(rulerTick(event.clientX, rect.left, rect.width));
+                }} onKeyDown={(event)=>{
+                  if(event.key==="ArrowRight"||event.key==="ArrowLeft"){
+                    event.preventDefault();
+                    onSeekTick(Math.max(0,Math.min(endTick,tick+(event.key==="ArrowRight"?240:-240))));
+                  }
+                }}>
                 {Array.from({length:bars},(_,index)=><span key={index}>{index+1}</span>)}
-                {loopOn && <div className="ref-loop-marker" style={{left:"25%",width:"50%"}} />}
+                {loopEnabled && <div className="ref-loop-marker" style={{left:"25%",width:"50%"}} />}
                 <div className="ref-playhead-triangle" style={{left:playheadPercent+"%"}}/>
               </div>
             </div>
@@ -305,7 +346,14 @@ export function ReferenceStudio({
                         onClick={(event)=>{event.stopPropagation();onTrackMix(track.id,{...track.mix,solo:!track.mix.solo});}}>S</button>
                     </span>
                   </div>
-                  <div className="ref-track-lane" onClick={()=>onTrackSelect(track)}>
+                  <div className="ref-track-lane" onClick={(event)=>{
+                    onTrackSelect(track);
+                    if(tool==="draw" && document){
+                      const rect=event.currentTarget.getBoundingClientRect();
+                      const at=rulerTick(event.clientX,rect.left,rect.width);
+                      void executeEdit(()=>drawStudioClip(document,track.id,at));
+                    }
+                  }}>
                     {clipList.map(clip=>{
                       const pattern=clip.kind==="pattern"?document?.patterns.find(p=>p.id===clip.sourceId):null;
                       const left=Math.max(0,clip.startTick/endTick*100);
@@ -319,6 +367,12 @@ export function ReferenceStudio({
                         onClick={(event)=>{
                           event.stopPropagation();
                           onTrackSelect(track);
+                          if(tool==="cut"&&document){
+                            const rect=event.currentTarget.getBoundingClientRect();
+                            const inside=Math.max(0,Math.min(1,(event.clientX-rect.left)/rect.width));
+                            void executeEdit(()=>cutStudioClip(document,clip.id,clip.startTick+inside*clip.lengthTicks));
+                            return;
+                          }
                           setPlayingSelection(clip.id);
                           if(clip.kind==="pattern")onOpenPattern(track.id,clip.sourceId);
                           else onWorkspace("arrangement");
