@@ -782,33 +782,56 @@ export class ProjectAudioSink implements SequencerSink {
     return this.effectiveMute.get(slot.track.id) ?? this.computeMuted(slot);
   }
 
+  /** A muted primary bus does not silence an independent auxiliary send. */
+  private hasUnmutedPath(slot: TrackSlot): boolean {
+    const active = new Set<string>();
+    const reachable = (id: string): boolean => {
+      if (active.has(id)) return false;
+      const candidate = this.slots.get(id);
+      if (!candidate || (candidate.muteOverride ?? candidate.track.mix.mute)) {
+        return false;
+      }
+      active.add(id);
+      const main = candidate.track.mix.outputBusTrackId;
+      // No destination means the main output connects to master.
+      const heard = (!main || reachable(main)) ||
+        candidate.track.mix.sends.some((send) => reachable(send.busTrackId));
+      active.delete(id);
+      return heard;
+    };
+    return reachable(slot.track.id);
+  }
+
   private computeMuted(slot: TrackSlot): boolean {
-    const visited = new Set<string>();
-    let parentId = slot.track.mix.outputBusTrackId;
-    while (parentId && !visited.has(parentId)) {
-      visited.add(parentId);
-      const parent = this.slots.get(parentId);
-      if (parent && (parent.muteOverride ?? parent.track.mix.mute)) return true;
-      parentId = parent?.track.mix.outputBusTrackId;
-    }
+    if (!this.hasUnmutedPath(slot)) return true;
     const soloed = [...this.slots.values()].some((candidate) =>
       candidate.soloOverride ?? candidate.track.mix.solo);
     const solo = slot.soloOverride ?? slot.track.mix.solo;
-    if (slot.muteOverride ?? slot.track.mix.mute) return true;
     if (!soloed || solo) return false;
     if ([...this.slots.values()].some((candidate) => candidate.track.kind === "bus" &&
-        (candidate.soloOverride ?? candidate.track.mix.solo) && this.routesThrough(slot, candidate.track.id))) return false;
+        (candidate.soloOverride ?? candidate.track.mix.solo) &&
+        this.routesThrough(slot, candidate.track.id))) return false;
     return slot.track.kind !== "bus" || ![...this.slots.values()].some((candidate) =>
-      (candidate.soloOverride ?? candidate.track.mix.solo) && this.routesThrough(candidate, slot.track.id));
+      (candidate.soloOverride ?? candidate.track.mix.solo) &&
+      this.routesThrough(candidate, slot.track.id));
   }
 
+  /** Follow output and parallel send edges for solo/route diagnostics. */
   private routesThrough(slot: TrackSlot, busTrackId: string): boolean {
+    const pending = [slot.track.id];
     const visited = new Set<string>();
-    let parentId = slot.track.mix.outputBusTrackId;
-    while (parentId && !visited.has(parentId)) {
-      if (parentId === busTrackId) return true;
-      visited.add(parentId);
-      parentId = this.slots.get(parentId)?.track.mix.outputBusTrackId;
+    while (pending.length) {
+      const id = pending.pop()!;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const track = this.slots.get(id)?.track;
+      if (!track) continue;
+      const destinations = [track.mix.outputBusTrackId,
+        ...track.mix.sends.map((send) => send.busTrackId)];
+      for (const next of destinations) {
+        if (next === busTrackId) return true;
+        if (next && !visited.has(next)) pending.push(next);
+      }
     }
     return false;
   }
@@ -829,7 +852,10 @@ export class ProjectAudioSink implements SequencerSink {
     this.refreshMute(audioTime);
     if (muted) {
       for (const candidate of this.slots.values()) {
-        if (candidate === slot || this.routesThrough(candidate, trackId)) {
+        if (candidate === slot ||
+            (this.routesThrough(candidate, trackId) && this.isMuted(candidate))) {
+          // Do not kill the source when its independent send still reaches an
+          // audible bus. Only voices actually losing every route are retired.
           candidate.piano?.releaseOwner(this.rootOwnerId, audioTime, true);
           candidate.drums?.releaseOwner(this.rootOwnerId, audioTime, true);
           candidate.rack?.releaseOwner(this.rootOwnerId, audioTime, true);
