@@ -1,6 +1,6 @@
 import * as Tone from "tone";
 import { DrumKitEngine } from "../engine/DrumKitEngine";
-import type { ProjectAssetRef, ProjectAutomationLane, ProjectDocumentV1,
+import type { ProjectAssetRef, ProjectAutomationLane, ProjectDocumentV1, ProjectEffect,
   ProjectMixChannel, ProjectTrack } from "../project/model";
 import type { OwnedVoiceHandle } from "./ownedVoiceRegistry";
 import { LiveVoiceController } from "./liveVoiceController";
@@ -12,7 +12,8 @@ import { UserSampleEngine, defaultUserSampleRegion } from "./userSampleEngine";
 import { MonoUserSampleEngine } from "./monoUserSampleEngine";
 import { DrumRackEngine, type DrumRackPadStatus } from "./drumRackEngine";
 import { AudioClipEngine } from "./audioClipEngine";
-import { connectProjectEffects } from "./projectEffects.ts";
+import { connectProjectEffects, projectEffectAutomationParam } from "./projectEffects.ts";
+import { projectAutomationBaseValue, projectAutomationParameter } from "../project/automationParameters.ts";
 import { assertSafeAudioRouting } from "../project/mixRouting.ts";
 import { SALAMANDER_CORE_PACKAGE_VERSION } from "./verifiedSalamanderCore";
 import { TR808_FISCHER_VERSION, loadTr808FischerBass,
@@ -135,6 +136,7 @@ interface TrackSlot {
   effectComparisonOriginalDb: number;
   effectComparisonProcessedDb: number;
   readonly effects: Tone.ToneAudioNode[];
+  readonly effectNodes: ReadonlyMap<string, Tone.ToneAudioNode>;
   /** Independent post-fader, post-insert sends to bus inputs. */
   readonly sends: Tone.Gain[];
   sidechainNode: AudioWorkletNode | null;
@@ -216,6 +218,7 @@ export class ProjectAudioSink implements SequencerSink {
   private readonly master: Tone.Volume;
   private readonly masterMeter: Tone.Analyser;
   private readonly masterEffects: Tone.ToneAudioNode[] = [];
+  private readonly masterEffectNodes = new Map<string, Tone.ToneAudioNode>();
   private readonly masterMeterState: MeterState = {
     lastAt: -Infinity, clippedLastRead: false,
     snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 },
@@ -226,6 +229,7 @@ export class ProjectAudioSink implements SequencerSink {
   private readonly effectiveMute = new Map<string, boolean>();
   private readonly handles = new Map<OwnedVoiceHandle, TrackSlot>();
   private readonly automatedParameters = new Set<string>();
+  private readonly automationTargetsByKey = new Map<string, ProjectAutomationLane["target"]>();
   /** Parameters temporarily owned by a physical/Touch control; timeline events must not overwrite them. */
   private readonly liveAutomationOverrides = new Map<string, number>();
   /** First read event after a physical release must crossfade back instead of snapping. */
@@ -285,8 +289,13 @@ export class ProjectAudioSink implements SequencerSink {
     }
     let masterError: string | null = null;
     try {
-      this.masterEffects.push(...connectProjectEffects(document.mix.masterEffects,
-        this.master, this.masterMeter));
+      const masterNodes = connectProjectEffects(document.mix.masterEffects,
+        this.master, this.masterMeter);
+      this.masterEffects.push(...masterNodes);
+      document.mix.masterEffects.filter((effect) => effect.enabled).forEach((effect, index) => {
+        const node = masterNodes[index];
+        if (node) this.masterEffectNodes.set(effect.id, node);
+      });
     } catch (error) {
       masterError = error instanceof Error ? error.message : String(error);
     }
@@ -354,7 +363,7 @@ export class ProjectAudioSink implements SequencerSink {
       originalEffectMeter, originalEffectMeterState, processedEffectMeter, processedEffectMeterState,
       originalEffectGain, processedEffectGain, effectComparisonMode: "off",
       effectComparisonOriginalDb: 0, effectComparisonProcessedDb: 0, effects: [],
-      sends: [], sidechainNode: null, sidechainSource: null, sidechainReductionDb: 0,
+      effectNodes: new Map(), sends: [], sidechainNode: null, sidechainSource: null, sidechainReductionDb: 0,
       sidechainReductionPeakDb: 0, sidechainError: null, piano: null, drums: null,
       sampler: null, rack: null, audioClips: null, sampleAsset: null,
       status: "loading", error: null, muteOverride: null, soloOverride: null,
@@ -448,7 +457,13 @@ export class ProjectAudioSink implements SequencerSink {
     if (slot.status !== "error") {
       try {
         volume.connect(originalEffectMeter);
-        slot.effects.push(...connectProjectEffects(track.mix.effects, volume, processedEffectMeter));
+        const effectNodes = connectProjectEffects(track.mix.effects, volume, processedEffectMeter);
+        slot.effects.push(...effectNodes);
+        const map = slot.effectNodes as Map<string, Tone.ToneAudioNode>;
+        track.mix.effects.filter((effect) => effect.enabled).forEach((effect, index) => {
+          const node = effectNodes[index];
+          if (node) map.set(effect.id, node);
+        });
       } catch (error) {
         slot.status = "error";
         slot.error = error instanceof Error ? error.message : String(error);
