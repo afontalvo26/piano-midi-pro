@@ -994,6 +994,20 @@ export class LiveStudioEngine {
   }
 
   /** Read-only clock seam for a future transport sink on this tab's graph. */
+  /** Browser-reported output buffering, NOT measured key-to-speaker latency. */
+  outputBufferLatencyEstimateMs(): number | null {
+    if (!this.graph || this.disposed) return null;
+    const context = Tone.getContext().rawContext as unknown as {
+      baseLatency?: number; outputLatency?: number;
+    };
+    const base = context.baseLatency;
+    if (typeof base !== "number" || !Number.isFinite(base) || base < 0) return null;
+    const output = typeof context.outputLatency === "number" &&
+      Number.isFinite(context.outputLatency) && context.outputLatency >= 0
+      ? context.outputLatency : 0;
+    return Math.round((base + output) * 1000);
+  }
+
   audioClockSnapshot(): { currentTime: number; state: AudioContextState; ownsOutput: boolean } | null {
     if (!this.graph || this.disposed) return null;
     const context = Tone.getContext().rawContext;
