@@ -559,3 +559,19 @@
 .ref-clip:focus-visible { outline: 2px solid #ebc5ff; outline-offset: 1px; }
 .ref-pan input:focus-visible,
 .ref-channel-fader input:focus-visible { outline: 2px solid #30f8e0; outline-offset: 4px; }
+
+/* Use the grand-piano detail taken from the user's approved UI reference.
+   Its faded left edge keeps the text and status chips independently accessible. */
+.ref-grand-piano {
+  object-fit: cover;
+  object-position: 52% 50%;
+  height: 148px;
+  width: 230px;
+  right: -12px;
+  bottom: -5px;
+  pointer-events: none;
+  border-radius: 10px;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 21%, #000 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 21%, #000 100%);
+  filter: drop-shadow(0 2px 9px #160626);
+}
