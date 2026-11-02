@@ -64,8 +64,10 @@ async function render(request: RealmRequest, port: MessagePort): Promise<void> {
       ? new Tone.Gain(1).toDestination() : new Tone.Limiter(-2).toDestination();
     sink = new ProjectAudioSink(document, output, bank, () => !cancelled,
       { readAsset: async (ref) => blobs.get(ref.id) ?? null },
-      options.tapBusTrackId || options.tapDirectMaster || request.silentTrackIds.length
-        ? { busTrackId: options.tapBusTrackId, directMaster: options.tapDirectMaster,
+      options.tapTrackOutput || options.tapBusTrackId || options.tapDirectMaster ||
+        request.silentTrackIds.length
+        ? { trackId: options.tapTrackOutput ? options.trackId : undefined,
+          busTrackId: options.tapBusTrackId, directMaster: options.tapDirectMaster,
           silentTrackIds: request.silentTrackIds }
         : undefined);
     const prepared = await sink.prepare({ metronome: false });
