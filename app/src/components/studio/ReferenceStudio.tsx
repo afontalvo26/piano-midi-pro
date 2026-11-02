@@ -183,11 +183,14 @@ export function ReferenceStudio({
       (track): track is ProjectTrack => !!track && track.kind !== "bus");
   }, [document]);
   const meter = document?.meterMap[0];
-  const ticksPerBar = 960 * 4 * (meter?.numerator ?? 4) / (meter?.denominator ?? 4);
   const bars = 16;
-  const endTick = ticksPerBar * bars;
+  const meterMap = document?.meterMap ?? [{tick:0,numerator:4,denominator:4}];
+  const barTicks = useMemo(() => Array.from({length:bars+1},(_,i)=>
+    studioBarStartTick(meterMap,i+1)),[document?.meterMap]);
+  const endTick = barTicks[bars]!;
+  const ticksPerBar = barTicks[1]! - barTicks[0]!;
   const playheadPercent = Math.min(100, Math.max(0, tick / endTick * 100));
-  const clockPosition = Math.floor(tick / ticksPerBar) + 1;
+  const clockPosition = studioBarNumberAtTick(meterMap,Math.max(0,tick));
   const selectedTrack = tracks.find((track) => track.id === activeTrackId) ?? tracks[0];
   const panelTitle = selectedTrack?.name ?? instrumentName;
   const selectedClip = document?.clips.find((clip)=>clip.id===playingSelection);
@@ -377,8 +380,12 @@ export function ReferenceStudio({
                     onSeekTick(Math.max(0,Math.min(endTick,tick+(event.key==="ArrowRight"?240:-240))));
                   }
                 }}>
-                {Array.from({length:bars},(_,index)=><span key={index}>{index+1}</span>)}
-                {loopEnabled && <div className="ref-loop-marker" style={{left:"25%",width:"50%"}} />}
+                {barTicks.slice(0,bars).map((barTick,index)=>
+                  <span key={index} style={{left: (barTick/endTick*100)+"%",position:"absolute"}}>{index+1}</span>)}
+                {loopEnabled && <div className="ref-loop-marker"
+                  style={{left: Math.min(100,studioBarStartTick(meterMap,loopStartBar)/endTick*100)+"%",
+                    width: Math.max(0,Math.min(endTick,studioBarStartTick(meterMap,loopEndBar+1))-
+                      studioBarStartTick(meterMap,loopStartBar))/endTick*100)+"%"}} />}
                 <div className="ref-playhead-triangle" style={{left:playheadPercent+"%"}}/>
               </div>
             </div>
@@ -574,8 +581,8 @@ export function ReferenceStudio({
           {selectedClip ? <div className="ref-inspector-clip">
             <h4>Clip seleccionado</h4>
             <p>{selectedClip.kind==="pattern" ? "Patrón MIDI" : "Grabación de audio"} ·
-              Compás {Math.floor(selectedClip.startTick/ticksPerBar)+1}</p>
-            <p>Duración: {(selectedClip.lengthTicks/ticksPerBar).toFixed(2)} compases</p>
+              Compás {studioBarNumberAtTick(meterMap,selectedClip.startTick)}</p>
+            <p>Duración: {selectedClip.lengthTicks} ticks (PPQ 960)</p>
             <div className="ref-inspector-clip-actions">
               <button type="button" onClick={()=>{if(!document)return;
                 void executeEdit(()=>({kind:"replaceClips", expected:document.clips,
