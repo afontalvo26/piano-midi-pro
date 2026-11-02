@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { ProjectDocumentV1, ProjectTrack } from "../../project/model";
 import type { ProjectCommand } from "../../project/commands.ts";
 import { STUDIO_MACROS, readStudioMacro, type StudioMacroId } from "./studioMacros.ts";
@@ -161,21 +161,8 @@ export function ReferenceStudio({
   const [channelDrafts, setChannelDrafts] = useState<Record<string, {pan?: number; gainDb?: number}>>({});
   const [masterDraft, setMasterDraft] = useState<number | null>(null);
   const [playingSelection, setPlayingSelection] = useState<string | null>(null);
-  useEffect(()=>{
-    setDraftLoopStart(String(loopStartBar));
-    setDraftLoopEnd(String(loopEndBar));
-  },[loopStartBar,loopEndBar]);
   const dragRef = useRef<{ clipId: string; x: number; laneWidth: number } | null>(null);
   const suppressClickRef = useRef<string | null>(null);
-  useEffect(()=>{
-    setPlayingSelection(null);
-    setEditError("");
-    setMacroDrafts({});
-    setScoreOpen(false);
-    setLoopEditorOpen(false);
-    dragRef.current=null;
-    suppressClickRef.current=null;
-  },[document?.id]);
   const liveNotes = useSyncExternalStore(subscribeLivePerformance,
     getLivePerformanceSnapshot, getLivePerformanceSnapshot);
   const highlightedNote = liveNotes.lastStrike?.playedNote;
