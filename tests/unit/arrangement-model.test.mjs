@@ -6,9 +6,9 @@ import { validateProjectDocument } from "../../app/src/project/validate.ts";
 import { createArrangementResolver } from "../../app/src/composition/resolveProjectTimeline.ts";
 import { addArrangementSection, captureArrangementPerformance, captureArrangementScene,
   createArrangementClip, duplicateArrangementClip, duplicateArrangementSection,
-  editArrangementClip, editArrangementScene, editArrangementSection,
-  removeArrangementScene, removeArrangementSection, splitArrangementClip,
-  uniqueArrangementClip } from "../../app/src/composition/arrangementModel.ts";
+  editArrangementClip, editArrangementScene, editArrangementSection, groupArrangementClips,
+  moveArrangementClipGroup, removeArrangementScene, removeArrangementSection, splitArrangementClip,
+  ungroupArrangementClip, uniqueArrangementClip } from "../../app/src/composition/arrangementModel.ts";
 
 const mix = { gainDb: 0, pan: 0, mute: false, solo: false, armed: false, sends: [], effects: [] };
 const track = { id: "arr-track", name: "Piano", kind: "instrument", mix };
@@ -257,4 +257,55 @@ test("duplicar sección copia audio absoluto, crossfade, comp y curva local en u
   const partialSection = { ...section, lengthTicks: 6000 };
   const partial = { ...source, sections: [partialSection] };
   assert.throws(() => duplicateArrangementSection(partial, section.id, 2000), /recorte parcial de audio/);
+});
+
+
+test("ARR-01 agrupa clips, los mueve juntos y desagrupa con un único Undo", () => {
+  const second = { ...clip, id: "arr-clip-two", startTick: 1920 };
+  const document = { ...base, clips: [clip, second] };
+  const grouped = applyCommand(document, groupArrangementClips(document,
+    [clip.id, second.id], 2000, "group-a"));
+  assert.deepEqual(grouped.document.clips.map((item) => item.groupId), ["group-a", "group-a"]);
+  const moved = applyCommand(grouped.document,
+    moveArrangementClipGroup(grouped.document, clip.id, 240, 3000));
+  assert.deepEqual(moved.document.clips.map((item) => item.startTick), [240, 2160]);
+  assert.deepEqual(applyCommand(moved.document, moved.inverse).document, grouped.document);
+  const ungrouped = applyCommand(grouped.document,
+    ungroupArrangementClip(grouped.document, second.id, 4000));
+  assert.equal(ungrouped.document.clips.every((item) => item.groupId === undefined), true);
+  assert.deepEqual(applyCommand(ungrouped.document, ungrouped.inverse).document, grouped.document);
+});
+
+test("duplicar un clip agrupado no incorpora silenciosamente la copia al grupo", () => {
+  const second = { ...clip, id: "arr-clip-two", startTick: 1920 };
+  const document = applyCommand({ ...base, clips: [clip, second] },
+    groupArrangementClips({ ...base, clips: [clip, second] },
+      [clip.id, second.id], 2000, "group-a")).document;
+  const duplicated = applyCommand(document,
+    duplicateArrangementClip(document, clip.id, 3000, "group-copy"));
+  assert.equal(duplicated.document.clips.find((item) => item.id === clip.id).groupId, "group-a");
+  assert.equal(duplicated.document.clips.find((item) => item.id === "group-copy").groupId, undefined);
+  validateProjectDocument(duplicated.document);
+});
+
+test("grupo protege crossfade: no permite mover sólo uno de sus extremos", () => {
+  const audioTrack = { id: "group-audio-track", name: "Voz", kind: "audio", mix };
+  const asset = { id: "group-audio-asset", sha256: "a".repeat(64), byteLength: 4096,
+    mimeType: "audio/wav", sourceKind: "recorded", license: "Propio",
+    frameCount: 96000, sampleRate: 48000, channelCount: 1 };
+  const audio = (id, startTick, sourceStartFrame, sourceEndFrame) => ({
+    id, kind: "audio", trackId: audioTrack.id, sourceId: asset.id, startTick, lengthTicks: 960,
+    sourceOffsetTick: 0, loopMode: "none", tailPolicy: "cut", transpose: 0, gainDb: 0, muted: false,
+    sourceStartFrame, sourceEndFrame, fadeInFrames: 0, fadeOutFrames: 0,
+  });
+  const first = audio("fade-a", 0, 0, 48000);
+  const second = audio("fade-b", 720, 24000, 72000);
+  const source = { ...base, tracks: [track, audioTrack], trackOrder: [track.id, audioTrack.id],
+    clips: [clip, first, second], assets: [asset], audioCrossfades: [{
+      id: "fade", outgoingClipId: first.id, incomingClipId: second.id, curve: "equalPower",
+    }] };
+  const grouped = applyCommand(source,
+    groupArrangementClips(source, [clip.id, first.id], 2000, "mixed-group")).document;
+  assert.throws(() => moveArrangementClipGroup(grouped, first.id, 120),
+    /ambos clips del crossfade/);
 });
