@@ -462,6 +462,11 @@ test("Studio arranger pages beyond bar 16, zooms and edits visible later measure
   await navigation.getByRole("button",{name:"Centrar cabezal"}).click();
   await expect(navigation).toContainText("1–8");
   await expect(lane.locator(".ref-clip")).toHaveCount(1);
+  // The original opening clip is visible again, not the later drawing.
+  await navigation.getByRole("button",{name:"Compases siguientes"}).click();
+  await navigation.getByRole("button",{name:"Compases siguientes"}).click();
+  await expect(navigation).toContainText("17–24");
+  await expect(lane.locator(".ref-clip")).toHaveCount(1);
 });
 
 test("moving to next bar uses meter map rather than current time-signature width",async({page})=>{
