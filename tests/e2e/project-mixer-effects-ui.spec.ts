@@ -7,6 +7,8 @@ test("Mezclador guarda, reordena y omite efectos por pista y master en móvil", 
   await page.getByRole("button", { name: "Nuevo proyecto" }).click();
   await page.getByRole("button", { name: "Mezclador" }).click();
   const mixer = page.getByRole("region", { name: "Mezclador del proyecto" });
+  await expect(mixer.getByLabel("Nivel master antes de efectos")).toBeVisible();
+  await expect(mixer.getByLabel("Nivel master después de efectos")).toBeVisible();
   const piano = mixer.getByRole("region", { name: "Efectos de Piano" });
   await piano.getByRole("combobox", { name: "Nuevo efecto" }).selectOption("filter");
   await piano.getByRole("button", { name: "Añadir efecto" }).click();
