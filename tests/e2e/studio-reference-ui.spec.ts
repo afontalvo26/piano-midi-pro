@@ -378,3 +378,40 @@ test("studio instrument catalog distinguishes global live sound from per-track v
   await expect(picker.getByLabel("Banco sonoro de pista")).toBeVisible();
   await expect(picker.getByText(/catálogo inferior cambia sólo el sonido de interpretación/)).toBeVisible();
 });
+
+
+test("shared pattern quantization requires Make Unique and leaves sibling notes unchanged",async({page})=>{
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const result=await page.evaluate(async()=>{
+    const {createProjectDocument}=await import("/src/project/model.ts");
+    const {applyCommand}=await import("/src/project/commands.ts");
+    const {quantizeStudioClip}=await import("/src/components/studio/referenceArrangementActions.ts");
+    const {uniqueArrangementClip}=await import("/src/composition/arrangementModel.ts");
+    const trackId="unique-track";
+    const pattern={id:"shared-pattern",name:"Patrón compartido",version:1,lengthTicks:3840,
+      notes:[{id:"note-a",startTick:125,durationTick:260,pitch:60,velocity:100,
+        releaseVelocity:64,channel:0,origin:{kind:"drawn" as const}}],expression:[]};
+    const makeClip=(id:string,startTick:number)=>({
+      id,kind:"pattern" as const,trackId,sourceId:pattern.id,
+      sourceVersion:1,startTick,lengthTicks:3840,sourceOffsetTick:0,
+      loopMode:"loop" as const,tailPolicy:"cut" as const,transpose:0,gainDb:0,muted:false
+    });
+    const doc={...createProjectDocument({id:"shared-quantize",at:1}),
+      trackOrder:[trackId],
+      tracks:[{id:trackId,name:"Piano",kind:"instrument" as const,
+        mix:{gainDb:0,pan:0,mute:false,solo:false,armed:false,sends:[],effects:[]}}],
+      patterns:[pattern],clips:[makeClip("clip-a",0),makeClip("clip-b",3840)]};
+    let rejected=false;
+    try{quantizeStudioClip(doc,"clip-a");}catch{rejected=true;}
+    const separated=applyCommand(doc,uniqueArrangementClip(doc,"clip-a",2));
+    const quantizedCommand=quantizeStudioClip(separated.document,"clip-a");
+    if(!quantizedCommand)throw new Error("Missing quantize command");
+    const modified=applyCommand(separated.document,quantizedCommand);
+    const other=modified.document.clips.find(c=>c.id==="clip-b");
+    const target=modified.document.clips.find(c=>c.id==="clip-a");
+    return {rejected,otherStart:modified.document.patterns.find(p=>p.id===other?.sourceId)?.notes[0]?.startTick,
+      targetStart:modified.document.patterns.find(p=>p.id===target?.sourceId)?.notes[0]?.startTick,
+      differentPattern:other?.sourceId!==target?.sourceId};
+  });
+  expect(result).toEqual({rejected:true,otherStart:125,targetStart:240,differentPattern:true});
+});
