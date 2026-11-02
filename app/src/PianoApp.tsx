@@ -2537,6 +2537,22 @@ export default function PianoApp() {
             setEditorTrackId(trackId); setEditorPatternId(patternId); setWorkspace("piano-roll");
           }}
           onTrackMix={commitTrackMix}
+          onTrackInstrumentChange={(trackId,instrumentId)=>{
+            const session=projectSessionRef.current;
+            const track=session?.getSnapshot().document.tracks.find((item)=>item.id===trackId);
+            if(!session || !track || track.kind!=="instrument") {
+              throw new Error("Selecciona una pista de instrumento válida");
+            }
+            const bank=instrumentId==="salamander-grand" ? PROJECT_PIANO_INSTRUMENT
+              : instrumentId==="tr808-fischer-core" ? PROJECT_808_INSTRUMENT : null;
+            if(!bank)throw new RangeError("Banco de proyecto no autorizado o aún no instalado");
+            if(track.instrument?.instrumentId===bank.instrumentId &&
+               track.instrument.packageVersion===bank.packageVersion &&
+               track.instrument.presetId===bank.presetId) return;
+            session.dispatch({kind:"replaceTrackInstrument",trackId,expected:track.instrument,
+              instrument:bank,at:Date.now()});
+            setProjectsError("");
+          }}
           onUndo={() => {projectSessionRef.current?.undo();}}
           onRedo={() => {projectSessionRef.current?.redo();}}
           canUndo={projectView?.canUndo ?? false}
