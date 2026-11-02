@@ -155,6 +155,8 @@ export function ReferenceStudio({
   const [mixerOpen, setMixerOpen] = useState(true);
   const [loopOn, setLoopOn] = useState(false);
   const [macroValues, setMacroValues] = useState([72, 85, 28, 78]);
+  const [channelDrafts, setChannelDrafts] = useState<Record<string, {pan?: number; gainDb?: number}>>({});
+  const [masterDraft, setMasterDraft] = useState<number | null>(null);
   const [playingSelection, setPlayingSelection] = useState<string | null>(null);
   const tracks = useMemo(() => document?.trackOrder.map((id) =>
     document.tracks.find((track) => track.id === id)).filter(
@@ -171,6 +173,31 @@ export function ReferenceStudio({
   const saveLabel = saveStatus === "clean" ? "Guardado" :
     saveStatus === "saving" ? "Guardando…" : saveStatus === "pending" ? "Por guardar" :
     saveStatus === "conflict" ? "Conflicto" : saveStatus === "error" ? "Error al guardar" : "Sin proyecto";
+  function updateChannelDraft(id: string, field: "pan" | "gainDb", value: number) {
+    setChannelDrafts((previous) => ({...previous, [id]: {...previous[id], [field]: value}}));
+  }
+  function commitChannelDraft(track: ProjectTrack, field: "pan" | "gainDb") {
+    const draft = channelDrafts[track.id]?.[field];
+    if (draft === undefined) return;
+    setChannelDrafts((previous) => {
+      const next = {...previous};
+      const current = {...next[track.id]};
+      delete current[field];
+      if (Object.keys(current).length) next[track.id] = current;
+      else delete next[track.id];
+      return next;
+    });
+    if (Number.isFinite(draft) && draft !== track.mix[field]) {
+      onTrackMix(track.id, {...track.mix, [field]: draft});
+    }
+  }
+  function commitMasterDraft() {
+    if (masterDraft === null) return;
+    const value = masterDraft;
+    setMasterDraft(null);
+    if (Number.isFinite(value) && value !== (document?.mix.masterGainDb ?? 0)) onMasterGain(value);
+  }
+
 
   return <div className="ref-studio" data-testid="reference-studio" data-tool={tool}>
     <header className="ref-topbar">
@@ -416,12 +443,18 @@ export function ReferenceStudio({
                 title={track.name}><Icon name={track.kind==="drum"?"wave":track.kind==="instrument"?"piano":"music"} size={19}/><strong>{track.name}</strong></button>
               <div className="ref-channel-controls">
                 <label className="ref-pan"><span>Pan</span><input type="range" min="-1" max="1" step=".01"
-                  value={track.mix.pan} aria-label={"Pan de "+track.name}
-                  onChange={e=>onTrackMix(track.id,{...track.mix,pan:Number(e.target.value)})}/></label>
+                  value={channelDrafts[track.id]?.pan ?? track.mix.pan} aria-label={"Pan de "+track.name}
+                  onChange={e=>updateChannelDraft(track.id,"pan",Number(e.target.value))}
+                  onPointerUp={()=>commitChannelDraft(track,"pan")}
+                  onKeyUp={()=>commitChannelDraft(track,"pan")}
+                  onBlur={()=>commitChannelDraft(track,"pan")}/></label>
                 <div className="ref-channel-fader">
                   <input type="range" min="-60" max="6" step=".1" aria-label={"Ganancia de "+track.name}
-                    value={Math.max(-60,Math.min(6,track.mix.gainDb))}
-                    onChange={e=>onTrackMix(track.id,{...track.mix,gainDb:Number(e.target.value)})}/>
+                    value={channelDrafts[track.id]?.gainDb ?? Math.max(-60,Math.min(6,track.mix.gainDb))}
+                    onChange={e=>updateChannelDraft(track.id,"gainDb",Number(e.target.value))}
+                    onPointerUp={()=>commitChannelDraft(track,"gainDb")}
+                    onKeyUp={()=>commitChannelDraft(track,"gainDb")}
+                    onBlur={()=>commitChannelDraft(track,"gainDb")}/>
                   <Meter peak={trackLevels?.[track.id]?.peak} tall/>
                 </div>
               </div>
@@ -439,8 +472,11 @@ export function ReferenceStudio({
             <div className="ref-channel-controls">
               <div className="ref-channel-fader">
                 <input type="range" min="-60" max="6" step=".1" aria-label="Ganancia master"
-                  value={document?.mix.masterGainDb??0}
-                  onChange={(event)=>onMasterGain(Number(event.target.value))}/>
+                  value={masterDraft ?? (document?.mix.masterGainDb ?? 0)}
+                  onChange={(event)=>setMasterDraft(Number(event.target.value))}
+                  onPointerUp={commitMasterDraft}
+                  onKeyUp={commitMasterDraft}
+                  onBlur={commitMasterDraft}/>
                 <Meter peak={masterLevel?.peak} tall/>
               </div>
               <label className="ref-master-send" title="Abrir mezcla detallada">
