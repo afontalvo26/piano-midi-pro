@@ -44,9 +44,11 @@ ejecutado. El sidechain MIX-04 y A/B MIX-06 siguen pendientes.
 
 ### Limitaciones deliberadas
 
-- El render del tap `post-bus-pre-master` todavía rechaza buses con
-  envíos en sus rutas. Un bus stem con envíos paralelos también se rechaza
-  para no mezclar accidentalmente la ruta directa al master.
+- Los taps de buses y el stem directo al master ahora están separados
+  de la conexión global al master: sólo se conecta al destino offline el
+  medidor post-insert/fader del bus elegido o las salidas directas. Así los
+  envíos auxiliares no duplican audio en un stem de bus. Esta implementación
+  sigue **sin prueba E2E ejecutada** y no constituye aceptación MIX-01.
 - La semántica de mute/solo cuando una pista utiliza salidas paralelas
   requiere prueba y cierre explícitos, incluido silencio de colas.
 - No se declara compensación de latencia de plugins ni sidechain implementado.
