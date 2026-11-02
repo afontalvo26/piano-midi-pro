@@ -388,11 +388,20 @@ export function ReferenceStudio({
                         title={pattern?.name??"Clip de audio"}
                         onPointerDown={(event)=>{
                           if(tool!=="select" || event.button!==0) return;
+                          suppressClickRef.current=null;
                           dragRef.current={clipId:clip.id,x:event.clientX,
                             laneWidth:event.currentTarget.parentElement?.getBoundingClientRect().width??1};
                           event.currentTarget.setPointerCapture(event.pointerId);
                         }}
+                        onPointerMove={(event)=>{
+                          const gesture=dragRef.current;
+                          if(tool!=="select" || !gesture || gesture.clipId!==clip.id) return;
+                          const deltaX=event.clientX-gesture.x;
+                          event.currentTarget.style.transform= Math.abs(deltaX)>6
+                            ? `translateX(${deltaX}px)` : "";
+                        }}
                         onPointerUp={(event)=>{
+                          event.currentTarget.style.transform="";
                           const gesture=dragRef.current;
                           dragRef.current=null;
                           if(!gesture || gesture.clipId!==clip.id || !document) return;
@@ -402,7 +411,7 @@ export function ReferenceStudio({
                           void executeEdit(()=>moveStudioClip(document,clip.id,
                             deltaX/gesture.laneWidth*endTick));
                         }}
-                        onPointerCancel={()=>{dragRef.current=null;}}
+                        onPointerCancel={(event)=>{event.currentTarget.style.transform="";dragRef.current=null;}}
                         onKeyDown={(event)=>{
                           if(!document || tool!=="select")return;
                           if(event.key==="ArrowRight"||event.key==="ArrowLeft"){
