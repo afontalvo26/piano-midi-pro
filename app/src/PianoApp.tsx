@@ -69,6 +69,10 @@ import {
   saveMidiBindings, upsertMidiBinding, type MidiBinding, type MidiProfileId,
   type MidiValueMode,
 } from "./midi/profile";
+import { advancePickup, automationBaseValue, automationMidiAction, automationMidiValueMode,
+  parseAutomationMidiAction, scaleAutomationMidiValue,
+  type PickupState } from "./midi/automationMidi";
+import { baseAutomationParameter } from "./project/automationParameters";
 import { MidiRecorder, type MidiRecorderSnapshot } from "./midi/recorder";
 import { RecordingLibrary, type RecordedTakeSummary, type SaveRecordingOptions } from "./midi/recordingLibrary";
 import { InstrumentBrowser } from "./components/studio/InstrumentBrowser";
@@ -106,6 +110,10 @@ const ACTIVE_MIDI_ACTIONS = new Set([
   "piano.modulation", "piano.release", "piano.transpose", "volume.master",
   "effect.reverbDecay", "effect.chorusDepth",
 ]);
+
+function isActiveMidiAction(action: string): boolean {
+  return ACTIVE_MIDI_ACTIONS.has(action) || parseAutomationMidiAction(action) !== null;
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -425,6 +433,7 @@ export default function PianoApp() {
   const consumedNotesRef = useRef(new Map<string, number>());
   const pedalSourcesRef = useRef(new Map<string, boolean>());
   const lastTriggerRef = useRef(new Map<string, number>());
+  const automationPickupRef = useRef(new Map<string, PickupState>());
   const calibrationBankRef = useRef(calibrationBank);
   const calibrationTimerRef = useRef<number | null>(null);
   const traceTimerRef = useRef<number | null>(null);
@@ -592,7 +601,7 @@ export default function PianoApp() {
     queueMicrotask(() => {
       try {
         const loaded = loadMidiBindings(localStorage, bindingScope).filter((binding) =>
-          ACTIVE_MIDI_ACTIONS.has(binding.action));
+          isActiveMidiAction(binding.action));
         setBindings(loaded);
         setLearnAction(null);
       } catch { setBindings([]); }
@@ -753,6 +762,32 @@ export default function PianoApp() {
 
   const applyBinding = useCallback((binding: MidiBinding, event: MidiEvent): boolean => {
     const value = bindingValue(event, binding.valueMode);
+    const automationAction = parseAutomationMidiAction(binding.action);
+    if (automationAction) {
+      if (event.kind !== "cc" && event.kind !== "pitchBend") return false;
+      const document = projectSessionRef.current?.getSnapshot().document;
+      const lane = document?.automation.find((item) => item.id === automationAction.laneId);
+      const descriptor = lane && baseAutomationParameter(lane.target);
+      if (!document || !lane || !descriptor || lane.target.scope === "clip" || lane.target.effectId) return false;
+      const live = engine.projectAutomationSnapshot().find((item) => item.laneId === lane.id)?.value;
+      const currentValue = live ?? automationBaseValue(lane, document);
+      if (automationAction.takeover === "pickup") {
+        const normalizedTarget = (currentValue - descriptor.min) / (descriptor.max - descriptor.min);
+        const physical = Math.max(0, Math.min(127, value)) / 127;
+        const advanced = advancePickup(automationPickupRef.current.get(binding.id), physical, normalizedTarget);
+        automationPickupRef.current.set(binding.id, advanced.state);
+        if (!advanced.acquired) return true;
+      }
+      const next = scaleAutomationMidiValue(value, binding.valueMode, currentValue, descriptor);
+      if (lane.target.scope === "master" && lane.target.parameterId === "masterGainDb") {
+        engine.setProjectMasterGainDb(next);
+      } else if (lane.target.scope === "track" && lane.target.ownerId) {
+        if (lane.target.parameterId === "gainDb") engine.setProjectTrackMix(lane.target.ownerId, { gainDb: next });
+        else if (lane.target.parameterId === "pan") engine.setProjectTrackMix(lane.target.ownerId, { pan: next });
+        else return false;
+      } else return false;
+      return true;
+    }
     const isTrigger = ["recording.toggle", "metronome.toggle", "bank.prev", "bank.next", "drum.pad"].includes(binding.action);
     const relative = binding.valueMode === "relative-twos-complement" || binding.valueMode === "relative-binary-offset";
     if (isTrigger && (relative ? value === 0 : value <= 0 || (event.kind === "cc" && event.value < 64))) return false;
@@ -854,10 +889,15 @@ export default function PianoApp() {
     }
     const pending = latestRef.current.learnAction;
     if (pending && !["noteOff", "clock", "activeSensing", "systemReset"].includes(event.kind)) {
+      const automationPending = parseAutomationMidiAction(pending);
+      if (automationPending && event.kind !== "cc" && event.kind !== "pitchBend") {
+        setMidiError("MIDI Learn de automatización espera un CC, fader, knob o pitch bend observado.");
+      } else {
       const bankScoped = !["bank.prev", "bank.next", "recording.toggle", "metronome.toggle"].includes(pending);
       const learned = learnMidiBinding(event, { id: `${pending}:${Date.now()}`,
         action: pending, bank: bankScoped ? String(latestRef.current.bank) : undefined,
-        consumeNote: event.kind === "noteOn" });
+        valueMode: automationPending ? automationMidiValueMode(automationPending.takeover) : undefined,
+        consumeNote: automationPending ? false : event.kind === "noteOn" });
       if (learned) {
         const proposed = upsertMidiBinding(latestRef.current.bindings, learned, "reject");
         if (proposed.conflicts.length) setMidiError(`El mensaje ya está asignado a ${proposed.conflicts[0]!.first.action}.`);
@@ -874,6 +914,7 @@ export default function PianoApp() {
         }
         if (event.kind === "noteOn") consumedNotesRef.current.set(key, (consumedNotesRef.current.get(key) ?? 0) + 1);
         return;
+      }
       }
     }
     let consumed = false;
@@ -2746,6 +2787,14 @@ export default function PianoApp() {
             availableTargets={automationTargets} effectiveValues={effectiveAutomationValues}
             playheadTick={projectTick} readPlayheadTick={readProjectTick}
             saveState={projectView.status}
+            midiLearnAction={learnAction}
+            onMidiLearn={(laneId, takeover) => {
+              const action = automationMidiAction(laneId, takeover);
+              latestRef.current.learnAction = action;
+              setLearnAction(action);
+              setMidiError("");
+            }}
+            onCancelMidiLearn={() => { latestRef.current.learnAction = null; setLearnAction(null); }}
             onTouchPreview={(target, value) => {
               if (target.scope === "master" && target.parameterId === "masterGainDb") {
                 engine.setProjectMasterGainDb(value);
@@ -3162,6 +3211,14 @@ export default function PianoApp() {
             availableTargets={automationTargets} effectiveValues={effectiveAutomationValues}
             playheadTick={projectTick} readPlayheadTick={readProjectTick}
             saveState={projectView.status}
+            midiLearnAction={learnAction}
+            onMidiLearn={(laneId, takeover) => {
+              const action = automationMidiAction(laneId, takeover);
+              latestRef.current.learnAction = action;
+              setLearnAction(action);
+              setMidiError("");
+            }}
+            onCancelMidiLearn={() => { latestRef.current.learnAction = null; setLearnAction(null); }}
             onTouchPreview={(target, value) => {
               if (target.scope === "master" && target.parameterId === "masterGainDb") {
                 engine.setProjectMasterGainDb(value);
