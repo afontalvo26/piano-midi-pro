@@ -4,6 +4,7 @@ import type { ProjectLauncherSnapshot, ProjectRecordingSchedule } from "./audio/
 import { PROJECT_808_INSTRUMENT, PROJECT_CLAP_INSTRUMENT, PROJECT_DRUM_INSTRUMENT,
   PROJECT_PIANO_INSTRUMENT } from "./audio/projectAudioSink";
 import { PianoKeyboard } from "./components/studio/PianoKeyboard";
+import { ReferenceStudio } from "./components/studio/ReferenceStudio";
 import { LivePerformanceReadout } from "./components/studio/LivePerformanceReadout";
 import { publishLiveStrike } from "./components/studio/livePerformanceStore";
 import { MidiControlPanel } from "./components/midi/MidiControlPanel";
@@ -322,6 +323,7 @@ export default function PianoApp() {
   const [projectAssetNotice, setProjectAssetNotice] = useState("");
   const [projectSwitching, setProjectSwitching] = useState(false);
   const [workspace, setWorkspace] = useState<"performance" | "piano-roll" | "drums" | "arrangement" | "sampler" | "audio" | "mixer" | "automation" | "export">("performance");
+  const [referenceStudioOpen, setReferenceStudioOpen] = useState(true);
   const [editorPatternId, setEditorPatternId] = useState<string | null>(null);
   const [editorTrackId, setEditorTrackId] = useState<string | null>(null);
   const [projectAudioPreparing, setProjectAudioPreparing] = useState(false);
@@ -2378,7 +2380,7 @@ export default function PianoApp() {
     }
   };
 
-  const visibleProjectMeters = workspace === "mixer"
+  const visibleProjectMeters = (referenceStudioOpen || workspace === "mixer")
     ? engine.projectPlaybackSnapshot()?.audio : undefined;
   const trackMeters = visibleProjectMeters && Object.fromEntries(visibleProjectMeters.tracks.map((track) =>
     [track.trackId, track.meter]));
@@ -2393,7 +2395,7 @@ export default function PianoApp() {
     ? engine.projectAutomationSnapshot() : undefined;
 
   return (
-    <div className="piano-app">
+    <div className={screen === "studio" && referenceStudioOpen ? "piano-app piano-app--reference" : "piano-app"}>
       <header className="piano-app__header">
         <div className="piano-app__brand"><span className="piano-app__brand-mark">♪</span><div><strong>Piano MIDI Pro</strong><small>Studio para SMK-37 y MIDI</small></div></div>
         <nav className="piano-app__nav" aria-label="Secciones principales">
@@ -2411,7 +2413,98 @@ export default function PianoApp() {
       </header>
 
       <main className="piano-app__main">
-        {screen === "studio" && <div className="piano-app__studio">
+        {screen === "studio" && referenceStudioOpen && <ReferenceStudio
+          document={projectView?.document ?? null}
+          workspace={workspace}
+          activeTrackId={projectTrack?.id}
+          saveStatus={projectView?.status ?? "none"}
+          transport={projectTransport}
+          tick={projectTick}
+          bpm={visibleProjectBpm || String(bpm)}
+          metronome={metronomeOn}
+          recording={recording}
+          midiConnected={midiListening}
+          midiStatus={liveMidiStatus}
+          instrumentName={getInstrument(activeInstrumentId)?.engineId === "salamander"
+            ? "Piano de concierto" : getInstrument(activeInstrumentId)?.label ?? "Instrumento"}
+          instrumentCategory={getInstrument(activeInstrumentId)?.engineId === "salamander"
+            ? "Gran Piano Clásico" : getInstrument(activeInstrumentId)?.category ?? "Seleccionar instrumento"}
+          masterLevel={visibleProjectMeters?.masterMeter}
+          trackLevels={trackMeters}
+          onWorkspace={(id) => setWorkspace(id)}
+          onLibrary={() => { setWorkspace("performance"); setReferenceStudioOpen(false); }}
+          onProjects={() => { setScreen("tracks"); void refreshProjects(); }}
+          onSettings={() => { setScreen("settings"); setObservations(monitor.snapshot()); void refreshStorageHealth(); }}
+          onNew={() => { void createProject("Proyecto sin título").catch((cause: unknown) =>
+            setProjectsError(cause instanceof Error ? cause.message : "No se pudo crear el proyecto")); }}
+          onPlay={() => { void toggleProjectPlayback(); }}
+          onStop={stopProjectPlayback}
+          onRecord={() => { if (recording) void stopRecording(); else startRecording(); }}
+          onMetronome={() => { const next = !metronomeOn; setMetronomeOn(next);
+            void engine.setMetronome({ enabled: next, bpm }); }}
+          onTempoDraft={setProjectBpmDraft}
+          onTempoCommit={commitProjectBpm}
+          onTrackSelect={(track) => { setEditorTrackId(track.id); setEditorPatternId(null); }}
+          onOpenPattern={(trackId, patternId) => {
+            setEditorTrackId(trackId); setEditorPatternId(patternId); setWorkspace("piano-roll");
+          }}
+          onTrackMix={commitTrackMix}
+          onMasterGain={(gainDb) => {
+            if (projectView) commitMasterMix({ ...projectView.document.mix, masterGainDb: gainDb });
+          }}
+          onFullEditor={() => setReferenceStudioOpen(false)}
+          onFullMixer={() => { setWorkspace("mixer"); setReferenceStudioOpen(false); }}
+          editor={projectView ? (<PianoRoll pattern={projectPattern} projectName={projectView?.document.name}
+            trackName={projectTrack?.name} meter={projectView?.document.meterMap[0]}
+            ghostPatterns={rollVisuals.ghostPatterns} allowedPadTriggers={rollVisuals.padTriggers}
+            padNames={rollVisuals.padNames}
+            captureOverlay={captureOverlay}
+            playheadTick={projectTick} readPlayheadTick={readProjectTick}
+            saveState={projectView?.status} externalError={projectView?.error ?? undefined}
+            onCommand={(command: ProjectCommand) => {
+              if (!projectSessionRef.current) throw new Error("Abre un proyecto antes de editar notas");
+              projectSessionRef.current.dispatch(command);
+            }}
+            onUndo={() => { projectSessionRef.current?.undo(); }}
+            onRedo={() => { projectSessionRef.current?.redo(); }}
+            canUndo={projectView?.canUndo} canRedo={projectView?.canRedo}
+            onPreviewNote={(note, ownerId) => {
+              if (!projectTrack || !projectView) return;
+              const trackId = projectTrack.id;
+              const projectId = projectView.document.id;
+              const owner = `preview/${ownerId}`;
+              void (async () => {
+                if (!(await prepareProjectAudio()) ||
+                    projectSessionRef.current?.getSnapshot().document.id !== projectId) return;
+                const pad = projectTrack.drumRack?.pads.find((entry) =>
+                  entry.midiNote === note.pitch && entry.channel === note.channel);
+                const played = pad ? await engine.previewProjectRackPad(trackId, pad.id,
+                  note.velocity / 127, owner) : projectTrack.kind === "drum"
+                  ? await engine.previewProjectPad(trackId, note.pitch, note.velocity / 127, owner)
+                  : projectTrack.instrument?.instrumentId === "user-sampler"
+                    ? await engine.previewProjectSample(trackId, note.pitch, note.velocity / 127, owner)
+                    : await engine.previewProjectNote(trackId, note.pitch, note.velocity / 127, owner);
+                if (!played) { setProjectAudioStatus("No se pudo escuchar la nota seleccionada."); return; }
+                const clock = new MusicalClock(projectView.document.tempoMap, projectView.document.meterMap);
+                const durationMs = Math.max(120, Math.min(2500, Math.round(clock.secondsBetween(
+                  note.startTick, note.startTick + note.durationTick) * 1000)));
+                releaseProjectPreviewLater(owner, durationMs);
+              })().catch((cause: unknown) => setProjectAudioStatus(cause instanceof Error
+                ? cause.message : "Falló la preescucha de la nota"));
+            }} />) : (
+            <div className="ref-editor-empty"><strong>Tu piano roll está listo</strong>
+              <span>Abre o crea un proyecto para comenzar a componer.</span>
+              <button type="button" onClick={() => {
+                void createProject("Proyecto sin título").catch((cause: unknown) =>
+                  setProjectsError(cause instanceof Error ? cause.message : "No se pudo crear el proyecto"));
+              }}>Nuevo proyecto</button>
+            </div>
+          )}
+        />}
+        {screen === "studio" && !referenceStudioOpen && <div className="piano-app__studio">
+          <div className="piano-app__reference-return">
+            <button type="button" onClick={() => setReferenceStudioOpen(true)}>← Volver al nuevo Studio</button>
+          </div>
           <div className="piano-app__hero">
             <div><p className="piano-app__eyebrow">Instrumento en vivo</p><h1>Studio</h1>
               <p>Toca con el SMK-37, un controlador MIDI o el teclado en pantalla.</p></div>
