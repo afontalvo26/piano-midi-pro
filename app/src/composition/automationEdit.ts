@@ -7,6 +7,8 @@ export type BaseAutomationTarget =
   | { readonly scope: "track"; readonly ownerId: string; readonly parameterId: "gainDb" | "pan";
       readonly effectId?: undefined }
   | { readonly scope: "master"; readonly parameterId: "masterGainDb"; readonly effectId?: undefined }
+  | { readonly scope: "clip"; readonly ownerId: string; readonly parameterId: "gainDb";
+      readonly effectId?: undefined }
   | { readonly scope: "track"; readonly ownerId: string; readonly effectId: string;
       readonly parameterId: string }
   | { readonly scope: "master"; readonly effectId: string; readonly parameterId: string };
@@ -38,7 +40,8 @@ function command(document: ProjectDocumentV1, laneId: string,
 
 function assertBaseTarget(document: ProjectDocumentV1, target: BaseAutomationTarget): void {
   if (!projectAutomationParameter(document, target) || (target.scope === "track" &&
-    !document.tracks.some((track) => track.id === target.ownerId))) {
+    !document.tracks.some((track) => track.id === target.ownerId)) ||
+    (target.scope === "clip" && !document.clips.some((clip) => clip.id === target.ownerId))) {
     throw new RangeError("Parámetro de automatización no disponible");
   }
   if (document.automation.some((lane) => automationTargetKey(lane.target) === automationTargetKey(target))) {
@@ -118,9 +121,7 @@ export function writeAutomationTouchGesture(document: ProjectDocumentV1, laneId:
   const lane = laneById(document, laneId);
   if (lane.writeMode !== "touch") throw new Error("Activa Touch antes de grabar automatización");
   const descriptor = projectAutomationParameter(document, lane.target);
-  if (!descriptor || lane.target.scope === "clip") {
-    throw new Error("El parámetro no admite Touch");
-  }
+  if (!descriptor) throw new Error("El parámetro no admite Touch");
   const byTick = new Map<number, number>();
   for (const sample of samples) {
     if (!Number.isSafeInteger(sample.tick) || sample.tick < 0 ||
