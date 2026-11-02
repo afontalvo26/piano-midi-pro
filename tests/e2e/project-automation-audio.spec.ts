@@ -22,7 +22,8 @@ test("AUT step/linear: proyecto live-like y WAV tienen mismo PCM grabado", async
       "aut-recorded-piano", new OfflineAudioContext(1, 1, 48_000));
     if (analyzed.buffer.length < 36_000) throw new Error("Muestra grabada demasiado corta");
     const mix = { gainDb: -3, pan: 0, mute: false, solo: false, armed: false,
-      sends: [], effects: [] };
+      sends: [], effects: [{ id: "fx-filter", kind: "filter", enabled: true,
+        parameters: { type: "lowpass", cutoffHz: 18000, q: 0.7 } }] };
     const base = createProjectDocument({ id: "aut-audio", at: 1 });
     const document = { ...base,
       tempoMap: [{ tick: 0, microsPerQuarter: 500_000 },
@@ -51,6 +52,11 @@ test("AUT step/linear: proyecto live-like y WAV tienen mismo PCM grabado", async
           parameterId: "masterGainDb" }, points: [
           { id: "m0", tick: 0, value: -6, shape: "step" as const },
           { id: "m1", tick: 960, value: -2, shape: "step" as const },
+        ] },
+        { id: "filter", target: { scope: "track" as const, ownerId: "audio",
+          effectId: "fx-filter", parameterId: "cutoffHz" }, points: [
+          { id: "f0", tick: 0, value: 18000, shape: "linear" as const },
+          { id: "f1", tick: 1920, value: 350, shape: "step" as const },
         ] },
       ] };
     const reader = { readAsset: async () => analyzed.data };
