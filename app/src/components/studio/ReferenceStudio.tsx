@@ -123,6 +123,8 @@ export interface ReferenceStudioProps {
   onProjects: () => void;
   onSettings: () => void;
   onNew: () => void;
+  onNewIdea: () => void;
+  onSeedDemoBeat?: () => void;
   onPlay: () => void;
   onStop: () => void;
   onRecord: () => void;
@@ -162,7 +164,7 @@ export function ReferenceStudio({
   notationPanel, loopEnabled,
   loopStartBar, loopEndBar, onLoopRangeChange, onLoopChange,
   onSeekTick, onArrangementCommand, onMacroChange, onWorkspace, onLibrary, onProjects, onSettings,
-  onNew, onPlay, onStop, onRecord, onMetronome, onTempoDraft, onTempoCommit,
+  onNew, onNewIdea, onSeedDemoBeat, onPlay, onStop, onRecord, onMetronome, onTempoDraft, onTempoCommit,
   onTrackSelect, onOpenPattern, onTrackMix, onTrackInstrumentChange,
   onUndo, onRedo, canUndo, canRedo,
   onMasterGain, onFullEditor, onFullMixer,
@@ -216,6 +218,8 @@ export function ReferenceStudio({
   const clockPosition = studioBarNumberAtTick(meterMap,Math.max(0,tick));
   const selectedTrack = tracks.find((track) => track.id === activeTrackId) ?? tracks[0];
   const selectedTrackAudio = projectAudioTracks?.find((entry)=>entry.trackId===selectedTrack?.id);
+  const hasPatternContent = document?.patterns.some((pattern) =>
+    pattern.notes.some((note) => !note.muted)) ?? false;
   const selectedProjectInstrument = selectedTrack?.kind==="instrument" && selectedTrack.instrument
     ? getProjectInstrument(selectedTrack.instrument.instrumentId) : undefined;
   const trackInstrumentLabel = selectedTrack?.kind==="instrument"
@@ -373,7 +377,7 @@ export function ReferenceStudio({
           <span className="ref-record-dot"/> <span><strong>{recording ? "Detener toma" : "Grabar toma"}</strong>
           <small>Captura tu interpretación</small></span><Icon name="chevron" size={17}/>
         </button>
-        <button type="button" onClick={onNew}><Icon name="spark" size={23}/>
+        <button type="button" onClick={onNewIdea}><Icon name="spark" size={23}/>
           <span><strong>Nueva idea</strong><small>Boceto rápido en MIDI</small></span><Icon name="chevron" size={16}/>
         </button>
         <button type="button" className={"ref-device-card" + (midiConnected ? " is-online" : "")}
@@ -516,6 +520,14 @@ export function ReferenceStudio({
               </div>
             </div>
             <div className="ref-track-scroll">
+              {document && tracks.length>0 && !hasPatternContent && <div className="ref-empty-content" role="status">
+                <strong>Los tres patrones están vacíos</strong>
+                <span>Puedes dar Play, pero no sonará nada hasta que programes pasos (Batería) o dibujes notas (Piano Roll).</span>
+                <span className="ref-empty-actions">
+                  <button type="button" onClick={()=>onWorkspace("piano-roll")}>Abrir Piano Roll</button>
+                  {onSeedDemoBeat && <button type="button" onClick={onSeedDemoBeat}>Cargar beat de ejemplo</button>}
+                </span>
+              </div>}
               {tracks.length===0 && <div className="ref-empty-arrangement">
                 <strong>Tu próxima sesión empieza aquí</strong>
                 <button type="button" onClick={onNew}>Crear un proyecto</button>

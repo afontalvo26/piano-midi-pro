@@ -206,9 +206,34 @@ function starterDrumPads(): ProjectDrumPad[] {
   }));
 }
 
-function createStarterProject(name: string, bpm: number): ProjectDocumentV1 {
+function starterDemoNotes(): { piano: ProjectNote[]; drums: ProjectNote[] } {
+  const note = (startTick: number, durationTick: number, pitch: number, velocity: number,
+    channel = 0): ProjectNote => ({
+    id: crypto.randomUUID(), startTick, durationTick, pitch, velocity,
+    releaseVelocity: channel === 9 ? 0 : 64, channel, origin: { kind: "drawn" },
+  });
+  const bar = PROJECT_PPQ * 4;
+  const piano: ProjectNote[] = [];
+  const drums: ProjectNote[] = [];
+  const chords = [[60, 64, 67], [57, 60, 64], [53, 57, 60], [55, 59, 62]];
+  chords.forEach((chord, index) => {
+    const barStart = index * bar;
+    for (const pitch of chord) piano.push(note(barStart, bar - 120, pitch, 88));
+    drums.push(note(barStart, 120, 36, 112, 9));
+    drums.push(note(barStart + bar / 2, 120, 36, 96, 9));
+    drums.push(note(barStart + bar / 4, 120, 38, 100, 9));
+    drums.push(note(barStart + (3 * bar) / 4, 120, 38, 100, 9));
+    for (let step = 0; step < 8; step++) {
+      drums.push(note(barStart + (step * bar) / 8, 60, 42, 54 + (step % 2) * 12, 9));
+    }
+  });
+  return { piano, drums };
+}
+
+function createStarterProject(name: string, bpm: number, withDemoBeat = false): ProjectDocumentV1 {
   const now = Date.now();
   const document = createProjectDocument({ name, at: now, microsPerQuarter: Math.round(60_000_000 / bpm) });
+  const demo = withDemoBeat ? starterDemoNotes() : null;
   const trackId = crypto.randomUUID();
   const patternId = crypto.randomUUID();
   const drumTrackId = crypto.randomUUID();
@@ -233,8 +258,10 @@ function createStarterProject(name: string, bpm: number): ProjectDocumentV1 {
       instrument: PROJECT_808_INSTRUMENT,
       mix: { gainDb: -3, pan: 0, mute: false, solo: false, armed: false, sends: [], effects: [] },
     }],
-    patterns: [{ id: patternId, name: "Patrón de piano", version: 1, lengthTicks, notes: [], expression: [] },
-      { id: drumPatternId, name: "Patrón TR-808", version: 1, lengthTicks, notes: [], expression: [] },
+    patterns: [{ id: patternId, name: "Patrón de piano", version: 1, lengthTicks,
+      notes: demo?.piano ?? [], expression: [] },
+      { id: drumPatternId, name: "Patrón TR-808", version: 1, lengthTicks,
+        notes: demo?.drums ?? [], expression: [] },
       { id: bassPatternId, name: "Patrón de bajo 808", version: 1, lengthTicks, notes: [], expression: [] }],
     clips: [{ id: crypto.randomUUID(), kind: "pattern", trackId, sourceId: patternId, sourceVersion: 1,
       startTick: 0, lengthTicks, sourceOffsetTick: 0, loopMode: "none", tailPolicy: "cut",
@@ -294,6 +321,7 @@ export default function PianoApp() {
   const [reverbDecay, setReverbDecay] = useLocalStorageState("piano_reverb_decay", 1.4);
   const [chorusWet, setChorusWet] = useLocalStorageState("piano_chorus_depth", 0);
   const [metronomeOn, setMetronomeOn] = useState(false);
+  const [metronomeError, setMetronomeError] = useState("");
   const [bpm, setBpm] = useLocalStorageState("piano_studio_bpm", 120);
   const [storedInputId, setSelectedInputId] = useLocalStorageState("piano_selected_midi_input_id", AUTO_MIDI_INPUT_ID);
   // The old app stored __all__ as a default. Only an explicit new choice enables all ports.
@@ -1486,8 +1514,53 @@ export default function PianoApp() {
     }
   };
 
-  const createProject = async (name: string) => {
-    await switchProject(() => ProjectSession.create(projectRepository, createStarterProject(name, bpm)));
+  const createProject = async (name: string, withDemoBeat = false) => {
+    await switchProject(() => ProjectSession.create(projectRepository,
+      createStarterProject(name, bpm, withDemoBeat)));
+  };
+
+  const toggleMetronome = async (): Promise<void> => {
+    const next = !metronomeOn;
+    setMetronomeOn(next);
+    setMetronomeError("");
+    try {
+      const ok = await engine.setMetronome({ enabled: next, bpm });
+      if (!ok && next) {
+        setMetronomeOn(false);
+        setMetronomeError("No se pudo iniciar el metrónomo: otra pestaña puede tener el audio o la muestra no está disponible.");
+      }
+    } catch (cause) {
+      if (next) setMetronomeOn(false);
+      setMetronomeError(cause instanceof Error ? cause.message : "No se pudo cambiar el metrónomo");
+    }
+  };
+
+  /** One-click audible sketch for projects whose three patterns are still empty. */
+  const seedDemoBeat = async (): Promise<void> => {
+    const session = projectSessionRef.current;
+    if (!session) return;
+    try {
+      const document = session.getSnapshot().document;
+      const demo = starterDemoNotes();
+      const pianoTrack = document.tracks.find((track) => track.kind === "instrument" && track.name === "Piano");
+      const drumTrack = document.tracks.find((track) => track.kind === "drum");
+      const seeds: readonly [string | undefined, ProjectNote[]][] = [
+        [pianoTrack?.id, demo.piano], [drumTrack?.id, demo.drums]];
+      for (const [trackId, notes] of seeds) {
+        if (!trackId) continue;
+        const clip = document.clips.find((item) => item.trackId === trackId && item.kind === "pattern");
+        const pattern = clip ? document.patterns.find((item) => item.id === clip.sourceId) : undefined;
+        if (!clip || !pattern || pattern.notes.length > 0) continue;
+        // replacePattern itself bumps the sourceVersion of every clip that
+        // references the pattern, so no extra replaceClips command is needed.
+        session.dispatch({ kind: "replacePattern", expectedVersion: pattern.version,
+          pattern: { ...pattern, version: pattern.version + 1, notes }, at: nowEpochMs() });
+      }
+      await session.save();
+      setProjectsError("");
+    } catch (cause) {
+      setProjectsError(cause instanceof Error ? cause.message : "No se pudo cargar el beat de ejemplo");
+    }
   };
 
   const openProject = async (id: string) => {
@@ -2621,7 +2694,7 @@ export default function PianoApp() {
           }}
           activeTrackId={studioSelectedTrackId ?? projectTrack?.id}
           saveStatus={projectView?.status ?? "none"}
-          problem={projectView?.error || projectsError || instrumentError || midiError || undefined}
+          problem={projectView?.error || projectsError || instrumentError || midiError || metronomeError || undefined}
           loadingLabel={projectSwitching ? "Abriendo proyecto…" :
             projectAudioPreparing ? "Preparando audio del proyecto…" :
             loadingInstrumentId ? "Cargando instrumento…" : undefined}
@@ -2658,11 +2731,13 @@ export default function PianoApp() {
           onSettings={() => { setScreen("settings"); setObservations(monitor.snapshot()); void refreshStorageHealth(); }}
           onNew={() => { void createProject("Proyecto sin título").catch((cause: unknown) =>
             setProjectsError(cause instanceof Error ? cause.message : "No se pudo crear el proyecto")); }}
+          onNewIdea={() => { void createProject("Proyecto sin título", true).catch((cause: unknown) =>
+            setProjectsError(cause instanceof Error ? cause.message : "No se pudo crear el proyecto")); }}
+          onSeedDemoBeat={() => { void seedDemoBeat(); }}
           onPlay={() => { void toggleProjectPlayback(); }}
           onStop={stopProjectPlayback}
           onRecord={() => { if (recording) void stopRecording(); else startRecording(); }}
-          onMetronome={() => { const next = !metronomeOn; setMetronomeOn(next);
-            void engine.setMetronome({ enabled: next, bpm }); }}
+          onMetronome={() => { void toggleMetronome(); }}
           onTempoDraft={setProjectBpmDraft}
           onTempoCommit={commitProjectBpm}
           onTrackSelect={(track) => {
@@ -3375,8 +3450,7 @@ export default function PianoApp() {
               if (metronomeOn) void engine.setMetronome({ enabled: true, bpm: next });
             }} /><span>BPM</span></div>
             <button type="button" className={metronomeOn ? "is-active" : ""} aria-pressed={metronomeOn}
-              onClick={() => { const next = !metronomeOn; setMetronomeOn(next);
-                void engine.setMetronome({ enabled: next, bpm }); }}>Metrónomo</button>
+              onClick={() => { void toggleMetronome(); }}>Metrónomo</button>
             <button type="button" className={recording ? "is-recording" : "piano-app__primary"}
               onClick={() => { if (recording) void stopRecording(); else startRecording(); }}>
               {recording ? "■ Detener grabación" : "● Grabar MIDI"}</button>

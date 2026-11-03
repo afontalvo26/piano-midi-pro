@@ -48,7 +48,7 @@ Las coordenadas anteriores se prueban con `tests/e2e/studio-reference-ui.spec.ts
 5. Repetir con 1200, 950, 650, 390 y 320 px sin desbordamiento de página ni pérdida de acciones críticas.
 6. Validar navegación por teclado, foco, alto contraste y controles táctiles en navegador real.
 
-**Estado a la fecha de esta propuesta:** JSX/CSS y pruebas **escritos en GitHub**, sin screenshot de aplicación compilada ni corrida de pruebas validada en el entorno actual. El bloqueo de runner Actions del repo permanece en el issue #2. Este documento no equivale a aceptación visual.
+**Estado a la fecha de esta propuesta:** JSX/CSS y pruebas **escritos en GitHub**, sin screenshot de aplicación compilada ni corrida de pruebas validada en el entorno actual. El CI de GitHub Actions fue eliminado por decisión del dueño (2026-11-02); la validación ejecutable es local con `scripts/validate-studio.ps1`. Este documento no equivale a aceptación visual.
 
 **Actualización local 2026-11-02:** con el checkout actualizado al head de PR #5, `studio-reference-ui.spec.ts` pasó 27/27 y el foco completo de `studio-reference-ui.yml` pasó 53/53 en Chromium local, además de `tsc`, ESLint completo, build y auditoría `dist`. Sigue **sin** pixel-diff contra el mockup, sin CI real ejecutado y sin revisión en navegadores/dispositivos físicos.
 

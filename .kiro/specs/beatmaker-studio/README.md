@@ -6,7 +6,7 @@ Estado: implementación parcial en curso; ningún módulo ni la matriz transvers
 
 El [reporte de desviaciones Spec-Driven](spec-drift-2026-11-02.md) separa errores corregidos **en código** de requisitos con evidencia aún pendiente. El mockup aprobado de 1586×992 es una referencia visual y no sustituye este contrato. La nueva pestaña contextual «Partitura» está registrada como **discrepancia de alcance sin aprobar**: no se puede cerrar UXP-01 hasta resolverla.
 
-La rama `design/studio-reference-ui-20261101` y el PR #5 permanecen en borrador. A 2026-11-02 el árbol local actualizado al head remoto ejecutó `tsc`, ESLint completo, Vite build, 185 tests unitarios y los dos focos E2E de CI (53/53 y 31/31) sin fallos, con `dist` auditado; ver [implementation-status.md](implementation-status.md). Eso **no** sustituye la ejecución real de GitHub Actions (cuenta bloqueada por facturación, issue #2), la evidencia física SMK-37 (issue #3) ni la autorización de licencias (issue #4): los expedientes de los 113 requisitos siguen en `pending` y `--release` sigue rojo.
+La rama `design/studio-reference-ui-20261101` y el PR #5 permanecen en borrador. A 2026-11-02 el árbol local actualizado al head remoto ejecutó `tsc`, ESLint completo, Vite build, 185 tests unitarios y los dos focos E2E (53/53 y 31/31) sin fallos, con `dist` auditado; ver [implementation-status.md](implementation-status.md). El CI de GitHub Actions fue **eliminado por decisión del dueño**; la validación ejecutable es `scripts/validate-studio.ps1` con logs por corrida. Eso **no** sustituye la evidencia física SMK-37 (issue #3) ni la autorización de licencias (issue #4): los expedientes de los 113 requisitos siguen en `pending` y `--release` sigue rojo.
 
 ## Contrato de producto
 

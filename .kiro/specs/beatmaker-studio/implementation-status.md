@@ -173,10 +173,19 @@ La matriz de 113 criterios permanece sin cambios. Ningún punto anterior debe pr
 - E2E `gate-reference-final`: 53/53 (`studio-reference-ui` 27/27, `sequencer-transport`, sidechain, A/B, automatización, sampler, drum rack).
 - E2E `gate-quality-final`: 31/31 (`bus-routing-preflight`, bus resample, mixer sends, four-bar, bundle preview, audio-live-voice 37 voces).
 
-**Sigue pendiente y no se puede certificar desde este entorno:** ejecución real de GitHub Actions con runner (la cuenta está bloqueada por facturación), los 113 expedientes con evidencia atada a commit, 37+37 con CC64/66/67 y loopback p95/p99 en SMK-37 Elite, Pro separado, autorización/licencia del pack 808, decisión de producto SDD-01 («Partitura»), pixel-diff UXP a 1586×992 y QA en móviles físicos. Mientras eso no exista, el PR #5 debe seguir en borrador y las filas de aceptación en `pending`.
+**Sigue pendiente y no se puede certificar desde este entorno:** los 113 expedientes con evidencia atada a commit, 37+37 con CC64/66/67 y loopback p95/p99 en SMK-37 Elite, Pro separado, autorización/licencia del pack 808, decisión de producto SDD-01 («Partitura»), pixel-diff UXP a 1586×992 y QA en móviles físicos. Mientras eso no exista, el PR #5 debe seguir en borrador y las filas de aceptación en `pending`.
 
-**Estado del push:** los cambios se publicaron en `design/studio-reference-ui-20261101` como `d2facaf84a888d5a214ef11fce4888d85a46ee95`. GitHub Actions volvió a fallar **antes de asignar runner** para ese SHA (`runner_id=0`, `steps=0`) con la anotación literal «The job was not started because your account is locked due to a billing issue»; no hay logs de build/Playwright que adjudicar al código.
+**Estado del push:** los cambios se publicaron en `design/studio-reference-ui-20261101` como `d2facaf84a888d5a214ef11fce4888d85a46ee95`.
 
 **Corrida consolidada local del runner sancionado:** `pwsh -File scripts/validate-studio.ps1` terminó con **12/12 chequeos en exit 0** (req113, evidencia estructural, fixtures MIDI, unit de aceptación, unit del shell de referencia, suite unitaria completa, tsc, ESLint completo, build, dist, foco calidad y foco referencia) sobre el árbol de `d2facaf`. Log completo: `.logs/20261102-225253-validate-studio-script-run.log`.
 
-**Suite E2E completa (informativa, fuera de los gates de CI):** `npx playwright test --workers=2` sobre el árbol corregido dio **201 aprobadas / 49 fallidas**. Las 49 restantes son pruebas de flujo heredado (entradas por botones del editor anterior tapados por el shell de referencia, p. ej. `project-studio-*` en 320 px, `beatmaker-touch-targets`, `project-mobile-layout`) y algunas expectativas de copy/estructura anteriores al rediseño. **No son regresiones del motor**: las 84 pruebas E2E de los dos workflows de CI pasan, y no se migraron todavía esas pruebas históricas. La suite completa no debe declararse verde ni usarse como certificación hasta completar esa migración.
+**Suite E2E completa (informativa, fuera de los focos de validación):** `npx playwright test --workers=2` sobre el árbol corregido dio **201 aprobadas / 49 fallidas**. Las 49 restantes son pruebas de flujo heredado (entradas por botones del editor anterior tapados por el shell de referencia, p. ej. `project-studio-*` en 320 px, `beatmaker-touch-targets`, `project-mobile-layout`) y algunas expectativas de copy/estructura anteriores al rediseño. **No son regresiones del motor**: los dos focos E2E de validación pasan, y no se migraron todavía esas pruebas históricas. La suite completa no debe declararse verde ni usarse como certificación hasta completar esa migración.
+
+## CI eliminado por decisión del dueño — 2026-11-02
+
+El dueño del producto ordenó eliminar el CI de GitHub Actions. Se borraron los dos workflows (`.github/workflows/studio-quality.yml` y `.github/workflows/studio-reference-ui.yml`); el historial de runs queda solo como registro histórico y ya no condiciona el desarrollo.
+
+- La validación ejecutable del repositorio es **local**: `pwsh -File scripts/validate-studio.ps1` (más `-Full` para la suite E2E completa) con logs en `.logs/`.
+- La política de aceptación por evidencia (113 IDs, `--check`/`--release`) sigue vigente: no se aprueba un criterio sin prueba ejecutada y artefacto asociado, pero **no hay ningún runner de CI que destrabe**.
+- El issue #2 («GitHub Actions falla antes de asignar runner») queda cerrado por decisión de producto: el servicio ya no es parte del flujo.
+- Los focos que antes corrían los workflows se ejecutan con el script local y están listados en este anexo.
