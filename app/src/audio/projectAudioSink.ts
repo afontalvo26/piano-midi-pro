@@ -46,15 +46,15 @@ const MAX_PROJECT_AUDIO_CLIP_SOURCES = 24;
 const SIDECHAIN_PROCESSOR_NAME = "pmp-sidechain-detector-v1";
 const sidechainWorkletLoads = new WeakMap<BaseAudioContext, Promise<void>>();
 
-async function loadSidechainWorklet(context: BaseAudioContext): Promise<void> {
-  if (!context.audioWorklet) throw new Error("AudioWorklet no disponible para sidechain");
-  let task = sidechainWorkletLoads.get(context);
+async function loadSidechainWorklet(context: ReturnType<typeof Tone.getContext>): Promise<void> {
+  const key = context.rawContext as BaseAudioContext;
+  let task = sidechainWorkletLoads.get(key);
   if (!task) {
-    task = context.audioWorklet.addModule(new URL("./sidechainDetectorProcessor.js", import.meta.url).href);
-    sidechainWorkletLoads.set(context, task);
+    task = context.addAudioWorkletModule(new URL("./sidechainDetectorProcessor.js", import.meta.url).href);
+    sidechainWorkletLoads.set(key, task);
   }
   try { await task; }
-  catch (error) { sidechainWorkletLoads.delete(context); throw error; }
+  catch (error) { sidechainWorkletLoads.delete(key); throw error; }
 }
 
 export interface ProjectTrackAudioStatus {
@@ -500,7 +500,10 @@ export class ProjectAudioSink implements SequencerSink {
   /** Prepare every approved kit piece before the scheduler can make a hit. */
   async prepare(options: { readonly metronome?: boolean } = {}): Promise<ProjectAudioDiagnostics> {
     await Promise.all([...this.slots.values()].map(async (slot) => {
-      if (matchesRef(slot.track, PROJECT_808_INSTRUMENT) && slot.status === "loading") {
+      // A drum track can carry a drumRack and still reference the 808 bass
+      // package; the rack branch must own preparation in that case.
+      if (matchesRef(slot.track, PROJECT_808_INSTRUMENT) && !slot.track.drumRack &&
+          slot.status === "loading") {
         try {
           const sample = await loadTr808FischerBass(Tone.getContext().rawContext);
           if (this.disposed) return;
@@ -581,9 +584,11 @@ export class ProjectAudioSink implements SequencerSink {
   private async prepareSidechains(): Promise<void> {
     const targets = [...this.slots.values()].filter((slot) => slot.track.mix.sidechain);
     if (!targets.length || this.disposed) return;
-    const raw = Tone.getContext().rawContext as BaseAudioContext;
+    // Tone wraps the native BaseAudioContext; AudioWorkletNode must be created
+    // through Tone so the node belongs to the same (possibly offline) context.
+    const context = Tone.getContext();
     try {
-      await loadSidechainWorklet(raw);
+      await loadSidechainWorklet(context);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       for (const slot of targets) {
@@ -607,7 +612,7 @@ export class ProjectAudioSink implements SequencerSink {
         continue;
       }
       try {
-        const node = new AudioWorkletNode(raw, SIDECHAIN_PROCESSOR_NAME, {
+        const node = context.createAudioWorkletNode(SIDECHAIN_PROCESSOR_NAME, {
           numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
           channelCount: 2, channelCountMode: "max",
           processorOptions: { thresholdDb: config.thresholdDb, ratio: config.ratio,

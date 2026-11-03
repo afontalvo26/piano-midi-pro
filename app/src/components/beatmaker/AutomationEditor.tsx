@@ -130,9 +130,9 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
   const lane = document.automation.find((item) => item.id === selectedLaneId) ?? document.automation[0] ?? null;
   const laneClip = lane?.target.scope === "clip"
     ? document.clips.find((clip) => clip.id === lane.target.ownerId) : undefined;
-  const laneTick = (globalTick: number): number => laneClip
+  const laneTick = useCallback((globalTick: number): number => laneClip
     ? Math.max(0, Math.min(Math.max(0, laneClip.lengthTicks - 1), globalTick - laneClip.startTick))
-    : Math.max(0, globalTick);
+    : Math.max(0, globalTick), [laneClip]);
   const descriptor = lane ? projectAutomationParameter(document, lane.target) : undefined;
   const editable = !!lane && !!descriptor && targetKeys.has(automationTargetKey(lane.target));
   const selectedPoints = useMemo(() => lane?.points.filter((point) => selectedIds.has(point.id)) ?? [],
@@ -202,7 +202,7 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
     };
     frame = requestAnimationFrame(paint);
     return () => { cancelAnimationFrame(frame); observer.disconnect(); };
-  }, [lane, laneClip, viewport, readPlayheadTick, playheadTick]);
+  }, [lane, laneClip, viewport, readPlayheadTick, playheadTick, laneTick]);
 
   async function commit(factory: () => ProjectCommand): Promise<void> {
     if (busy) return;

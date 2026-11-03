@@ -113,8 +113,13 @@ async function decodeVerified(context: BaseAudioContext,
     throw new Error(`Integridad inválida de TR-808/${row.file}`);
   }
   const buffer = await context.decodeAudioData(bytes.slice(0));
-  if (buffer.sampleRate !== row.sampleRate || buffer.numberOfChannels !== row.channelCount ||
-      buffer.length !== row.frameCount) {
+  // decodeAudioData resamples to the AudioContext rate. Validate the decoded
+  // duration against the signed source manifest instead of rejecting valid
+  // 44.1 kHz files on the common 48 kHz device context.
+  const expectedFrames = Math.round(row.frameCount * buffer.sampleRate / row.sampleRate);
+  if (buffer.numberOfChannels !== row.channelCount ||
+      !Number.isFinite(buffer.sampleRate) || buffer.sampleRate < 1 ||
+      Math.abs(buffer.length - expectedFrames) > 2) {
     throw new Error(`Formato decodificado inválido de TR-808/${row.file}`);
   }
   for (let channel = 0; channel < buffer.numberOfChannels; channel++) {

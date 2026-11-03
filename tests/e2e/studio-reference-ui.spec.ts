@@ -17,7 +17,7 @@ test("new Studio uses reference layout with actual project data and a live piano
   await expect(shell.getByRole("region", {name:"Arreglo del proyecto"}).locator(".ref-track-row").first())
     .toBeVisible({timeout:20_000});
   await expect(shell.getByRole("region", {name:"Editor musical"}).locator(".piano-roll__viewport")).toBeVisible();
-  await expect(shell.getByRole("button", {name:"Abrir el editor completo"})).toBeVisible();
+  await expect(shell.getByRole("button", {name:"Editor completo",exact:true})).toBeVisible();
   const areas=await page.evaluate(()=>{
     const pick=(selector:string)=>{
       const element=document.querySelector(selector);
@@ -123,19 +123,19 @@ test("approved Studio timeline uses real reversible clip draw and split operatio
   await shell.getByRole("button", {name:"Nueva idea"}).click();
   const firstRow=shell.locator(".ref-track-row").first();
   await expect(firstRow.locator(".ref-clip")).toHaveCount(1);
-  await shell.getByRole("button", {name:"Dibujar"}).click();
+  await shell.getByRole("button", {name:"Dibujar",exact:true}).click();
   const lane=firstRow.locator(".ref-track-lane");
   const bounds=await lane.boundingBox();
   expect(bounds).not.toBeNull();
   await lane.click({position:{x:Math.round(bounds!.width*.65),y:24}});
   await expect(firstRow.locator(".ref-clip")).toHaveCount(2);
-  await shell.getByRole("button", {name:"Cortar"}).click();
+  await shell.getByRole("button", {name:"Cortar",exact:true}).click();
   const firstClip=firstRow.locator(".ref-clip").first();
   const clipBounds=await firstClip.boundingBox();
   expect(clipBounds).not.toBeNull();
   await firstClip.click({position:{x:Math.round(clipBounds!.width*.5),y:15}});
   await expect(firstRow.locator(".ref-clip")).toHaveCount(3);
-  await shell.getByRole("button", {name:"Seleccionar"}).click();
+  await shell.getByRole("button", {name:"Seleccionar",exact:true}).click();
   await firstRow.locator(".ref-clip").first().click();
   await expect(shell.getByRole("button", {name:/Cuantizar/})).toBeVisible();
 });
@@ -205,10 +205,11 @@ test("Partitura shows real project notes and returns to editing",async({page})=>
   await page.goto("/",{waitUntil:"domcontentloaded"});
   const shell=page.getByTestId("reference-studio");
   await shell.getByRole("button",{name:"Nueva idea"}).click();
+  await expect(shell.locator(".ref-track-row").first()).toBeVisible({timeout:20_000});
   await shell.getByRole("button",{name:"Partitura"}).click();
   await expect(shell.getByRole("region",{name:"Partitura de lectura"})).toBeVisible();
   await expect(shell.getByRole("img",{name:/Partitura de/})).toBeVisible();
-  await shell.getByRole("button",{name:"Piano Roll"}).click();
+  await shell.getByRole("button",{name:"Piano Roll",exact:true}).click();
   await expect(shell.getByRole("region",{name:"Partitura de lectura"})).toHaveCount(0);
   await expect(shell.locator(".piano-roll__viewport")).toBeVisible();
 });
@@ -269,6 +270,7 @@ test("loop UI and ruler are connected to transport state",async({page})=>{
   await page.goto("/",{waitUntil:"domcontentloaded"});
   const shell=page.getByTestId("reference-studio");
   await shell.getByRole("button",{name:"Nueva idea"}).click();
+  await expect(shell.locator(".ref-track-row").first()).toBeVisible({timeout:20_000});
   const enableLoop=shell.getByRole("button",{name:"Activar bucle"});
   await expect(enableLoop).toHaveAttribute("aria-pressed","false");
   await enableLoop.click();
@@ -288,6 +290,7 @@ test("the reference loop start and length can be edited and remain musical",asyn
   await page.goto("/",{waitUntil:"domcontentloaded"});
   const shell=page.getByTestId("reference-studio");
   await shell.getByRole("button",{name:"Nueva idea"}).click();
+  await expect(shell.locator(".ref-track-row").first()).toBeVisible({timeout:20_000});
   await shell.getByRole("button",{name:"Editar región de bucle"}).click();
   const form=shell.getByRole("form",{name:"Cambiar inicio y final del bucle"});
   await expect(form).toBeVisible();
@@ -333,6 +336,7 @@ test("take recording opens the real overdub workflow in the new Studio",async({p
   await page.goto("/",{waitUntil:"domcontentloaded"});
   const studio=page.getByTestId("reference-studio");
   await studio.getByRole("button",{name:"Nueva idea"}).click();
+  await expect(studio.locator(".ref-track-row").first()).toBeVisible({timeout:20_000});
   await studio.getByRole("button",{name:"Ver tomas MIDI y overdub"}).click();
   const takes=studio.getByRole("dialog",{name:"Tomas MIDI del proyecto"});
   await expect(takes).toBeVisible();
@@ -372,11 +376,13 @@ test("studio instrument catalog distinguishes global live sound from per-track v
   await page.goto("/",{waitUntil:"domcontentloaded"});
   const studio=page.getByTestId("reference-studio");
   await studio.getByRole("button",{name:"Nueva idea"}).click();
+  await expect(studio.locator(".ref-track-row").first()).toBeVisible({timeout:20_000});
+  await studio.locator(".ref-track-row").first().locator(".ref-track-info").click();
   await studio.getByRole("navigation",{name:"Flujos de trabajo"})
     .getByRole("button",{name:"Biblioteca"}).click();
   const picker=studio.getByRole("dialog",{name:"Biblioteca de instrumentos"});
   await expect(picker.getByLabel("Banco sonoro de pista")).toBeVisible();
-  await expect(picker.getByText(/catálogo inferior cambia sólo el sonido de interpretación/)).toBeVisible();
+  await expect(picker.getByText(/El catálogo inferior puede incluir sonidos live\/remotos/)).toBeVisible();
 });
 
 
@@ -432,9 +438,9 @@ test("compact inspector trims and duplicates MIDI clips using project history",a
   await expect(length).toHaveValue("9600");
   await studio.getByRole("button",{name:"Duplicar clip"}).click();
   await expect(row.locator(".ref-clip")).toHaveCount(2);
-  await studio.getByRole("button",{name:"Deshacer"}).click();
+  await studio.locator('button[aria-label="Deshacer"]').click();
   await expect(row.locator(".ref-clip")).toHaveCount(1);
-  await studio.getByRole("button",{name:"Rehacer"}).click();
+  await studio.locator('button[aria-label="Rehacer"]').click();
   await expect(row.locator(".ref-clip")).toHaveCount(2);
 });
 
@@ -453,7 +459,7 @@ test("Studio arranger pages beyond bar 16, zooms and edits visible later measure
   await expect(studio.locator(".ref-track-row").first().locator(".ref-clip")).toHaveCount(0);
   await navigation.getByLabel("Compases visibles").selectOption("8");
   await expect(navigation).toContainText("17–24");
-  await studio.getByRole("button",{name:"Dibujar"}).click();
+  await studio.getByRole("button",{name:"Dibujar",exact:true}).click();
   const lane=studio.locator(".ref-track-row").first().locator(".ref-track-lane");
   const rect=await lane.boundingBox();
   expect(rect).not.toBeNull();
@@ -505,6 +511,8 @@ test("project management modal can be dismissed without mutating the active proj
   await page.goto("/",{waitUntil:"domcontentloaded"});
   const studio=page.getByTestId("reference-studio");
   await studio.getByRole("button",{name:"Nueva idea"}).click();
+  await expect(studio.locator(".ref-project-select strong").first())
+    .not.toHaveText("Sin proyecto",{timeout:20_000});
   const before=await studio.locator(".ref-project-select strong").first().textContent();
   await studio.locator(".ref-project-select").click();
   const dialog=studio.getByRole("dialog",{name:"Gestión de proyectos"});
@@ -538,12 +546,13 @@ test("Studio instrument card never labels an unprepared project bank as active",
   const studio=page.getByTestId("reference-studio");
   await studio.getByRole("button",{name:"Nueva idea"}).click();
   const card=studio.locator(".ref-instrument-card");
-  await expect(card).toContainText("Piano Salamander · pista");
+  await expect(card).toContainText("Piano Salamander · núcleo local");
+  await expect(card).toContainText("Banco del proyecto · Piano");
   await expect(card).toContainText("Audio sin preparar");
   await expect(card).not.toContainText("✓ Audio listo");
   await expect(studio.getByRole("button",{name:"Preparar audio del proyecto"})).toBeVisible();
   await studio.locator(".ref-track-row").nth(2).locator(".ref-track-info").click();
-  await expect(card).toContainText("Bajo 808 Fischer · pista");
+  await expect(card).toContainText("Bajo 808 Fischer · núcleo local");
   await expect(card).toContainText("Audio sin preparar");
 });
 

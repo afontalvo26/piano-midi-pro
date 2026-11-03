@@ -4,8 +4,10 @@ test("Mezclador guarda, reordena y omite efectos por pista y master en móvil", 
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
-  await page.getByRole("button", { name: "Mezclador" }).click();
+  const studio = page.getByTestId("reference-studio");
+  await studio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await studio.getByRole("button", { name: "Editor de arreglo completo" }).click();
+  await page.getByRole("button", { name: "Mezclador", exact: true }).click();
   const mixer = page.getByRole("region", { name: "Mezclador del proyecto" });
   await expect(mixer.getByLabel("Nivel master antes de efectos")).toBeVisible();
   await expect(mixer.getByLabel("Nivel master después de efectos")).toBeVisible();
@@ -38,10 +40,12 @@ test("Mezclador guarda, reordena y omite efectos por pista y master en móvil", 
   expect(smallTargets).toEqual([]);
 
   await page.reload();
-  await page.getByRole("button", { name: "Pistas", exact: true }).click();
+  await page.locator(".ref-project-select").click();
   await page.getByRole("region", { name: "Tus proyectos" })
     .getByRole("button", { name: "Abrir en Studio" }).click();
-  await page.getByRole("button", { name: "Mezclador" }).click();
+  await page.getByTestId("reference-studio")
+    .getByRole("button", { name: "Editor de arreglo completo" }).click();
+  await page.getByRole("button", { name: "Mezclador", exact: true }).click();
   await expect(piano.locator(".project-effects__effect")).toHaveCount(2);
   await expect(piano.locator(".project-effects__effect").first()).toContainText("EQ de 3 bandas");
   await expect(piano.getByRole("spinbutton", { name: "EQ de 3 bandas Graves" })).toHaveValue("4");

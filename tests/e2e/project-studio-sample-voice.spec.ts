@@ -5,8 +5,10 @@ test("la voz mono de una muestra grabada conserva glide y legato tras recarga en
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
-  await page.getByRole("button", { name: "Sampler" }).click();
+  const studio = page.getByTestId("reference-studio");
+  await studio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await studio.getByRole("button", { name: "Editor de arreglo completo" }).click();
+  await page.getByRole("button", { name: "Sampler", exact: true }).click();
   const sampler = page.getByRole("region", { name: "Sampler de muestras propias" });
   await sampler.getByLabel("Elegir muestra propia").setInputFiles(resolve(
     "app/public/audio/freepats-handclap/core/01_02.ogg"));
@@ -32,7 +34,7 @@ test("la voz mono de una muestra grabada conserva glide y legato tras recarga en
   const durationEngine = sampler.getByRole("combobox", { name: "Motor de duración de muestra" });
   await expect(durationEngine).toHaveValue("repitch");
   await expect(durationEngine.getByRole("option", { name: "Time-stretch · no disponible" }))
-    .toBeDisabled();
+    .toHaveAttribute("disabled", "");
   await sampler.getByRole("button", { name: "Guardar región" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Región guardada" })).toBeVisible();
   await voice.getByRole("combobox", { name: "Reataque de muestra" }).selectOption("legato");
@@ -41,10 +43,12 @@ test("la voz mono de una muestra grabada conserva glide y legato tras recarga en
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   await page.reload();
-  await page.getByRole("button", { name: "Pistas", exact: true }).click();
+  await page.locator(".ref-project-select").click();
   await page.getByRole("region", { name: "Tus proyectos" })
     .getByRole("button", { name: "Abrir en Studio" }).click();
-  await page.getByRole("button", { name: "Sampler" }).click();
+  await page.getByTestId("reference-studio")
+    .getByRole("button", { name: "Editor de arreglo completo" }).click();
+  await page.getByRole("button", { name: "Sampler", exact: true }).click();
   await expect(voice.getByRole("combobox", { name: "Polifonía de muestra" })).toHaveValue("mono");
   await expect(voice.getByRole("combobox", { name: "Reataque de muestra" })).toHaveValue("legato");
   await expect(voice.getByRole("spinbutton", { name: "Glide de muestra" })).toHaveValue("80");

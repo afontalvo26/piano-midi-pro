@@ -306,7 +306,7 @@ export function ReferenceStudio({
         aria-haspopup="dialog" aria-expanded={projectsOpen}
         title="Abrir y gestionar proyectos">
         <Icon name="folder" size={23}/>
-        <span><strong>{document?.name ?? "Nuevo proyecto"}</strong>
+        <span><strong>{document?.name ?? "Sin proyecto"}</strong>
           <small>{document ? "Proyecto · " + tracks.length + " pistas · compás " + clockPosition : "Crea tu primera sesión"}</small></span>
         <Icon name="chevron" size={15}/>
       </button>
@@ -361,6 +361,7 @@ export function ReferenceStudio({
       <nav className="ref-nav" aria-label="Flujos de trabajo">
         {NAV.map((item) => <button type="button" key={item.id}
           className={workspace === item.id || (item.id==="library"&&instrumentChooserOpen) ? "is-current" : ""}
+          aria-label={item.label}
           aria-current={workspace === item.id || (item.id==="library"&&instrumentChooserOpen) ? "page" : undefined}
           onClick={() => { if(item.id==="library"){setTakeInspectorOpen(false);setInstrumentChooserOpen(true);return;} if(item.id==="performance")setKeyboardOpen(true); setScoreOpen(false); onWorkspace(item.id); }}>
           <Icon name={item.icon} size={24}/><span>{item.label}</span>

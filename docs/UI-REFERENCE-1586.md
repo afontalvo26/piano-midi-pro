@@ -50,6 +50,8 @@ Las coordenadas anteriores se prueban con `tests/e2e/studio-reference-ui.spec.ts
 
 **Estado a la fecha de esta propuesta:** JSX/CSS y pruebas **escritos en GitHub**, sin screenshot de aplicación compilada ni corrida de pruebas validada en el entorno actual. El bloqueo de runner Actions del repo permanece en el issue #2. Este documento no equivale a aceptación visual.
 
+**Actualización local 2026-11-02:** con el checkout actualizado al head de PR #5, `studio-reference-ui.spec.ts` pasó 27/27 y el foco completo de `studio-reference-ui.yml` pasó 53/53 en Chromium local, además de `tsc`, ESLint completo, build y auditoría `dist`. Sigue **sin** pixel-diff contra el mockup, sin CI real ejecutado y sin revisión en navegadores/dispositivos físicos.
+
 
 ## Tanda funcional posterior — 2026-11-02
 

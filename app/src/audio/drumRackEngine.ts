@@ -1,14 +1,14 @@
 import * as Tone from "tone";
 import type { ProjectAssetRef, ProjectDrumPad, ProjectDrumRack } from "../project/model";
-import { OwnedVoiceRegistry, type OwnedVoiceHandle, type OwnedVoiceSnapshot } from "./ownedVoiceRegistry";
+import { OwnedVoiceRegistry, type OwnedVoiceHandle, type OwnedVoiceSnapshot } from "./ownedVoiceRegistry.ts";
 import { FREEPATS_HANDCLAP_NOTE, FREEPATS_HANDCLAP_VERSION,
-  decodeFreePatsHandClap, fetchFreePatsHandClapManifest } from "./freePatsHandClap";
+  decodeFreePatsHandClap, fetchFreePatsHandClapManifest } from "./freePatsHandClap.ts";
 import { VIRTUOSITY_CORE_VERSION, decodeVirtuosityPiece,
-  fetchVirtuosityManifest, virtuosityArticulation } from "./virtuosityCore";
+  fetchVirtuosityManifest, virtuosityArticulation } from "./virtuosityCore.ts";
 import { TR808_FISCHER_SOURCE_NOTES, TR808_FISCHER_VERSION,
-  decodeTr808FischerPiece, fetchTr808FischerManifest } from "./tr808FischerCore";
-import { UserSampleCache, type UserSampleReader } from "./userSampleAsset";
-import { retainUntilOfflineRender } from "./offlineGraphRetention";
+  decodeTr808FischerPiece, fetchTr808FischerManifest } from "./tr808FischerCore.ts";
+import { UserSampleCache, type UserSampleReader } from "./userSampleAsset.ts";
+import { retainUntilOfflineRender } from "./offlineGraphRetention.ts";
 
 const MAX_PREPARED_PCM_BYTES = 64 * 1024 * 1024;
 const MAX_ACTIVE_VOICES = 40;
@@ -54,6 +54,10 @@ export function shapeDrumPadVelocity(velocity: number, sensitivity = 1): number 
     throw new RangeError("Velocity o sensibilidad de pad inválida");
   }
   const normalized = velocity / 127;
+  // Default sensitivity keeps the historical response exactly (DRM-06):
+  // the normalized velocity already lives in [1/127, 1]; only non-default
+  // curves need the audibility floor that avoids a silent negative gain.
+  if (sensitivity === 1) return normalized;
   return bounded(0.75 + (normalized - 0.75) * sensitivity, 0.01, 1);
 }
 

@@ -54,7 +54,8 @@ export function StudioScore({pattern,meter,onOpenEditor}:StudioScoreProps) {
           if(upper) for(let line=staffTop-17;line>=y-2;line-=17)ledger.push(line);
           if(lower) for(let line=staffBottom+17;line<=y+2;line+=17)ledger.push(line);
           const stemUp=y>=staffTop+34;
-          return <g key={note.id} title={`MIDI ${note.pitch}, tick ${note.startTick}`}>
+          return <g key={note.id}>
+            <title>{`MIDI ${note.pitch}, tick ${note.startTick}`}</title>
             {ledger.map((line,i)=><line key={i} x1={x-13} x2={x+14} y1={line} y2={line}
               stroke="#b4add6" strokeWidth="1"/>)}
             <ellipse cx={x} cy={y} rx="9" ry="5.5" transform={`rotate(-20 ${x} ${y})`}

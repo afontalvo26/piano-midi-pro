@@ -122,6 +122,11 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/** Timestamp helper kept outside render: commands read the clock on user actions. */
+function nowEpochMs(): number {
+  return Date.now();
+}
+
 function level(value: number, mode: MidiValueMode, current: number): number {
   const relative = mode === "relative-twos-complement" || mode === "relative-binary-offset";
   return clamp(relative ? current + value / 127 : value / 127, 0, 1);
@@ -2058,7 +2063,7 @@ export default function PianoApp() {
     const active = projectSessionRef.current;
     if (!active) throw new Error("No hay proyecto activo");
     const name = `${active.getSnapshot().document.name.slice(0, 80)} copia recuperada`;
-    const copy = await active.saveAsCopy({ id: crypto.randomUUID(), name, at: Date.now() });
+    const copy = await active.saveAsCopy({ id: crypto.randomUUID(), name, at: nowEpochMs() });
     projectUnsubscribeRef.current?.();
     projectUnsubscribeRef.current = null;
     const captured = pendingAudioTakeRef.current;

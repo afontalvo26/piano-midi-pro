@@ -145,3 +145,32 @@ La matriz de 113 criterios permanece sin cambios. Ningún punto anterior debe pr
 - Volver a polifonía elimina los campos mono-only para no dejar configuración inválida oculta.
 - El TR-808 Fischer/Technopolis ya no se trata como “pack por conseguir”: existe localmente con procedencia CC0 y manifiesto/hash. Lo que sigue pendiente es QA física y calidad, no autorización ficticia.
 - Las nuevas pruebas están escritas y agregadas al workflow, pero no son evidencia aprobada hasta que el runner ejecute pasos reales.
+
+
+## Anexo de verificación local — 2026-11-02 22:41 (America/Bogota)
+
+Árbol de trabajo sobre `design/studio-reference-ui-20261101` (PR #5), actualizado al head remoto `c045bd7` antes de esta tanda. **No cambia el estado de aceptación**: `acceptance-evidence.json` sigue con 113 pendientes y 0 aprobados, `--release` sigue rojo por diseño, el CI real sigue bloqueado por facturación de la cuenta (issue #2) y no existe QA física SMK-37 (issue #3) ni autorización de redistribución del 808 (issue #4).
+
+**Corregido y ejecutado en esta tanda** (logs en `.logs/`, sin datos simulados):
+
+- `ProjectAudioSink.prepare` ya no se queda con la rama del bajo 808 para una pista `kind:"drum"` con `drumRack`; prepara el rack real. Era la causa de que el beat de cuatro compases dejara los pads en «audio pendiente de preparar» para siempre.
+- `decodeAudioData` del TR-808 valida la duración esperada por `sampleRate` en vez de exigir frames idénticos: acepta el resampleo 44,1→48 kHz del contexto y sigue rechazando corrupción de manifiesto/hash.
+- `createAudioRoutingPolicy` unifica mute/solo/envíos en timeline, sink y plan de exportación. Un bus principal mudo con envío auxiliar mantiene audible la fuente, no se cuentan clips como omitidos y el stem del bus mudo ya no se duplica.
+- Sidechain: el `AudioWorkletNode` se crea a través del contexto Tone, válido también en el render offline (antes fallaba con `parameter 1 is not of type 'BaseAudioContext'`).
+- Pads: la sensibilidad por defecto conserva exactamente la respuesta histórica `velocity/127` (DRM-06); sólo las curvas no-default usan piso de audibilidad.
+- UI: el banner de estado ya no intercepta clics; la navegación conserva nombre accesible con iconos en móvil; el playhead se mantiene visible en anchos < 1460 px; el selector de proyecto vacío dice «Sin proyecto»; copys de banco por pista y catálogo quedan alineados con el estado real.
+- Los E2E de los dos workflows migraron su entrada al shell de referencia (`Crear un proyecto` → `Editor de arreglo completo` → panel legacy), en vez de pulsar botones tapados por el rediseño.
+- `scripts/validate-studio.ps1` ahora cubre la suite unitaria completa, ESLint completo de la app, build/dist, el foco de `studio-quality.yml` y el foco de `studio-reference-ui.yml`; `-Full` añade la suite E2E completa.
+
+**Puertas ejecutadas en esta tanda (todas exit 0 sobre el árbol de trabajo):**
+
+- `npx tsc -b` — sin errores.
+- `npx eslint .` — sin errores ni warnings.
+- `npx vite build` — 1120 módulos; `audit-studio-dist`: 236 archivos, 0 rutas retiradas, 7 OGG núcleo.
+- Unit: 185/185 en 41 archivos (`node --test`).
+- `node scripts/audit-beatmaker-requirements.mjs` — 113 IDs en 15 módulos.
+- `node scripts/verify-beatmaker-acceptance.mjs --check` — estructura PASS, 0/113 aprobados.
+- E2E `gate-reference-final`: 53/53 (`studio-reference-ui` 27/27, `sequencer-transport`, sidechain, A/B, automatización, sampler, drum rack).
+- E2E `gate-quality-final`: 31/31 (`bus-routing-preflight`, bus resample, mixer sends, four-bar, bundle preview, audio-live-voice 37 voces).
+
+**Sigue pendiente y no se puede certificar desde este entorno:** ejecución real de GitHub Actions con runner (la cuenta está bloqueada por facturación), los 113 expedientes con evidencia atada a commit, 37+37 con CC64/66/67 y loopback p95/p99 en SMK-37 Elite, Pro separado, autorización/licencia del pack 808, decisión de producto SDD-01 («Partitura»), pixel-diff UXP a 1586×992 y QA en móviles físicos. Mientras eso no exista, el PR #5 debe seguir en borrador y las filas de aceptación en `pending`.

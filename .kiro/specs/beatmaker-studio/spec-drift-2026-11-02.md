@@ -110,3 +110,9 @@ Estas intervenciones posteriores **no** cambian el estado de los 113 criterios n
 - **Pruebas:** se escribieron nuevas regresiones unitarias/E2E y se agregaron al workflow. El runner sigue finalizando antes de ejecutar pasos; por tanto, esta sección describe implementación, no evidencia aprobada.
 
 El gate de 113 criterios continúa íntegramente en `pending`.
+
+## Anexo de ejecución local — 2026-11-02 22:41 (America/Bogota)
+
+Con el checkout actualizado a `c045bd7` y el WIP anterior preservado en un parche, la verificación local del árbol ejecutó sin fallos: `tsc -b`, `eslint .`, `vite build`, auditoría `dist` (236 archivos, 7 OGG núcleo), 185/185 unit, 53/53 del foco `reference-visual` y 31/31 del foco `studio-quality`. Se corrigieron dos fallos reales ocultos por el CI caído: el rack de batería del proyecto starter con ref 808 nunca se preparaba, y el `AudioWorkletNode` de sidechain se construía con un contexto incompatible en render offline. Los logs están en `.logs/` (ver [implementation-status.md](implementation-status.md)).
+
+Esto **no cambia** los 15 hallazgos: SDD-02 sigue bloqueado (la cuenta de GitHub tiene la facturación bloqueada, no el workflow), SDD-03/14/15 siguen sin evidencia visual/física, SDD-01 sigue pendiente de decisión de producto, y `acceptance-evidence.json` continúa 0/113 aprobado. La verificación local en Chromium no certifica audio físico ni reemplaza la ejecución real de CI sobre un SHA publicado.

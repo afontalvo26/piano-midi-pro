@@ -3,6 +3,7 @@ import { MusicalClock } from "../sequencer/musicalClock.ts";
 import { projectEffectParameters } from "../project/effectParameters.ts";
 import { createBaseAutomationResolver } from "../sequencer/automationResolver.ts";
 import { findBusResampleRoutes } from "../project/busResampleRouting.ts";
+import { createAudioRoutingPolicy } from "../project/mixRouting.ts";
 
 export type AudioStemMode = "none" | "tracks" | "buses";
 
@@ -47,27 +48,6 @@ function sourceTracks(document: ProjectDocumentV1): readonly ProjectTrack[] {
     if (!track) throw new RangeError(`Pista ${id} ausente del arreglo`);
     return track;
   }).filter((track) => track.kind !== "bus");
-}
-
-/** Choose audibly routed sources, including send-only solo and muted main buses. */
-function sourceCanReachOutput(track: ProjectTrack,
-  byId: ReadonlyMap<string, ProjectTrack>, hasSolo: boolean): boolean {
-  const active = new Set<string>();
-  const visit = (id: string, soloAlongPath: boolean): boolean => {
-    if (active.has(id)) throw new RangeError("Ciclo de buses en exportación de audio");
-    const current = byId.get(id);
-    if (!current || current.mix.mute) return false;
-    active.add(id);
-    const solo = soloAlongPath || current.mix.solo;
-    const hasDirectOutput = !current.mix.outputBusTrackId && (!hasSolo || solo);
-    const next = [current.mix.outputBusTrackId,
-      ...current.mix.sends.map((send) => send.busTrackId)]
-      .filter((dest): dest is string => dest !== undefined);
-    const audible = hasDirectOutput || next.some((dest) => visit(dest, solo));
-    active.delete(id);
-    return audible;
-  };
-  return visit(track.id, false);
 }
 
 /** Read-only preflight; unsupported DSP never disappears silently in a WAV. */
@@ -115,9 +95,9 @@ export function planProjectAudioExport(document: ProjectDocumentV1,
     clip.startTick < endTick && clip.startTick + clip.lengthTicks > startTick &&
     (clip.kind === "audio" || soundingPatterns.has(clip.sourceId)))
     .map((clip) => clip.trackId));
-  const hasSolo = document.tracks.some((track) => track.mix.solo);
+  const routing = createAudioRoutingPolicy(document.tracks);
   const sources = allSources.filter((track) =>
-    clipTrackIds.has(track.id) && sourceCanReachOutput(track, byId, hasSolo));
+    clipTrackIds.has(track.id) && routing.canSourceReachOutput(track.id));
   const activeIds = new Set(sources.map((track) => track.id));
   const omittedSourceTrackIds = allSources.filter((track) => !activeIds.has(track.id))
     .map((track) => track.id);
@@ -131,7 +111,7 @@ export function planProjectAudioExport(document: ProjectDocumentV1,
       sourceTrackIds: [track.id] }));
   } else if (options.stems === "buses") {
     const buses = document.trackOrder.map((id) => byId.get(id)!)
-      .filter((track) => track.kind === "bus");
+      .filter((track) => track.kind === "bus" && routing.shouldOpenTrackGate(track.id));
     stems = buses.map((bus): PlannedAudioStem => ({
       kind: "bus", id: bus.id, name: bus.name,
       sourceTrackIds: findBusResampleRoutes(document, bus.id, "")

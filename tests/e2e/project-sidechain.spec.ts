@@ -86,8 +86,10 @@ test("mezclador móvil configura sidechain y conserva parámetros", async ({ pag
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
-  await page.getByRole("button", { name: "Mezclador" }).click();
+  const studio = page.getByTestId("reference-studio");
+  await studio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await studio.getByRole("button", { name: "Editor de arreglo completo" }).click();
+  await page.getByRole("button", { name: "Mezclador", exact: true }).click();
   const mixer = page.getByRole("region", { name: "Mezclador del proyecto" });
   const piano = mixer.getByRole("region", { name: "Canal Piano" });
   const sidechain = piano.getByRole("region", { name: "Sidechain de Piano" });
@@ -100,10 +102,12 @@ test("mezclador móvil configura sidechain y conserva parámetros", async ({ pag
     .toContainText("Guardado", { timeout: 20_000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.reload();
-  await page.getByRole("button", { name: "Pistas", exact: true }).click();
+  await page.locator(".ref-project-select").click();
   await page.getByRole("region", { name: "Tus proyectos" })
     .getByRole("button", { name: "Abrir en Studio" }).click();
-  await page.getByRole("button", { name: "Mezclador" }).click();
+  await page.getByTestId("reference-studio")
+    .getByRole("button", { name: "Editor de arreglo completo" }).click();
+  await page.getByRole("button", { name: "Mezclador", exact: true }).click();
   const reopened = page.getByRole("region", { name: "Mezclador del proyecto" })
     .getByRole("region", { name: "Sidechain de Piano" });
   await expect(reopened.getByRole("spinbutton", { name: "Umbral sidechain de Piano" })).toHaveValue("-32");

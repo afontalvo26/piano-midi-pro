@@ -1,6 +1,7 @@
 import type { ProjectClip, ProjectDocumentV1, ProjectDrumPad, ProjectExpressionEvent, ProjectNote, ProjectPattern,
   ProjectScene } from "../project/model.ts";
 import { MusicalClock } from "../sequencer/musicalClock.ts";
+import { createAudioRoutingPolicy } from "../project/mixRouting.ts";
 import type { TimelineAudioClip, TimelineEvent, TimelineResolver } from "../sequencer/timelineEvents.ts";
 
 export interface LauncherAuthority {
@@ -134,11 +135,8 @@ export function createArrangementResolver(document: ProjectDocumentV1, mode: Arr
   }
   for (const ramps of fadeRamps.values()) ramps.sort((left, right) =>
     left.startUs - right.startUs || left.id.localeCompare(right.id));
-  const anySolo = document.tracks.some((track) => track.mix.solo && !track.mix.mute);
-  const audible = (trackId: string): boolean => {
-    const track = tracks.get(trackId);
-    return !!track && !track.mix.mute && (!anySolo || track.mix.solo);
-  };
+  const routing = createAudioRoutingPolicy(document.tracks);
+  const audible = routing.canSourceReachOutput;
   const arrangementClips = new Map<string, ProjectClip[]>();
   const arrangement: PatternInstance[] = [];
   for (const clip of document.clips) {

@@ -473,7 +473,6 @@
  .ref-system-status:first-of-type{display:none}
  .ref-main-grid{grid-template-columns:minmax(0,1fr) 290px}
  .ref-track-ruler,.ref-track-row{grid-template-columns:250px minmax(0,1fr)}
- .ref-arrangement-playhead{display:none}
  .ref-track-info{gap:4px}
 }
 @media(max-width:1200px){
@@ -739,7 +738,8 @@
  .ref-track-scroll{scrollbar-width:thin}
 }
 
-/* Critical statuses must remain visible when the legacy header is hidden. */
+/* Critical statuses must remain visible when the legacy header is hidden.
+   The banner is status, not a modal: it must never swallow clicks on the app. */
 .ref-global-alert,.ref-global-progress{
   grid-column:2;grid-row:2;z-index:15;align-self:start;
   display:flex;align-items:center;gap:9px;
@@ -747,10 +747,11 @@
   border:1px solid #9b527b;border-radius:9px;
   background:#301b36;color:#ffdeee;
   font-size:12px;box-shadow:0 6px 20px #000b;
+  pointer-events:none;
 }
 .ref-global-alert span{flex:1;min-width:0;overflow-wrap:anywhere}
 .ref-global-alert button{min-height:34px;border-radius:7px;border:1px solid #b582d0;
-  color:#fff;background:#68408b;padding:5px 10px;flex:none}
+  color:#fff;background:#68408b;padding:5px 10px;flex:none;pointer-events:auto}
 .ref-global-progress{z-index:14;border-color:#50447e;background:#211c3b;color:#ded3fc}
 .ref-global-alert+.ref-global-progress{margin-top:65px}
 @media(max-width:950px){

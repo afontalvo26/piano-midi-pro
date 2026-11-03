@@ -3,6 +3,7 @@ import test from "node:test";
 import { createProjectDocument } from "../../app/src/project/model.ts";
 import { validateProjectDocument } from "../../app/src/project/validate.ts";
 import { createArrangementResolver, quantizeSceneLaunchTick } from "../../app/src/composition/resolveProjectTimeline.ts";
+import { createAudioRoutingPolicy } from "../../app/src/project/mixRouting.ts";
 
 const mix = { gainDb: 0, pan: 0, mute: false, solo: false, armed: false, sends: [], effects: [] };
 const track = { id: "track-piano", name: "Piano", kind: "instrument", mix };
@@ -221,4 +222,43 @@ test("10.000 clips comparten índice de autoridad y resuelven una ventana focal"
     .filter((event) => event.kind === "note");
   assert.deepEqual(notes.map((event) => [event.tick, event.clipId]),
     [[5_000 * 960, "clip-many-5000"]]);
+});
+
+test("routing audible conserva un send auxiliar cuando el bus principal está mudo", () => {
+  const main = { id: "bus-main-muted", name: "Principal mudo", kind: "bus",
+    mix: { ...mix, mute: true } };
+  const aux = { id: "bus-aux", name: "Auxiliar", kind: "bus", mix };
+  const routedTrack = { ...track, mix: { ...mix, outputBusTrackId: main.id,
+    sends: [{ id: "send-aux", busTrackId: aux.id, gainDb: 0 }] } };
+  const routed = { ...base, tracks: [routedTrack, main, aux],
+    trackOrder: [routedTrack.id, main.id, aux.id] };
+  const policy = createAudioRoutingPolicy(routed.tracks);
+  assert.equal(policy.canSourceReachOutput(routedTrack.id), true);
+  assert.equal(policy.shouldOpenTrackGate(routedTrack.id), true);
+  assert.equal(policy.shouldOpenTrackGate(main.id), false);
+  assert.equal(policy.shouldOpenTrackGate(aux.id), true);
+  assert.equal(createArrangementResolver(routed)(0, 1, 0)
+    .filter((event) => event.kind === "note").length, 1);
+  const withoutSend = { ...routed, tracks: [{ ...routedTrack,
+    mix: { ...routedTrack.mix, sends: [] } }, main, aux] };
+  assert.equal(createArrangementResolver(withoutSend)(0, 1, 0)
+    .filter((event) => event.kind === "note").length, 0);
+});
+
+test("routing audible hereda solo desde una fuente y hacia un bus", () => {
+  const bus = { id: "bus-solo", name: "Bus solo", kind: "bus",
+    mix: { ...mix, solo: true } };
+  const feeding = { ...track, mix: { ...mix,
+    sends: [{ id: "send-solo", busTrackId: bus.id, gainDb: -6 }] } };
+  const other = { ...track, id: "track-other", name: "Otra" };
+  const policy = createAudioRoutingPolicy([feeding, other, bus]);
+  assert.equal(policy.canSourceReachOutput(feeding.id), true);
+  assert.equal(policy.canSourceReachOutput(other.id), false);
+  assert.equal(policy.shouldOpenTrackGate(bus.id), true);
+  const sourceSolo = createAudioRoutingPolicy([
+    { ...feeding, mix: { ...feeding.mix, solo: true } },
+    { ...bus, mix: { ...bus.mix, solo: false } },
+  ]);
+  assert.equal(sourceSolo.canSourceReachOutput(feeding.id), true);
+  assert.equal(sourceSolo.shouldOpenTrackGate(bus.id), true);
 });
