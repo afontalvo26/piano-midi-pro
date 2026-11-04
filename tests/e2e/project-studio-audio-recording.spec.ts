@@ -118,7 +118,7 @@ test("cambiar proyecto cierra y guarda la toma activa antes del cambio", async (
   await expect(panel).toContainText("Estado: armed", { timeout: 20_000 });
   await panel.getByRole("button", { name: "Iniciar toma" }).click();
   await expect(panel).toContainText(/Frames: [1-9][0-9]*/, { timeout: 20_000 });
-  const referenceStudio = page.getByTestId("reference-studio");
+  await page.getByRole("button", { name: "← Volver al nuevo Studio" }).click();
   await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
   await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("pmp_active_project_id")))
