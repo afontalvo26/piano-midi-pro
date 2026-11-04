@@ -4,7 +4,9 @@ test("editar pasos MIDI mientras suena el beat conserva transporte y aplica revi
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   const tempo = page.getByRole("spinbutton", { name: "Tempo inicial del proyecto" });
   await tempo.fill("60");
   await tempo.blur();
