@@ -4,7 +4,9 @@ import { expect, test } from "@playwright/test";
 test("Studio exporta el arreglo editado como SMF tipo 1 a 960 PPQ", async ({ page }) => {
   page.setDefaultTimeout(20_000);
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   const roll = page.getByRole("region", { name: "Piano roll" });
   await roll.getByRole("button", { name: "Dibujar" }).click();
   const canvas = roll.locator("canvas").first();
