@@ -4,7 +4,9 @@ test("bus del mezclador persiste, rechaza borrado con rutas y permite undo", asy
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await page.getByRole("button", { name: "Mezclador" }).click();
   const mixer = page.getByRole("region", { name: "Mezclador del proyecto" });
   await mixer.getByRole("textbox", { name: "Nombre del bus" }).fill("Bus QA");
