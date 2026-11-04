@@ -7,7 +7,9 @@ for (const width of [320, 390]) {
     page.setDefaultTimeout(20_000);
     await page.setViewportSize({ width, height: 780 });
     await page.goto("/");
-    await page.getByRole("button", { name: "Nuevo proyecto" }).tap();
+    const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).tap();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).tap();
     const size = async (selector: string) => page.locator(selector).evaluateAll((elements) =>
       elements.map((element) => {
         const rect = element.getBoundingClientRect();
