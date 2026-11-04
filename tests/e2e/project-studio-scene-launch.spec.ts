@@ -4,7 +4,9 @@ test("Studio lanza escena grabada, detiene y vuelca actuación reversible al arr
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await page.getByRole("button", { name: "Arreglo" }).click();
   const arrangement = page.getByRole("region", { name: "Arreglo" });
   await arrangement.getByLabel("Nombre de escena").fill("Hook móvil");
