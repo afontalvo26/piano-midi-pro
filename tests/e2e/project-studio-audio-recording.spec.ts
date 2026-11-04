@@ -4,7 +4,9 @@ test("Studio graba WAV en un clip propio, lo reabre y lo reproduce a 320 px", as
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await page.getByRole("button", { name: "Grabar audio" }).click();
   const panel = page.getByRole("region", { name: "Grabación de audio del proyecto" });
   await expect(panel).toBeVisible();
@@ -63,7 +65,9 @@ test("Studio graba WAV en un clip propio, lo reabre y lo reproduce a 320 px", as
 test("grabación durante transporte conserva el inicio preciso del mismo AudioContext", async ({ page }) => {
   page.setDefaultTimeout(20_000);
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await page.getByRole("button", { name: "Reproducir" }).click();
   await expect(page.getByRole("region", { name: "Proyecto de Beatmaker" }))
     .toContainText(/tick [1-9][0-9]*/, { timeout: 20_000 });
@@ -102,7 +106,9 @@ test("grabación durante transporte conserva el inicio preciso del mismo AudioCo
 test("cambiar proyecto cierra y guarda la toma activa antes del cambio", async ({ page }) => {
   page.setDefaultTimeout(20_000);
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("pmp_active_project_id")))
     .not.toBeNull();
   const firstId = await page.evaluate(() => localStorage.getItem("pmp_active_project_id"));
@@ -112,7 +118,9 @@ test("cambiar proyecto cierra y guarda la toma activa antes del cambio", async (
   await expect(panel).toContainText("Estado: armed", { timeout: 20_000 });
   await panel.getByRole("button", { name: "Iniciar toma" }).click();
   await expect(panel).toContainText(/Frames: [1-9][0-9]*/, { timeout: 20_000 });
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("pmp_active_project_id")))
     .not.toBe(firstId);
   const oldProject = await page.evaluate(async (id) => {
