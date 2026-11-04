@@ -29,7 +29,9 @@ test("toma MIDI propia se convierte en pistas editables sin alterar sus bytes", 
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await page.getByRole("button", { name: "Pistas", exact: true }).click();
   const takes = page.getByRole("region", { name: "Pistas de tus grabaciones MIDI" });
   await expect(takes.getByRole("heading", { name: "Ritmo del SMK-37" })).toBeVisible();
