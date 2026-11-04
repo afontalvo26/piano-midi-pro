@@ -5,7 +5,9 @@ test("Studio reabre proyecto con muestra perdida y relocaliza sólo bytes idént
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await page.getByRole("button", { name: "Sampler" }).click();
   const original = resolve("app/public/audio/freepats-handclap/core/01_02.ogg");
   const wrong = resolve("app/public/audio/freepats-handclap/core/01_03.ogg");
