@@ -112,6 +112,9 @@ export type ProjectCommand =
       readonly asset: ProjectAssetRef; readonly slices: readonly { readonly padId: string;
         readonly startFrame: number; readonly endFrame: number }[];
       readonly removeAssetIfUnused: boolean; readonly at: number }
+  | { readonly kind: "replaceTrackInstrument"; readonly trackId: string;
+      readonly expected: ProjectInstrumentRef | undefined;
+      readonly instrument: ProjectInstrumentRef | undefined; readonly at: number }
   | { readonly kind: "replaceTrackMix"; readonly trackId: string;
       readonly expected: ProjectMixChannel; readonly mix: ProjectMixChannel; readonly at: number }
   | { readonly kind: "replaceMasterMix"; readonly expected: ProjectMixState;
@@ -190,13 +193,17 @@ function cloneClipAt(snapshot: ProjectDocumentV1, clip: ProjectClip,
     }
     const endTick = clock.secondsToTick(absoluteEndUs / 1_000_000);
     if (endTick <= startTick) throw new RangeError("Copia de audio colapsa en ticks");
-    return { ...structuredClone(clip), id: newClipId, startTick,
+    const copy = { ...structuredClone(clip), id: newClipId, startTick,
       lengthTicks: endTick - startTick, absoluteStartUs, absoluteEndUs };
+    delete (copy as { groupId?: string }).groupId;
+    return copy;
   }
   if (requestedStartUs !== undefined) {
     throw new RangeError("Sólo un clip de audio absoluto acepta ancla de microsegundos");
   }
-  return { ...structuredClone(clip), id: newClipId, startTick };
+  const copy = { ...structuredClone(clip), id: newClipId, startTick };
+  delete (copy as { groupId?: string }).groupId;
+  return copy;
 }
 
 function assertExpected<T>(current: readonly T[], expected: readonly T[], label: string): void {
@@ -1046,6 +1053,28 @@ function reduceCommand(snapshot: ProjectDocumentV1, command: ProjectCommand, tru
       inverse = { kind: "installSampleSlices", trackId: track.id,
         expectedRack: structuredClone(command.rack), asset: structuredClone(asset),
         slices: structuredClone(command.slices), at: snapshot.updatedAt };
+      break;
+    }
+    case "replaceTrackInstrument": {
+      const track = snapshot.tracks.find((item)=>item.id===command.trackId);
+      if (!track || track.kind !== "instrument") {
+        throw new RangeError("Sólo las pistas de instrumento pueden cambiar de banco");
+      }
+      if (JSON.stringify(track.instrument) !== JSON.stringify(command.expected)) {
+        throw new RangeError("Instrumento de pista: revisión desactualizada");
+      }
+      if (command.instrument && (!command.instrument.instrumentId || !command.instrument.packageVersion ||
+          !command.instrument.presetId)) {
+        throw new RangeError("Referencia de instrumento incompleta");
+      }
+      const next = command.instrument ? structuredClone(command.instrument) : undefined;
+      document = { ...snapshot,
+        tracks: snapshot.tracks.map((item)=>item.id===track.id
+          ? {...item,instrument:next} : item),
+        updatedAt: command.at };
+      inverse = {kind:"replaceTrackInstrument",trackId:track.id,
+        expected:next, instrument:track.instrument ? structuredClone(track.instrument) : undefined,
+        at:snapshot.updatedAt};
       break;
     }
     case "replaceTrackMix": {

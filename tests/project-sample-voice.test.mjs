@@ -11,7 +11,7 @@ const mix = { gainDb: 0, pan: 0, mute: false, solo: false,
 const region = { startFrame: 0, endFrame: 100, fadeInFrames: 0, fadeOutFrames: 0,
   rootMidi: 60, cents: 0, reverse: false, loopMode: "loop", playMode: "gate" };
 const voice = { mode: "mono", retrigger: "legato", glideMs: 180,
-  attackMs: 12, releaseMs: 0 };
+  attackMs: 12, releaseMs: 0, saturation: 0.35, subGainDb: -12 };
 
 function project() {
   const base = createProjectDocument({ id: "sample-voice-qa", at: 1 });
@@ -50,6 +50,10 @@ test("sampleVoice enforces poly defaults, legato gate/loop and finite ranges", (
   assert.throws(() => set({ ...voice, mode: "poly" }), /polifonía/);
   assert.throws(() => set({ ...voice, glideMs: 2001 }), /glideMs/);
   assert.throws(() => set({ ...voice, releaseMs: Number.NaN }), /no serializable|releaseMs/);
+  assert.throws(() => set({ ...voice, saturation: 1.01 }), /saturation/);
+  assert.throws(() => set({ ...voice, subGainDb: -36.1 }), /subGainDb/);
+  assert.throws(() => set({ ...voice, mode: "poly", retrigger: "always", glideMs: 0 }),
+    /procesamiento mono/);
   assert.throws(() => validateProjectDocument({ ...base,
     tracks: [{ ...base.tracks[0], instrument: { ...base.tracks[0].instrument,
       sampleRegion: { ...region, loopMode: "none" }, sampleVoice: voice } }] }),

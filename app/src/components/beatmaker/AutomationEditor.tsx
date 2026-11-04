@@ -3,11 +3,15 @@ import type { FormEvent, KeyboardEvent, PointerEvent } from "react";
 import type { ProjectAutomationLane, ProjectDocumentV1 } from "../../project/model.ts";
 import type { ProjectCommand } from "../../project/commands.ts";
 import type { AutomationValueSnapshot } from "../../sequencer/automationResolver.ts";
-import { baseAutomationParameter } from "../../project/automationParameters.ts";
+import { projectAutomationBaseValue, projectAutomationParameter } from "../../project/automationParameters.ts";
 import { addAutomationPoint, automationTargetKey, copySelectedAutomationPoints, createBaseAutomationLane,
   deleteAutomationLane, deleteSelectedAutomationPoints, moveAutomationPoint,
-  moveSelectedAutomationPoints, pasteAutomationPoints } from "../../composition/automationEdit.ts";
-import type { AutomationPointCopy, BaseAutomationTarget } from "../../composition/automationEdit.ts";
+  moveSelectedAutomationPoints, pasteAutomationPoints, setAutomationWriteMode,
+  writeAutomationTouchGesture } from "../../composition/automationEdit.ts";
+import type { AutomationPointCopy, AutomationTouchSample,
+  BaseAutomationTarget } from "../../composition/automationEdit.ts";
+import { parseAutomationMidiAction,
+  type AutomationMidiTakeover } from "../../midi/automationMidi.ts";
 import { AUTOMATION_CANVAS_HEIGHT, AUTOMATION_CANVAS_TOP, AUTOMATION_CANVAS_BOTTOM,
   automationTickAtX, automationValueAtY, drawAutomationLane,
   drawAutomationPlayhead, hitAutomationPoint } from "../../composition/automationCanvas.ts";
@@ -23,6 +27,13 @@ export interface AutomationEditorProps {
   readonly playheadTick?: number;
   readonly readPlayheadTick?: () => number;
   readonly effectiveValues?: readonly AutomationValueSnapshot[];
+  /** Immediate audio preview while a Touch gesture owns the control. */
+  readonly onTouchPreview?: (laneId: string, target: ProjectAutomationLane["target"], value: number) => void;
+  /** Releases temporary physical ownership after the gesture commits or is cancelled. */
+  readonly onTouchRelease?: (laneId: string) => void;
+  readonly midiLearnAction?: string | null;
+  readonly onMidiLearn?: (laneId: string, takeover: AutomationMidiTakeover) => void;
+  readonly onCancelMidiLearn?: () => void;
   readonly onCommand: (command: ProjectCommand) => void | Promise<void>;
   readonly onUndo?: () => void | Promise<void>;
   readonly onRedo?: () => void | Promise<void>;
@@ -52,15 +63,19 @@ function targetName(document: ProjectDocumentV1, target: ProjectAutomationLane["
   const scope = target.scope === "master" ? "Master"
     : target.scope === "track" ? document.tracks.find((track) => track.id === target.ownerId)?.name ?? "Pista eliminada"
       : `Clip ${target.ownerId ?? "?"}`;
+  if (target.sendId && target.scope === "track") {
+    const track = document.tracks.find((item) => item.id === target.ownerId);
+    const send = track?.mix.sends.find((item) => item.id === target.sendId);
+    const bus = send ? document.tracks.find((item) => item.id === send.busTrackId) : undefined;
+    return `${scope} · Send → ${bus?.name ?? send?.busTrackId ?? "bus eliminado"} · volumen`;
+  }
   const parameter = target.parameterId === "gainDb" || target.parameterId === "masterGainDb"
     ? "volumen" : target.parameterId === "pan" ? "panorama" : target.parameterId;
   return `${scope} · ${parameter}${target.effectId ? ` · efecto ${target.effectId}` : ""}`;
 }
 
 function baseValue(document: ProjectDocumentV1, lane: ProjectAutomationLane): number {
-  if (lane.target.scope === "master") return document.mix.masterGainDb;
-  const track = document.tracks.find((item) => item.id === lane.target.ownerId);
-  return lane.target.parameterId === "pan" ? track?.mix.pan ?? 0 : track?.mix.gainDb ?? 0;
+  return projectAutomationBaseValue(document, lane.target) ?? 0;
 }
 
 function preciseValue(value: number, step: number): number {
@@ -88,7 +103,8 @@ export function AutomationEditor(props: AutomationEditorProps) {
 }
 
 function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
-  readPlayheadTick, effectiveValues, onCommand, onUndo, onRedo, canUndo, canRedo,
+  readPlayheadTick, effectiveValues, onTouchPreview, onTouchRelease, midiLearnAction, onMidiLearn,
+  onCancelMidiLearn, onCommand, onUndo, onRedo, canUndo, canRedo,
   saveState }: AutomationEditorProps & { readonly document: ProjectDocumentV1 }) {
   const [selectedLaneId, setSelectedLaneId] = useState(document.automation[0]?.id ?? "");
   const [targetChoice, setTargetChoice] = useState("");
@@ -96,6 +112,7 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
   const [clipboard, setClipboard] = useState<readonly AutomationPointCopy[]>([]);
   const [tool, setTool] = useState<Tool>("navigate");
   const [multiSelect, setMultiSelect] = useState(false);
+  const [midiTakeover, setMidiTakeover] = useState<AutomationMidiTakeover>("pickup");
   const [zoomIndex, setZoomIndex] = useState(1);
   const [snapTicks, setSnapTicks] = useState<number>(120);
   const [pasteTick, setPasteTick] = useState("0");
@@ -107,20 +124,34 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playheadCanvasRef = useRef<HTMLCanvasElement>(null);
   const gestureRef = useRef<DragGesture | null>(null);
+  const touchSamplesRef = useRef<AutomationTouchSample[] | null>(null);
+  const [touchValue, setTouchValue] = useState(0);
   const targetKeys = useMemo(() => new Set(availableTargets.map(automationTargetKey)), [availableTargets]);
   const lane = document.automation.find((item) => item.id === selectedLaneId) ?? document.automation[0] ?? null;
-  const descriptor = lane ? baseAutomationParameter(lane.target) : undefined;
-  const editable = !!lane && !!descriptor && targetKeys.has(automationTargetKey(lane.target)) &&
-    !lane.points.some((point) => point.shape === "bezier");
+  const laneClip = lane?.target.scope === "clip"
+    ? document.clips.find((clip) => clip.id === lane.target.ownerId) : undefined;
+  const laneTick = useCallback((globalTick: number): number => laneClip
+    ? Math.max(0, Math.min(Math.max(0, laneClip.lengthTicks - 1), globalTick - laneClip.startTick))
+    : Math.max(0, globalTick), [laneClip]);
+  const descriptor = lane ? projectAutomationParameter(document, lane.target) : undefined;
+  const editable = !!lane && !!descriptor && targetKeys.has(automationTargetKey(lane.target));
   const selectedPoints = useMemo(() => lane?.points.filter((point) => selectedIds.has(point.id)) ?? [],
     [lane, selectedIds]);
   const selectedPoint = selectedPoints.length === 1 ? selectedPoints[0] : null;
   const effectiveValue = effectiveValues?.find((item) => item.laneId === lane?.id);
+  const learnedPending = parseAutomationMidiAction(midiLearnAction ?? "");
+  const learningThisLane = learnedPending?.laneId === lane?.id;
+  useEffect(() => {
+    if (!lane || !descriptor || touchSamplesRef.current) return;
+    const value = effectiveValue?.value ?? baseValue(document, lane);
+    setTouchValue(Math.max(descriptor.min, Math.min(descriptor.max,
+      preciseValue(value, descriptor.unit === "pan" ? 0.01 : 0.1))));
+  }, [lane, descriptor, effectiveValue?.value, document]);
   const missingTargets = availableTargets.filter((target) => !document.automation.some((item) =>
     automationTargetKey(item.target) === automationTargetKey(target)));
   const chosenTarget = missingTargets.find((target) => automationTargetKey(target) === targetChoice) ??
     missingTargets[0];
-  const maxTick = Math.max(3840 * 8, playheadTick + 3840,
+  const maxTick = laneClip ? laneClip.lengthTicks : Math.max(3840 * 8, playheadTick + 3840,
     document.clips.reduce((end, clip) => Math.max(end, clip.startTick + clip.lengthTicks), 0),
     document.sections.reduce((end, section) => Math.max(end, section.startTick + section.lengthTicks), 0),
     lane?.points.at(-1)?.tick ? lane.points.at(-1)!.tick + 3840 : 0);
@@ -163,14 +194,15 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
         const view = viewport();
         if (view) {
           const context = configureCanvas(canvas, view.width);
-          if (context) drawAutomationPlayhead(context, view, readPlayheadTick?.() ?? playheadTick);
+          if (context) drawAutomationPlayhead(context, view,
+            laneTick(readPlayheadTick?.() ?? playheadTick));
         }
       }
       frame = requestAnimationFrame(paint);
     };
     frame = requestAnimationFrame(paint);
     return () => { cancelAnimationFrame(frame); observer.disconnect(); };
-  }, [lane, viewport, readPlayheadTick, playheadTick]);
+  }, [lane, laneClip, viewport, readPlayheadTick, playheadTick, laneTick]);
 
   async function commit(factory: () => ProjectCommand): Promise<void> {
     if (busy) return;
@@ -181,6 +213,35 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
       await onCommand(command);
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }
+  }
+
+  function sampleTouch(value: number): void {
+    if (!lane || !descriptor || !touchSamplesRef.current) return;
+    const globalTick = readPlayheadTick?.() ?? playheadTick;
+    if (laneClip && (globalTick < laneClip.startTick ||
+        globalTick >= laneClip.startTick + laneClip.lengthTicks)) {
+      setError("Mueve el playhead dentro del clip para escribir su gain.");
+      return;
+    }
+    const nextValue = Math.max(descriptor.min, Math.min(descriptor.max,
+      preciseValue(value, valueStep)));
+    const tick = Math.round(laneTick(globalTick));
+    const samples = touchSamplesRef.current;
+    const last = samples.at(-1);
+    if (last?.tick === tick) samples[samples.length - 1] = { tick, value: nextValue };
+    else samples.push({ tick, value: nextValue });
+    setTouchValue(nextValue);
+    onTouchPreview?.(lane.id, lane.target, nextValue);
+  }
+
+  async function finishTouch(): Promise<void> {
+    if (!lane) return;
+    const activeLaneId = lane.id;
+    const samples = touchSamplesRef.current;
+    touchSamplesRef.current = null;
+    if (samples?.length) await commit(() =>
+      writeAutomationTouchGesture(document, activeLaneId, samples));
+    onTouchRelease?.(activeLaneId);
   }
 
   function pointerPosition(event: PointerEvent<HTMLCanvasElement>): { x: number; y: number } {
@@ -272,18 +333,22 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
     const form = new FormData(event.currentTarget);
     const tick = Number(form.get("tick"));
     const value = Number(form.get("value"));
-    const shape = form.get("shape") === "step" ? "step" : "linear";
+    const shapeValue = form.get("shape");
+    const shape = shapeValue === "step" ? "step" : shapeValue === "bezier" ? "bezier" : "linear";
+    const curve = shape === "bezier" ? Number(form.get("curve")) : undefined;
     void commit(() => addAutomationPoint(document, lane.id,
-      { id: crypto.randomUUID(), tick, value, shape }));
+      { id: crypto.randomUUID(), tick, value, shape, ...(curve === undefined ? {} : { curve }) }));
   }
 
   function savePoint(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     if (!lane || !selectedPoint || !editable) return;
     const form = new FormData(event.currentTarget);
+    const shapeValue = form.get("shape");
+    const shape = shapeValue === "step" ? "step" : shapeValue === "bezier" ? "bezier" : "linear";
     void commit(() => moveAutomationPoint(document, lane.id, selectedPoint.id,
-      { tick: Number(form.get("tick")), value: Number(form.get("value")),
-        shape: form.get("shape") === "step" ? "step" : "linear" }));
+      { tick: Number(form.get("tick")), value: Number(form.get("value")), shape,
+        curve: shape === "bezier" ? Number(form.get("curve")) : undefined }));
   }
 
   function copySelection(): void {
@@ -366,6 +431,71 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
       </div>}
     </div>
     {lane && <>
+      <div className="automation-editor__write">
+        <div role="group" aria-label="Modo de escritura de automatización">
+          <button type="button" aria-pressed={(lane.writeMode ?? "read") === "read"}
+            disabled={busy} onClick={() => void commit(() =>
+              setAutomationWriteMode(document, lane.id, "read"))}>Read</button>
+          <button type="button" aria-pressed={lane.writeMode === "touch"}
+            disabled={busy || !editable} onClick={() => void commit(() =>
+              setAutomationWriteMode(document, lane.id, "touch"))}>Touch</button>
+        </div>
+        <label>Fader Touch · {descriptor?.unit}
+          <input type="range" aria-label="Fader Touch de automatización"
+            min={descriptor?.min} max={descriptor?.max} step={valueStep} value={touchValue}
+            disabled={!editable || lane.writeMode !== "touch" || busy ||
+              !!laneClip && (playheadTick < laneClip.startTick ||
+                playheadTick >= laneClip.startTick + laneClip.lengthTicks)}
+            onPointerDown={(event) => {
+              touchSamplesRef.current = [];
+              event.currentTarget.setPointerCapture(event.pointerId);
+              sampleTouch(Number(event.currentTarget.value));
+            }}
+            onChange={(event) => sampleTouch(Number(event.currentTarget.value))}
+            onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End",
+                "PageUp", "PageDown"].includes(event.key) || touchSamplesRef.current) return;
+              touchSamplesRef.current = [];
+              sampleTouch(Number(event.currentTarget.value));
+            }}
+            onKeyUp={(event) => {
+              if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End",
+                "PageUp", "PageDown"].includes(event.key)) void finishTouch();
+            }}
+            onPointerUp={(event) => {
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+              void finishTouch();
+            }}
+            onPointerCancel={() => {
+              touchSamplesRef.current = null;
+              const restore = effectiveValue?.value ?? baseValue(document, lane);
+              setTouchValue(restore);
+              onTouchRelease?.(lane.id);
+            }} />
+        </label>
+        <output aria-live="polite">{touchValue.toFixed(descriptor?.unit === "pan" ? 2 : 1)}
+          {descriptor?.unit === "dB" ? " dB" : ""}</output>
+        <small>Touch escribe un solo gesto reversible y vuelve suavemente a la curva al soltar.</small>
+      </div>
+      {onMidiLearn && <div className="automation-editor__midi-learn">
+        <label>Takeover MIDI<select aria-label="Takeover MIDI Learn" value={midiTakeover}
+          disabled={learningThisLane}
+          onChange={(event) => setMidiTakeover(event.target.value as AutomationMidiTakeover)}>
+          <option value="pickup">Pickup · sin salto</option>
+          <option value="absolute">Absoluto 0–127</option>
+          <option value="relative-twos-complement">Relativo · complemento a 2</option>
+          <option value="relative-binary-offset">Relativo · offset 64</option>
+        </select></label>
+        {!learningThisLane ? <button type="button" disabled={!editable || busy}
+          onClick={() => { if (lane) onMidiLearn(lane.id, midiTakeover); }}>
+          MIDI Learn</button> :
+          <button type="button" onClick={onCancelMidiLearn}>Cancelar Learn</button>}
+        <p>{learningThisLane
+          ? "Mueve ahora el fader/knob físico. Solo se aprenderá el mensaje observado, con puerto, canal y banco actuales."
+          : "Pickup espera a que el control físico alcance el valor software; los modos relativos no saltan a una posición absoluta."}</p>
+      </div>}
       <div className="automation-editor__toolbar">
         <div role="group" aria-label="Herramienta de automatización">
           <button type="button" aria-pressed={tool === "navigate"} onClick={() => setTool("navigate")}>Desplazar</button>
@@ -438,15 +568,20 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
         <form className="automation-editor__form" onSubmit={createPoint}>
           <strong>Añadir punto exacto</strong>
           <label>Tick<input name="tick" type="number" inputMode="numeric" min={0} step={1}
-            defaultValue={Math.max(0, Math.round(playheadTick))} required /></label>
+            defaultValue={Math.round(laneTick(playheadTick))}
+            max={laneClip ? Math.max(0, laneClip.lengthTicks - 1) : undefined} required /></label>
           <label>Valor · {descriptor?.unit}<input name="value" type="number" inputMode="decimal"
             min={descriptor?.min} max={descriptor?.max} step="any" defaultValue={baseValue(document, lane)} required /></label>
           <label>Tramo saliente<select name="shape" defaultValue="linear">
             <option value="linear">Lineal</option><option value="step">Escalón</option>
+            <option value="bezier">Bézier suavizada</option>
           </select></label>
+          <label>Curvatura Bézier<input name="curve" type="number" inputMode="decimal"
+            min="-1" max="1" step="0.05" defaultValue="0" />
+            <small>−1 = entrada lenta · 0 = lineal · +1 = entrada rápida</small></label>
           <button type="submit" disabled={busy}>Añadir punto</button>
         </form>
-        {selectedPoint && <form key={`${selectedPoint.id}:${selectedPoint.tick}:${selectedPoint.value}:${selectedPoint.shape}`}
+        {selectedPoint && <form key={`${selectedPoint.id}:${selectedPoint.tick}:${selectedPoint.value}:${selectedPoint.shape}:${selectedPoint.curve ?? 0}`}
           className="automation-editor__form" onSubmit={savePoint}>
           <strong>Punto seleccionado · {selectedPoint.id}</strong>
           <label>Tick exacto<input name="tick" type="number" inputMode="numeric" min={0} step={1}
@@ -455,7 +590,11 @@ function AutomationEditorReady({ document, availableTargets, playheadTick = 0,
             min={descriptor?.min} max={descriptor?.max} step="any" defaultValue={selectedPoint.value} required /></label>
           <label>Tramo saliente<select name="shape" defaultValue={selectedPoint.shape}>
             <option value="linear">Lineal</option><option value="step">Escalón</option>
+            <option value="bezier">Bézier suavizada</option>
           </select></label>
+          <label>Curvatura Bézier<input name="curve" type="number" inputMode="decimal"
+            min="-1" max="1" step="0.05" defaultValue={selectedPoint.curve ?? 0} />
+            <small>−1 = entrada lenta · 0 = lineal · +1 = entrada rápida</small></label>
           <button type="submit" disabled={busy}>Aplicar punto</button>
         </form>}
         {clipboard.length > 0 && <div className="automation-editor__paste">

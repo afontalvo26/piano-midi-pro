@@ -153,3 +153,11 @@
   .arrangement__audio-fade-create { grid-template-columns: minmax(0, 1fr); }
   .arrangement__scene { align-items: flex-start; flex-direction: column; }
 }
+
+.arrangement__group-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.arrangement__clip.is-grouped { outline: 1px dashed rgba(255,255,255,.48); outline-offset: -3px; }
+.arrangement__clip.is-group-selected { box-shadow: inset 0 0 0 3px rgba(255,255,255,.75); }
+@media (max-width: 520px) {
+  .arrangement__group-tools { width: 100%; }
+  .arrangement__group-tools button { flex: 1 1 140px; }
+}

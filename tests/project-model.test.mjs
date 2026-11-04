@@ -225,7 +225,7 @@ test("arrangement clip, section and clip automation change atomically with one i
     startTick: 7680, lengthTicks: 3840 }];
   const automation = [...original.automation, { id: "lane-copied",
     target: { scope: "clip", ownerId: "clip-copied", parameterId: "volume" },
-    points: [{ id: "point-copied", tick: 7680, value: -3, shape: "linear" }] }];
+    points: [{ id: "point-copied", tick: 960, value: -3, shape: "linear" }] }];
   const changed = applyCommand(original, { kind: "replaceArrangement", expected,
     clips, sections, automation, at: 2000 });
   assert.equal(changed.document.clips.length, 3);
@@ -341,7 +341,7 @@ test("track and master mix commands are CAS-checked, reversible and reject routi
   const mix = { ...piano.mix, gainDb: -3, pan: 0.25, mute: true,
     sends: [{ id: "send-new", busTrackId: "bus", gainDb: -12 }],
     effects: [{ id: "effect-new", kind: "filter", enabled: true,
-      parameters: { cutoffHz: 1200 } }] };
+      parameters: { type: "lowpass", cutoffHz: 1200, q: 0.7 } }] };
   const changed = applyCommand(original, { kind: "replaceTrackMix", trackId: piano.id,
     expected: piano.mix, mix, at: 2000 });
   assert.deepEqual(changed.document.tracks[0].mix, mix);

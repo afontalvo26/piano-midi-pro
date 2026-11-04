@@ -47,11 +47,12 @@ export interface ProjectWavResult {
   readonly files: readonly ProjectWavFile[];
   /** The project limiter is nonlinear; stems are aligned but not additive. */
   readonly stemsAdditive: boolean;
-  readonly projectLimiterIncluded: true;
+  readonly projectLimiterIncluded: boolean;
   /** True when the rendered graph contains post-fader send paths. */
   readonly sendsIncluded: boolean;
-  readonly masterEffectsIncluded: false;
-  readonly sidechainIncluded: false;
+  /** Master WAV includes the document master insert chain; isolated stems intentionally do not. */
+  readonly masterEffectsIncluded: boolean;
+  readonly sidechainIncluded: boolean;
   readonly studioGlobalChainIncluded: false;
   /** A source can resolve to silence after probability, trim or a silent sample. */
   readonly omittedStemIds: readonly string[];
@@ -129,7 +130,7 @@ export async function exportProjectWav(revision: ProjectRevision, assetReader: U
     emit(onProgress, { phase: "render", fileIndex: index, fileCount: targets.length,
       stemId: target.id });
     const selected = target.kind === "master" ? {}
-      : target.kind === "track" ? { trackId: target.id }
+      : target.kind === "track" ? { trackId: target.id, tapTrackOutput: true }
       : target.kind === "bus"
         ? { trackIds: target.sourceTrackIds, tapBusTrackId: target.id }
         : { trackIds: target.sourceTrackIds, tapDirectMaster: true };
@@ -190,8 +191,10 @@ export async function exportProjectWav(revision: ProjectRevision, assetReader: U
   return { projectId: revision.projectId, projectName: revision.document.name,
     revision: revision.revision,
     revisionHash: revision.hash, format: options.format, seed, plan: finalPlan, files,
-    stemsAdditive: finalPlan.stemsAdditive, projectLimiterIncluded: true,
+    stemsAdditive: finalPlan.stemsAdditive,
+    projectLimiterIncluded: finalPlan.projectLimiterIncluded,
     sendsIncluded: revision.document.tracks.some((track) => track.mix.sends.length > 0),
-    masterEffectsIncluded: false, sidechainIncluded: false,
+    masterEffectsIncluded: revision.document.mix.masterEffects.some((effect) => effect.enabled),
+    sidechainIncluded: revision.document.tracks.some((track) => track.mix.sidechain !== undefined),
     studioGlobalChainIncluded: false, omittedStemIds, officialCredits };
 }

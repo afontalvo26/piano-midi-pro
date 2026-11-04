@@ -29,6 +29,12 @@ interface InstrumentBase {
   licenseUrl: string;
   /** False si el núcleo necesario para tocar ya está incluido en la app. */
   requiresNetwork: boolean;
+  /** Estado honesto del navegador live; no implica soporte del renderer de proyecto. */
+  availability: "local-live" | "network-live";
+  /** Capacidad actual dentro de una pista persistente/exportable. */
+  projectUse: "project-installed" | "live-only";
+  /** Tamaño visible sin inventar bytes que el proveedor remoto no publica aquí. */
+  sizeLabel: string;
   /** Ventana de 37 teclas, inclusive, comprobada contra las muestras. */
   suggestedRange: { minMidi: number; maxMidi: number };
 }
@@ -65,6 +71,9 @@ function fluidR3(
     sourceCredit: FLUID_CREDIT,
     licenseUrl: FLUID_LICENSE_URL,
     requiresNetwork: true,
+    availability: "network-live",
+    projectUse: "live-only",
+    sizeLabel: "Remoto · tamaño depende del preset descargado",
   };
 }
 
@@ -80,6 +89,9 @@ export const INSTRUMENTS: readonly InstrumentDefinition[] = [
     sourceCredit: "Salamander Grand Piano · Alexander Holm · núcleo local",
     licenseUrl: SALAMANDER_LICENSE_URL,
     requiresNetwork: false,
+    availability: "local-live",
+    projectUse: "project-installed",
+    sizeLabel: "Incluido en la app",
     suggestedRange: { minMidi: 48, maxMidi: 84 },
   },
   {
@@ -91,6 +103,9 @@ export const INSTRUMENTS: readonly InstrumentDefinition[] = [
     sourceCredit: "Salamander Grand Piano V3 · Alexander Holm · adaptación de cuatro capas para C3–C6",
     licenseUrl: SALAMANDER_LICENSE_URL,
     requiresNetwork: false,
+    availability: "local-live",
+    projectUse: "live-only",
+    sizeLabel: "Incluido en la app",
     suggestedRange: { minMidi: 48, maxMidi: 84 },
   },
   {
@@ -102,6 +117,9 @@ export const INSTRUMENTS: readonly InstrumentDefinition[] = [
     sourceCredit: "Salamander Grand Piano · Alexander Holm · mismas muestras, ajuste cálido",
     licenseUrl: SALAMANDER_LICENSE_URL,
     requiresNetwork: false,
+    availability: "local-live",
+    projectUse: "live-only",
+    sizeLabel: "Incluido en la app",
     suggestedRange: { minMidi: 48, maxMidi: 84 },
   },
   {
@@ -113,6 +131,9 @@ export const INSTRUMENTS: readonly InstrumentDefinition[] = [
     sourceCredit: "Salamander Grand Piano · Alexander Holm · mismas muestras, ajuste brillante",
     licenseUrl: SALAMANDER_LICENSE_URL,
     requiresNetwork: false,
+    availability: "local-live",
+    projectUse: "live-only",
+    sizeLabel: "Incluido en la app",
     suggestedRange: { minMidi: 48, maxMidi: 84 },
   },
   fluidR3({

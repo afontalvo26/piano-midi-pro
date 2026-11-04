@@ -55,9 +55,10 @@ Ninguna fila está aprobada por la existencia de esta spec. El reporte de ejecuc
   y ensayo físico real Elite bajo `smk37-elite-physical-evidence.json`.
 - QA software reproducible Windows:
   `pwsh -File scripts/validate-studio.ps1` y sus logs `.logs/`.
-- GitHub Actions está bloqueado antes de asignar runner según
-  [run 41364098020](https://github.com/afontalvo26/piano-midi-pro/actions/runs/41364098020).
-  No tratar `failure` de este run como fallo comprobado de aplicación.
+- El CI de GitHub Actions fue **eliminado por decisión del dueño**
+  (2026-11-02). No hay workflow que ejecute pasos; la validación ejecutable
+  es el script local anterior. Su historial de runs no certifica ni bloquea
+  entregas.
 
 **Comprobación vía API GitHub realizada:** las 15 specs contienen 113
 IDs de requisito, todos secuenciales y únicos; los siete OGG núcleo

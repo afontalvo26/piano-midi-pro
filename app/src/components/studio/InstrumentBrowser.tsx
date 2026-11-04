@@ -10,6 +10,7 @@ import "./InstrumentBrowser.css";
 
 export interface InstrumentBrowserProps {
   activeId: string;
+  initialOpen?: boolean;
   loadingId: string | null;
   loadingProgress: { loaded: number; total: number; decodedPcmBytes: number } | null;
   onCancel: () => void;
@@ -30,15 +31,22 @@ function engineLabel(id: InstrumentEngineId): string {
 
 function sourceLabel(instrument: InstrumentDefinition): string {
   if (instrument.source.kind === "salamander" && instrument.source.voicing === "layered") {
-    return "4 capas grabadas · carga al seleccionar";
+    return "4 capas grabadas · live local";
   }
-  return instrument.requiresNetwork ? "Necesita internet" : "Núcleo local";
+  return instrument.availability === "network-live" ? "Live remoto · no instalado" :
+    instrument.projectUse === "project-installed" ? "Local · proyecto/export" : "Live local";
+}
+
+function projectUseLabel(instrument: InstrumentDefinition): string {
+  return instrument.projectUse === "project-installed"
+    ? "Disponible para pista y exportación"
+    : "Sólo interpretación live";
 }
 
 export function InstrumentBrowser({
-  activeId, loadingId, loadingProgress, onCancel, failedId, error, notice, onSelect,
+  activeId, initialOpen = false, loadingId, loadingProgress, onCancel, failedId, error, notice, onSelect,
 }: InstrumentBrowserProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [engineFilter, setEngineFilter] = useState<InstrumentEngineId | "all">("all");
   const active = getInstrument(activeId) ?? getInstrument(DEFAULT_INSTRUMENT_ID)!;
@@ -91,7 +99,8 @@ export function InstrumentBrowser({
           </select>
         </label>
       </div>
-      <p className="instrument-browser__count">{filtered.length} instrumento{filtered.length === 1 ? "" : "s"} disponible{filtered.length === 1 ? "" : "s"}; las muestras se cargan al elegir uno.</p>
+      <p className="instrument-browser__count">{filtered.length} instrumento{filtered.length === 1 ? "" : "s"} en el navegador.
+        “Live remoto” no significa instalado ni exportable; sólo los bancos marcados “proyecto/export” se usan en una pista persistente.</p>
       {filtered.length === 0 && <p className="instrument-browser__empty">No hay instrumentos para esta combinación.</p>}
       {categories.filter((category) => filtered.some((item) => item.category === category)).map((category) =>
         <section className="instrument-browser__category" key={category} aria-label={category}>
@@ -105,7 +114,8 @@ export function InstrumentBrowser({
                     <button type="button" aria-pressed={activeId === item.id}
                       onClick={(event) => { if (event.detail > 0) event.currentTarget.blur(); onSelect(item.id); }}>
                       <strong>{item.label}</strong>
-                      <span>{sourceLabel(item)} · {item.sourceCredit}</span>
+                      <span>{sourceLabel(item)} · {projectUseLabel(item)}</span>
+                      <span>{item.sizeLabel} · {item.sourceCredit}</span>
                       {loadingId === item.id && <small>Cargando…</small>}
                       {activeId === item.id && <small>Activo</small>}
                     </button>

@@ -5,7 +5,9 @@ test.use({ viewport: { width: 320, height: 640 }, hasTouch: true, isMobile: true
 test("los editores conservan controles táctiles y desplazamiento local a 320 px", async ({ page }) => {
   page.setDefaultTimeout(20_000);
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).tap();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).tap();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).tap();
   const noPageOverflow = async () => page.evaluate(() =>
     document.documentElement.scrollWidth <= document.documentElement.clientWidth);
   await expect(page.getByRole("region", { name: "Piano roll" })).toBeVisible();
@@ -29,7 +31,9 @@ test("los editores conservan controles táctiles y desplazamiento local a 320 px
 test("Studio, Pistas y Configuración ofrecen controles táctiles efectivos a 320 px", async ({ page }) => {
   page.setDefaultTimeout(20_000);
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).tap();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).tap();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).tap();
 
   async function audit(view: string) {
     const result = await page.evaluate(() => {

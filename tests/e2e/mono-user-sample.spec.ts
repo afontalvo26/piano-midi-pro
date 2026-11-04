@@ -22,7 +22,8 @@ test("sample verificado conserva afinación, glide legato y dueños de notas", a
     let finished = 0;
     const engine = new MonoUserSampleEngine({ ref: analyzed.ref, buffer: analyzed.buffer,
       pcmBytes: analyzed.buffer.length * analyzed.buffer.numberOfChannels * 4 }, region,
-    { mode: "mono", retrigger: "legato", glideMs: 100, attackMs: 0, releaseMs: 0 },
+    { mode: "mono", retrigger: "legato", glideMs: 100, attackMs: 0, releaseMs: 0,
+      saturation: 0.3, subGainDb: -15 },
     destination, () => { finished++; });
     const at = Tone.immediate() + 0.06;
     const first = engine.trigger({ note: 60, velocity: 100,
@@ -55,6 +56,8 @@ test("sample verificado conserva afinación, glide legato y dueños de notas", a
   expect(result.rateMidGlide).toBeLessThan(e4);
   expect(result.during.activeSources).toBe(1);
   expect(result.during.heldNotes).toBe(2);
+  expect(result.during.saturation).toBeCloseTo(0.3, 6);
+  expect(result.during.subGainDb).toBe(-15);
   expect(result.afterTopOff.targetPlaybackRate).toBeCloseTo(c4, 5);
   expect(result.afterTopOff.heldNotes).toBe(1);
   expect(result.released).toBe(1);

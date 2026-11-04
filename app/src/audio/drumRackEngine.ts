@@ -1,14 +1,14 @@
 import * as Tone from "tone";
 import type { ProjectAssetRef, ProjectDrumPad, ProjectDrumRack } from "../project/model";
-import { OwnedVoiceRegistry, type OwnedVoiceHandle, type OwnedVoiceSnapshot } from "./ownedVoiceRegistry";
+import { OwnedVoiceRegistry, type OwnedVoiceHandle, type OwnedVoiceSnapshot } from "./ownedVoiceRegistry.ts";
 import { FREEPATS_HANDCLAP_NOTE, FREEPATS_HANDCLAP_VERSION,
-  decodeFreePatsHandClap, fetchFreePatsHandClapManifest } from "./freePatsHandClap";
+  decodeFreePatsHandClap, fetchFreePatsHandClapManifest } from "./freePatsHandClap.ts";
 import { VIRTUOSITY_CORE_VERSION, decodeVirtuosityPiece,
-  fetchVirtuosityManifest, virtuosityArticulation } from "./virtuosityCore";
+  fetchVirtuosityManifest, virtuosityArticulation } from "./virtuosityCore.ts";
 import { TR808_FISCHER_SOURCE_NOTES, TR808_FISCHER_VERSION,
-  decodeTr808FischerPiece, fetchTr808FischerManifest } from "./tr808FischerCore";
-import { UserSampleCache, type UserSampleReader } from "./userSampleAsset";
-import { retainUntilOfflineRender } from "./offlineGraphRetention";
+  decodeTr808FischerPiece, fetchTr808FischerManifest } from "./tr808FischerCore.ts";
+import { UserSampleCache, type UserSampleReader } from "./userSampleAsset.ts";
+import { retainUntilOfflineRender } from "./offlineGraphRetention.ts";
 
 const MAX_PREPARED_PCM_BYTES = 64 * 1024 * 1024;
 const MAX_ACTIVE_VOICES = 40;
@@ -46,6 +46,19 @@ interface ActiveVoice {
 
 function bounded(value: number, low: number, high: number): number {
   return Number.isFinite(value) ? Math.max(low, Math.min(high, value)) : low;
+}
+
+export function shapeDrumPadVelocity(velocity: number, sensitivity = 1): number {
+  if (!Number.isSafeInteger(velocity) || velocity < 1 || velocity > 127 ||
+      !Number.isFinite(sensitivity) || sensitivity < 0 || sensitivity > 2) {
+    throw new RangeError("Velocity o sensibilidad de pad inválida");
+  }
+  const normalized = velocity / 127;
+  // Default sensitivity keeps the historical response exactly (DRM-06):
+  // the normalized velocity already lives in [1/127, 1]; only non-default
+  // curves need the audibility floor that avoids a silent negative gain.
+  if (sensitivity === 1) return normalized;
+  return bounded(0.75 + (normalized - 0.75) * sensitivity, 0.01, 1);
 }
 
 function sourceLabel(pad: ProjectDrumPad): string {
@@ -234,12 +247,14 @@ export class DrumRackEngine {
       if (oldest) this.registry.releaseHandle(oldest, audioTime, 0.008);
     }
     if (this.voices.size >= MAX_ALLOCATED_VOICES) { this.dropped++; return null; }
+    const shapedVelocity = shapeDrumPadVelocity(velocity,
+      pad.definition.velocitySensitivity ?? 1);
     const layers = [...pad.layers.keys()].sort((a, b) => a - b);
-    const layer = layers[Math.max(0, Math.ceil(velocity / 127 * layers.length) - 1)]!;
+    const layer = layers[Math.max(0, Math.ceil(shapedVelocity * layers.length) - 1)]!;
     const variants = pad.layers.get(layer)!;
     const buffer = variants[pad.nextVariant++ % variants.length]!;
     const rate = 2 ** (pad.definition.pitchSemitones / 12);
-    const level = Math.min(16, (velocity / 127) ** 1.35 * outGain);
+    const level = Math.min(16, shapedVelocity ** 1.35 * outGain);
     const fade = bounded(pad.definition.decayMs / 1000, 0.005, 2);
     let handle: OwnedVoiceHandle | null = null;
     let finished = false;

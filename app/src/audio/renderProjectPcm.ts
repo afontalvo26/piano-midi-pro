@@ -16,6 +16,8 @@ export interface RenderProjectOptions {
   readonly trackId?: string;
   /** Group of source tracks for a bus stem; their routing buses remain intact. */
   readonly trackIds?: readonly string[];
+  /** With trackId, capture that track post-inserts/pan/sidechain and before buses/master. */
+  readonly tapTrackOutput?: boolean;
   /** Capture this bus only after inserts/pan, excluding all parallel/master paths. */
   readonly tapBusTrackId?: string;
   /** Capture source outlets routed directly to master, without their send returns. */
@@ -58,6 +60,10 @@ function checkOptions(document: ProjectDocumentV1, options: RenderProjectOptions
       options.tailSeconds < 0 || options.tailSeconds > 5 ||
       (options.seed !== undefined && (typeof options.seed !== "string" || options.seed.length > 128)) ||
       (options.trackId !== undefined && options.trackIds !== undefined) ||
+      (options.tapTrackOutput !== undefined && typeof options.tapTrackOutput !== "boolean") ||
+      (options.tapTrackOutput === true &&
+        (options.trackId === undefined || options.trackIds !== undefined ||
+          options.tapBusTrackId !== undefined || options.tapDirectMaster === true)) ||
       (options.tapBusTrackId !== undefined &&
         (typeof options.tapBusTrackId !== "string" ||
           options.tapBusTrackId.length === 0 ||
@@ -89,6 +95,7 @@ function checkOptions(document: ProjectDocumentV1, options: RenderProjectOptions
 function selectTracks(document: ProjectDocumentV1, options: RenderProjectOptions): {
   readonly document: ProjectDocumentV1;
   readonly selectedTrackIds: readonly string[];
+  readonly silentTrackIds: readonly string[];
   readonly requiredAssets: readonly ProjectAssetRef[];
 } {
   const byId = new Map(document.tracks.map((track) => [track.id, track]));
@@ -104,6 +111,20 @@ function selectTracks(document: ProjectDocumentV1, options: RenderProjectOptions
   }
   const sourceIds = new Set(requested.filter((id) => byId.get(id)?.kind !== "bus"));
   if (sourceIds.size === 0) throw new RangeError("No hay pistas fuente para renderizar");
+  const detectorIds = new Set<string>();
+  const detectorPending = [...sourceIds];
+  while (detectorPending.length) {
+    const id = detectorPending.pop()!;
+    const sourceId = byId.get(id)?.mix.sidechain?.sourceTrackId;
+    if (!sourceId || sourceIds.has(sourceId) || detectorIds.has(sourceId)) continue;
+    const detector = byId.get(sourceId);
+    if (!detector || detector.kind === "bus") {
+      throw new RangeError(`Fuente sidechain ${sourceId} inexistente`);
+    }
+    detectorIds.add(sourceId);
+    detectorPending.push(sourceId);
+  }
+  const renderSourceIds = new Set([...sourceIds, ...detectorIds]);
   const tapBus = options.tapBusTrackId ? byId.get(options.tapBusTrackId) : undefined;
   if (options.tapBusTrackId && tapBus?.kind !== "bus") {
     throw new RangeError("El punto de resampling debe ser una pista bus existente");
@@ -141,12 +162,13 @@ function selectTracks(document: ProjectDocumentV1, options: RenderProjectOptions
       }
     }
   }
+  for (const detectorId of detectorIds) include.add(detectorId);
   const routedTracks = document.tracks.filter((track) => include.has(track.id));
   const clock = new MusicalClock(document.tempoMap, document.meterMap);
   const startUs = Math.round(clock.tickToSeconds(options.startTick) * 1_000_000);
   const endUs = Math.round(clock.tickToSeconds(options.endTick) * 1_000_000);
   const clips = document.clips.filter((clip) => {
-    if (!sourceIds.has(clip.trackId) || clip.muted) return false;
+    if (!renderSourceIds.has(clip.trackId) || clip.muted) return false;
     if (clip.kind === "audio" && clip.timeMode === "absolute") {
       return clip.absoluteStartUs! < endUs && clip.absoluteEndUs! > startUs;
     }
@@ -177,13 +199,18 @@ function selectTracks(document: ProjectDocumentV1, options: RenderProjectOptions
       : track : {
     id: track.id, name: track.name, kind: "bus", mix: { ...track.mix, sends: [], effects: [] },
   });
-  const isTap = !!options.tapBusTrackId || !!options.tapDirectMaster;
+  const isTap = options.tapTrackOutput === true || !!options.tapBusTrackId || !!options.tapDirectMaster;
+  const renderedClipIds = new Set(clips.map((clip) => clip.id));
   const automation = isTap ? document.automation.filter((lane) =>
-    lane.target.scope === "track" && lane.target.ownerId !== undefined &&
-    include.has(lane.target.ownerId)) : document.automation;
+    lane.target.scope === "track" && lane.target.ownerId !== undefined
+      ? include.has(lane.target.ownerId)
+      : lane.target.scope === "clip" && lane.target.ownerId !== undefined
+        ? renderedClipIds.has(lane.target.ownerId)
+        : false) : document.automation;
   return { document: { ...document, tracks, clips, automation,
     ...(isTap ? { mix: { masterGainDb: 0, masterEffects: [] } } : {}),
-    assets: requiredAssets }, selectedTrackIds: [...sourceIds], requiredAssets };
+    assets: requiredAssets }, selectedTrackIds: [...sourceIds],
+    silentTrackIds: [...detectorIds], requiredAssets };
 }
 
 /** Render in a separate same-origin realm so Tone's offline context never replaces live Studio. */
@@ -252,7 +279,7 @@ export async function renderProjectPcm(document: ProjectDocumentV1, options: Ren
       };
       frame.contentWindow?.postMessage({ kind: "render-project-pcm",
         document: selected.document, options, selectedTrackIds: selected.selectedTrackIds,
-        assets }, location.origin, [channel.port2]);
+        silentTrackIds: selected.silentTrackIds, assets }, location.origin, [channel.port2]);
     };
     const readyTimer = setTimeout(() => fail(new Error("Contexto de exportación no inició")), 30_000);
     const renderTimer = setTimeout(() => fail(new Error("Render excedió 600 segundos")), 600_000);

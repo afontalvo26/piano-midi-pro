@@ -5,7 +5,9 @@ test("una muestra grabada se instala, edita como pista y persiste en móvil", as
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await page.getByRole("button", { name: "Sampler" }).click();
   const sampler = page.getByRole("region", { name: "Sampler de muestras propias" });
   await sampler.getByLabel("Elegir muestra propia").setInputFiles(resolve(

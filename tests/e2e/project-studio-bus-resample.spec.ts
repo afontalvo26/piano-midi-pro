@@ -4,9 +4,13 @@ test("Studio resamplea un bus a WAV propio desde móvil y lo instala en destino"
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const studio = page.getByTestId("reference-studio");
+  await studio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await expect(studio.locator(".ref-track-row").first()).toBeVisible({ timeout: 20_000 });
+  await studio.getByRole("button", { name: "Editor de arreglo completo" }).click();
+  await page.getByRole("button", { name: "Piano roll", exact: true }).click();
   const roll = page.getByRole("region", { name: "Piano roll" });
-  await roll.getByRole("button", { name: "Dibujar" }).click();
+  await roll.getByRole("button", { name: "Dibujar notas" }).click();
   const canvas = roll.locator(".piano-roll__canvas");
   await canvas.scrollIntoViewIfNeeded();
   const box = await canvas.boundingBox();
@@ -14,7 +18,7 @@ test("Studio resamplea un bus a WAV propio desde móvil y lo instala en destino"
   await page.mouse.click(box!.x + 105, box!.y + 120);
   await expect(roll.locator(".piano-roll__facts")).toContainText("1 notas");
 
-  await page.getByRole("button", { name: "Mezclador" }).click();
+  await page.getByRole("button", { name: "Mezclador", exact: true }).click();
   const mixer = page.getByRole("region", { name: "Mezclador del proyecto" });
   await mixer.getByRole("textbox", { name: "Nombre del bus" }).fill("Bus resample QA");
   await mixer.getByRole("button", { name: "Crear bus" }).click();

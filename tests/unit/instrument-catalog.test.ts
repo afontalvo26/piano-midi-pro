@@ -25,6 +25,11 @@ test("cada preset tiene identidad, atribución y ventana tocable de 37 notas", (
     assert.ok(instrument.category.trim());
     assert.ok(instrument.sourceCredit.trim());
     assert.ok(instrument.licenseUrl.startsWith("https://"));
+    assert.ok(instrument.sizeLabel.trim());
+    assert.equal(instrument.availability, instrument.requiresNetwork ? "network-live" : "local-live");
+    if (instrument.projectUse === "project-installed") {
+      assert.equal(instrument.requiresNetwork, false);
+    }
     assert.equal(
       instrument.suggestedRange.maxMidi - instrument.suggestedRange.minMidi,
       36,
@@ -50,4 +55,18 @@ test("todos los códigos remotos son variantes FluidR3 publicadas para su progra
     assert.match(code, /^\d{4}_FluidR3_GM_sf2_file$/);
     assert.equal(Number(code.slice(0, 3)), program, code);
   }
+});
+
+
+test("INS-08 ningún FluidR3 remoto se presenta como instalado o exportable", () => {
+  const remote = INSTRUMENTS.filter((instrument) => instrument.source.kind === "waf");
+  assert.ok(remote.length > 0);
+  for (const instrument of remote) {
+    assert.equal(instrument.availability, "network-live");
+    assert.equal(instrument.projectUse, "live-only");
+    assert.match(instrument.sizeLabel, /Remoto/);
+  }
+  const projectInstalled = INSTRUMENTS.filter((instrument) =>
+    instrument.projectUse === "project-installed");
+  assert.deepEqual(projectInstalled.map((instrument) => instrument.id), ["salamander-grand"]);
 });

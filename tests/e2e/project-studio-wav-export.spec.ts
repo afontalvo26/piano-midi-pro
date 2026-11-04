@@ -6,7 +6,9 @@ test("Studio guarda un beat y descarga WAV PCM audiblemente no vacío en móvil"
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await page.getByRole("button", { name: "Batería", exact: true }).click();
   await page.getByRole("button", { name: "Preparar batería" }).click();
   const rack = page.getByRole("region", { name: "Rack de batería de 16 pads" });
@@ -43,7 +45,9 @@ test("Studio entrega stems y manifiesto verificable en una sola descarga ZIP", a
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await page.getByRole("button", { name: "Batería", exact: true }).click();
   await page.getByRole("button", { name: "Preparar batería" }).click();
   const rack = page.getByRole("region", { name: "Rack de batería de 16 pads" });

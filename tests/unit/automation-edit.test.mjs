@@ -6,9 +6,10 @@ import { addAutomationPoint, copyAutomationPoints, copySelectedAutomationPoints,
   createBaseAutomationLane, deleteAutomationLane, deleteAutomationPoint,
   deleteSelectedAutomationPoints, moveAutomationPoint, moveSelectedAutomationPoints,
   pasteAutomationPoints,
-  setAutomationWriteMode } from "../../app/src/composition/automationEdit.ts";
+  setAutomationWriteMode, writeAutomationTouchGesture } from "../../app/src/composition/automationEdit.ts";
 import { automationLowerBound, automationValueAtTick, hitAutomationPoint,
   visibleAutomationPointRange } from "../../app/src/composition/automationCanvas.ts";
+import { automationBezierFraction } from "../../app/src/composition/automationCurve.ts";
 
 const mix = { gainDb: 0, pan: 0, mute: false, solo: false, armed: false, sends: [], effects: [] };
 const track = { id: "piano", name: "Piano", kind: "instrument", mix };
@@ -129,4 +130,160 @@ test("canvas indexa 10.000 puntos por rango visible y usa shape saliente", () =>
     { id: "b", tick: 200, value: 0, shape: "step" },
     { id: "c", tick: 300, value: 6, shape: "linear" },
   ], 250, 3), 0);
+});
+
+
+test("Touch reemplaza sólo el tramo tocado, vuelve a read curve y deshace como un gesto", () => {
+  const lane = { id: "touch", target: { scope: "track", ownerId: track.id,
+    parameterId: "gainDb" }, writeMode: "touch", points: [
+    { id: "before", tick: 0, value: -12, shape: "linear" },
+    { id: "after", tick: 960, value: 0, shape: "linear" },
+    { id: "tail", tick: 1920, value: -3, shape: "step" },
+  ] };
+  const document = { ...base, automation: [lane] };
+  let id = 0;
+  const command = writeAutomationTouchGesture(document, lane.id, [
+    { tick: 480, value: -18 },
+    { tick: 500, value: -15 },
+    { tick: 500, value: -14 },
+    { tick: 540, value: -9 },
+  ], 2000, () => `touch-${++id}`);
+  const written = applyCommand(document, command);
+  const points = written.document.automation[0].points;
+  assert(points.some((point) => point.tick === 479));
+  assert.deepEqual(points.filter((point) => point.tick >= 480 && point.tick <= 540)
+    .map((point) => [point.tick, point.value]), [[480, -18], [500, -14], [540, -9]]);
+  const returnPoint = points.find((point) => point.tick === 570);
+  assert(returnPoint);
+  assert(Math.abs(returnPoint.value - (-4.875)) < 1e-9);
+  assert(points.some((point) => point.id === "tail" && point.tick === 1920));
+  assert.deepEqual(applyCommand(written.document, written.inverse).document, document);
+  assert.throws(() => writeAutomationTouchGesture({ ...document,
+    automation: [{ ...lane, writeMode: "read" }] }, lane.id,
+    [{ tick: 480, value: -6 }]), /Activa Touch/);
+});
+
+
+test("AUT effect lane usa el rango real, Touch y CAS sin reconstruir el efecto", () => {
+  const filter = { id: "filter-a", kind: "filter", enabled: true,
+    parameters: { type: "lowpass", cutoffHz: 12000, q: 0.7 } };
+  const document = { ...base, tracks: [{ ...track, mix: { ...track.mix,
+    effects: [filter] } }] };
+  const target = { scope: "track", ownerId: track.id, effectId: filter.id,
+    parameterId: "cutoffHz" };
+  const created = applyCommand(document,
+    createBaseAutomationLane(document, target, 3000, "lane-filter"));
+  const touchMode = applyCommand(created.document,
+    setAutomationWriteMode(created.document, "lane-filter", "touch", 3001));
+  const first = applyCommand(touchMode.document,
+    addAutomationPoint(touchMode.document, "lane-filter",
+      { id: "f0", tick: 0, value: 12000, shape: "linear" }, 3002));
+  const second = applyCommand(first.document,
+    addAutomationPoint(first.document, "lane-filter",
+      { id: "f1", tick: 960, value: 400, shape: "step" }, 3003));
+  let id = 0;
+  const touched = applyCommand(second.document,
+    writeAutomationTouchGesture(second.document, "lane-filter",
+      [{ tick: 240, value: 8000 }, { tick: 360, value: 6000 }],
+      3004, () => `fx-touch-${++id}`));
+  assert(touched.document.automation[0].points.some((point) =>
+    point.tick === 360 && point.value === 6000));
+  assert.throws(() => addAutomationPoint(touched.document, "lane-filter",
+    { id: "bad", tick: 1920, value: 20001, shape: "linear" }), /fuera/);
+  assert.deepEqual(applyCommand(touched.document, touched.inverse).document, second.document);
+
+  const saturation = { id: "sat-a", kind: "saturation", enabled: true,
+    parameters: { drive: 0.2, wet: 0.3 } };
+  const withSat = { ...document, tracks: [{ ...track, mix: { ...track.mix,
+    effects: [saturation] } }] };
+  assert.throws(() => createBaseAutomationLane(withSat,
+    { scope: "track", ownerId: track.id, effectId: saturation.id,
+      parameterId: "drive" }, 3010, "lane-drive"), /no disponible/);
+});
+
+
+test("Bézier comparte una curva monotónica y curve=0 equivale a lineal", () => {
+  assert.equal(automationBezierFraction(0, 1), 0);
+  assert.equal(automationBezierFraction(1, -1), 1);
+  assert.equal(automationBezierFraction(0.5, 0), 0.5);
+  const slow = automationBezierFraction(0.5, -1);
+  const fast = automationBezierFraction(0.5, 1);
+  assert(slow < 0.5);
+  assert(fast > 0.5);
+  const points = [
+    { id: "b0", tick: 0, value: 0, shape: "bezier", curve: 1 },
+    { id: "b1", tick: 960, value: 1, shape: "step" },
+  ];
+  const middle = automationValueAtTick(points, 480, 0);
+  assert(middle > 0.5 && middle < 1);
+});
+
+
+test("clip gain usa ticks locales, Touch queda dentro del clip y la copia conserva curva independiente", () => {
+  const audioTrack = { id: "audio-track", name: "Audio", kind: "audio", mix };
+  const clip = { id: "audio-clip", trackId: audioTrack.id, kind: "audio",
+    sourceId: "asset", startTick: 1920, lengthTicks: 960, sourceOffsetTick: 0,
+    loopMode: "none", tailPolicy: "cut", transpose: 0, gainDb: -3, muted: false,
+    sourceStartFrame: 0, sourceEndFrame: 48000, fadeInFrames: 0, fadeOutFrames: 0 };
+  const asset = { id: "asset", sha256: "b".repeat(64), byteLength: 96000,
+    mimeType: "audio/wav", sourceKind: "user", license: "user-owned",
+    frameCount: 48000, sampleRate: 48000, channelCount: 1 };
+  const document = { ...base, tracks: [track, audioTrack],
+    trackOrder: [track.id, audioTrack.id], clips: [clip], assets: [asset] };
+  const created = applyCommand(document, createBaseAutomationLane(document,
+    { scope: "clip", ownerId: clip.id, parameterId: "gainDb" }, 4000, "clip-lane"));
+  const touch = applyCommand(created.document,
+    setAutomationWriteMode(created.document, "clip-lane", "touch", 4001));
+  const written = applyCommand(touch.document, writeAutomationTouchGesture(touch.document,
+    "clip-lane", [{ tick: 120, value: -12 }, { tick: 930, value: -6 }],
+    4002, (() => { let id = 0; return () => `clip-touch-${++id}`; })()));
+  assert(written.document.automation[0].points.every((point) => point.tick < clip.lengthTicks));
+  assert.throws(() => writeAutomationTouchGesture(touch.document, "clip-lane",
+    [{ tick: 960, value: -6 }]), /duración del clip/);
+  const sourceLane = written.document.automation[0];
+  const duplicated = applyCommand(written.document, {
+    kind: "duplicateClipWithAutomation", clipId: clip.id, expectedClip: clip,
+    expectedLanes: [sourceLane], newClipId: "audio-clip-copy", startTick: 3840,
+    newLaneIds: ["clip-lane-copy"],
+    newPointIds: [sourceLane.points.map((_, index) => `clip-copy-point-${index}`)],
+    at: 4003,
+  });
+  const copiedLane = duplicated.document.automation.find((lane) => lane.id === "clip-lane-copy");
+  assert.equal(copiedLane.target.ownerId, "audio-clip-copy");
+  assert.deepEqual(copiedLane.points.map((point) => [point.tick, point.value]),
+    sourceLane.points.map((point) => [point.tick, point.value]));
+  assert.notDeepEqual(copiedLane.points.map((point) => point.id),
+    sourceLane.points.map((point) => point.id));
+});
+
+
+test("AUT send gain tiene identidad propia, rango dB y Touch reversible", () => {
+  const busMix = { gainDb: 0, pan: 0, mute: false, solo: false,
+    armed: false, sends: [], effects: [] };
+  const bus = { id: "send-bus", name: "Delay bus", kind: "bus", mix: busMix };
+  const source = { ...track, mix: { ...track.mix, sends: [
+    { id: "send-a", busTrackId: bus.id, gainDb: -18 },
+  ] } };
+  const document = { ...base, tracks: [source, bus], trackOrder: [source.id, bus.id] };
+  const target = { scope: "track", ownerId: source.id, sendId: "send-a",
+    parameterId: "gainDb" };
+  const created = applyCommand(document,
+    createBaseAutomationLane(document, target, 5000, "lane-send"));
+  const lane = created.document.automation[0];
+  assert.equal(lane.target.sendId, "send-a");
+  const touch = applyCommand(created.document,
+    setAutomationWriteMode(created.document, lane.id, "touch", 5001));
+  let id = 0;
+  const written = applyCommand(touch.document,
+    writeAutomationTouchGesture(touch.document, lane.id,
+      [{ tick: 120, value: -24 }, { tick: 240, value: -6 }],
+      5002, () => `send-touch-${++id}`));
+  assert(written.document.automation[0].points.some((point) =>
+    point.tick === 240 && point.value === -6));
+  assert.throws(() => addAutomationPoint(written.document, lane.id,
+    { id: "too-hot", tick: 960, value: 25, shape: "linear" }), /fuera/);
+  assert.deepEqual(applyCommand(written.document, written.inverse).document, touch.document);
+  assert.throws(() => createBaseAutomationLane(document,
+    { scope: "track", ownerId: source.id, sendId: "missing",
+      parameterId: "gainDb" }, 5003, "bad-send"), /no disponible/);
 });

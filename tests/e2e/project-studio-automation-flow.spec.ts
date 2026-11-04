@@ -7,7 +7,9 @@ test("Studio automatiza master, reproduce valor efectivo, deshace, recarga y exp
   test.setTimeout(90_000);
   page.setDefaultTimeout(20_000);
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).tap();
+  const studio = page.getByTestId("reference-studio");
+  await studio.getByRole("button", { name: "Crear un proyecto" }).tap();
+  await studio.getByRole("button", { name: "Editor de arreglo completo" }).tap();
   await page.getByRole("button", { name: "Batería", exact: true }).tap();
   await page.getByRole("button", { name: "Preparar batería" }).tap();
   const rack = page.getByRole("region", { name: "Rack de batería de 16 pads" });
@@ -32,14 +34,30 @@ test("Studio automatiza master, reproduce valor efectivo, deshace, recarga y exp
   await expect(editor.locator(".automation-editor__canvas")).toHaveAttribute("aria-label", /3 puntos/);
   await page.getByRole("button", { name: "Reproducir" }).tap();
   await expect(editor.getByText(/Valor efectivo .* dueño read/)).toBeVisible({ timeout: 20_000 });
+
+  // AUT-03: Touch owns the parameter while held; scheduled read automation cannot steal it.
+  await editor.getByRole("button", { name: "Touch" }).tap();
+  const touchFader = editor.getByRole("slider", { name: "Fader Touch de automatización" });
+  await touchFader.focus();
+  await page.keyboard.down("ArrowRight");
+  await expect(editor.getByText(/Valor efectivo .* dueño physical/)).toBeVisible({ timeout: 20_000 });
+  await page.keyboard.up("ArrowRight");
+  await expect(editor.getByText(/Valor efectivo .* dueño read/)).toBeVisible({ timeout: 20_000 });
+  await expect(editor.locator(".automation-editor__save")).toHaveText("Guardado", { timeout: 20_000 });
+
   await page.getByRole("button", { name: "Detener" }).tap();
   await expect(editor.locator(".automation-editor__save")).toHaveText("Guardado", { timeout: 20_000 });
   await page.reload();
-  await page.getByRole("button", { name: "Pistas", exact: true }).tap();
+  await page.locator(".ref-project-select").tap();
   await page.getByRole("region", { name: "Tus proyectos" })
     .getByRole("button", { name: "Abrir en Studio" }).tap();
+  await page.getByTestId("reference-studio")
+    .getByRole("button", { name: "Editor de arreglo completo" }).tap();
   await page.getByRole("button", { name: "Automatización", exact: true }).tap();
-  await expect(editor.locator(".automation-editor__canvas")).toHaveAttribute("aria-label", /3 puntos/);
+  // Touch-write persists its own points inside the touched range; reload keeps
+  // a populated lane instead of erasing the write gesture.
+  await expect(editor.locator(".automation-editor__canvas"))
+    .toHaveAttribute("aria-label", /; [1-9]\d* puntos/);
   await page.getByRole("button", { name: "Exportar audio" }).tap();
   const panel = page.getByRole("region", { name: "Exportar audio del proyecto" });
   await panel.getByRole("spinbutton", { name: "Cola WAV en segundos" }).fill("0");

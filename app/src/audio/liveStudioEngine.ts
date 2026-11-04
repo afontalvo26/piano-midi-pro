@@ -994,6 +994,20 @@ export class LiveStudioEngine {
   }
 
   /** Read-only clock seam for a future transport sink on this tab's graph. */
+  /** Browser-reported output buffering, NOT measured key-to-speaker latency. */
+  outputBufferLatencyEstimateMs(): number | null {
+    if (!this.graph || this.disposed) return null;
+    const context = Tone.getContext().rawContext as unknown as {
+      baseLatency?: number; outputLatency?: number;
+    };
+    const base = context.baseLatency;
+    if (typeof base !== "number" || !Number.isFinite(base) || base < 0) return null;
+    const output = typeof context.outputLatency === "number" &&
+      Number.isFinite(context.outputLatency) && context.outputLatency >= 0
+      ? context.outputLatency : 0;
+    return Math.round((base + output) * 1000);
+  }
+
   audioClockSnapshot(): { currentTime: number; state: AudioContextState; ownsOutput: boolean } | null {
     if (!this.graph || this.disposed) return null;
     const context = Tone.getContext().rawContext;
@@ -1161,6 +1175,10 @@ export class LiveStudioEngine {
       void this.setMetronome(this.metronome);
     }
   }
+  setProjectLoopRange(range: LoopRange | null): void {
+    this.projectPlayback?.setLoopRange(range);
+    this.publish();
+  }
   seekProjectPlayback(tick: number): void { this.projectPlayback?.seek(tick); this.publish(); }
   setProjectTrackMute(trackId: string, muted: boolean): void {
     this.projectPlayback?.setTrackMute(trackId, muted);
@@ -1179,6 +1197,25 @@ export class LiveStudioEngine {
   setProjectMasterGainDb(gainDb: number): void {
     this.projectPlayback?.setMasterGainDb(gainDb);
     this.publish();
+  }
+  setProjectAutomationLiveOverride(laneId: string, value: number): boolean {
+    if (!this.projectPlayback || this.disposed) return false;
+    this.projectPlayback.setAutomationLiveOverride(laneId, value);
+    this.publish();
+    return true;
+  }
+  releaseProjectAutomationLiveOverride(laneId: string): boolean {
+    if (!this.projectPlayback || this.disposed) return false;
+    this.projectPlayback.releaseAutomationLiveOverride(laneId);
+    this.publish();
+    return true;
+  }
+  setProjectTrackEffectComparison(trackId: string, mode: "off" | "original" | "processed"):
+    ReturnType<ProjectAudioSink["setTrackEffectComparison"]> | null {
+    if (!this.projectPlayback || this.disposed) return null;
+    const result = this.projectPlayback.sink.setTrackEffectComparison(trackId, mode);
+    this.publish();
+    return result;
   }
   setProjectRackPadMute(trackId: string, padId: string, muted: boolean): void {
     this.projectPlayback?.setRackPadMute(trackId, padId, muted);

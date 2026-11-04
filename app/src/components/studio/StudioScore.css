@@ -1,0 +1,15 @@
+.ref-score,.ref-score-empty {
+  display:flex;flex-direction:column;min-height:0;height:100%;
+  color:#e9e0ff;background:#0b1021;overflow:hidden
+}
+.ref-score-heading{min-height:38px;flex:none;display:flex;align-items:center;
+  justify-content:space-between;padding:5px 12px;gap:9px;border-bottom:1px solid #36324d}
+.ref-score-heading span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.ref-score-heading button,.ref-score-empty button{padding:6px 12px;border:1px solid #6847a7;
+  border-radius:7px;color:#efe4ff;background:#362454;font-size:11px}
+.ref-score-scroll{min-height:0;flex:1;overflow:auto;padding:6px 10px 14px;scrollbar-width:thin}
+.ref-score-scroll svg{display:block;max-width:none;height:200px}
+.ref-score-empty{gap:11px;align-items:center;justify-content:center;text-align:center;padding:20px}
+.ref-score-empty strong{font-size:17px}
+.ref-score-empty span{font-size:12px;color:#aeb0c7}
+@media(max-width:650px){.ref-score-heading{padding:5px 7px}.ref-score-heading button{padding:6px}}

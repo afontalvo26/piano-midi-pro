@@ -6,7 +6,9 @@ test("una toma MIDI propia entra al piano roll con undo, recarga y bytes origina
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await page.getByRole("button", { name: "Interpretar" }).click();
   await page.getByRole("button", { name: "Grabar MIDI" }).click();
   await page.getByRole("region", { name: "Teclado desplazable de 37 teclas" }).focus();

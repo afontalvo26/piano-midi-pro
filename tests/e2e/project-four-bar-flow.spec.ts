@@ -6,7 +6,10 @@ test("beat propio de cuatro compases conserva notas, batería, secciones, WAV, M
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const studio = page.getByTestId("reference-studio");
+  await studio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await studio.getByRole("button", { name: "Editor de arreglo completo" }).click();
+  await page.getByRole("button", { name: "Piano roll", exact: true }).click();
   const roll = page.getByRole("region", { name: "Piano roll" });
   await roll.getByRole("button", { name: "Dibujar" }).click();
   const canvas = roll.locator("canvas").first();
@@ -15,6 +18,8 @@ test("beat propio de cuatro compases conserva notas, batería, secciones, WAV, M
   expect(box).not.toBeNull();
   for (const x of [105, 151, 197]) await page.mouse.click(box!.x + x, box!.y + 120);
   await expect(roll.locator(".piano-roll__facts")).toContainText("3 notas");
+  await expect(page.getByRole("region", { name: "Proyecto de Beatmaker" }))
+    .toContainText("Guardado", { timeout: 20_000 });
 
   await page.getByRole("button", { name: "Batería", exact: true }).click();
   await page.getByRole("button", { name: "Preparar batería" }).click();
@@ -41,9 +46,12 @@ test("beat propio de cuatro compases conserva notas, batería, secciones, WAV, M
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   await page.reload();
-  await page.getByRole("button", { name: "Pistas", exact: true }).click();
+  await page.locator(".ref-project-select").click();
   const browser = page.getByRole("region", { name: "Tus proyectos" });
   await browser.getByRole("button", { name: "Abrir en Studio" }).click();
+  await page.getByTestId("reference-studio")
+    .getByRole("button", { name: "Editor de arreglo completo" }).click();
+  await page.getByRole("button", { name: "Piano roll", exact: true }).click();
   await expect(roll.locator(".piano-roll__facts")).toContainText("3 notas");
   await page.getByRole("button", { name: "Arreglo", exact: true }).click();
   await timeline.evaluate((element) => { element.scrollLeft = 400; });

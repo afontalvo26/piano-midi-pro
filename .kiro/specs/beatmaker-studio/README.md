@@ -2,6 +2,12 @@
 
 Estado: implementación parcial en curso; ningún módulo ni la matriz transversal está aprobado en su totalidad. Revisión: 2026-11-01. [Evidencia del corte actual](implementation-status.md).
 
+## Auditoría del rediseño del Studio (2026-11-02)
+
+El [reporte de desviaciones Spec-Driven](spec-drift-2026-11-02.md) separa errores corregidos **en código** de requisitos con evidencia aún pendiente. El mockup aprobado de 1586×992 es una referencia visual y no sustituye este contrato. La nueva pestaña contextual «Partitura» está registrada como **discrepancia de alcance sin aprobar**: no se puede cerrar UXP-01 hasta resolverla.
+
+La rama `design/studio-reference-ui-20261101` y el PR #5 permanecen en borrador. A 2026-11-02 el árbol local actualizado al head remoto ejecutó `tsc`, ESLint completo, Vite build, 185 tests unitarios y los dos focos E2E (53/53 y 31/31) sin fallos, con `dist` auditado; ver [implementation-status.md](implementation-status.md). El CI de GitHub Actions fue **eliminado por decisión del dueño**; la validación ejecutable es `scripts/validate-studio.ps1` con logs por corrida. Eso **no** sustituye la evidencia física SMK-37 (issue #3) ni la autorización de licencias (issue #4): los expedientes de los 113 requisitos siguen en `pending` y `--release` sigue rojo.
+
 ## Contrato de producto
 
 Studio permite interpretar, grabar, crear loops, editar notas y audio, arreglar, mezclar y exportar música propia. Pistas conserva las tomas MIDI propias y abre proyectos propios. Configuración aloja audio, MIDI, diagnósticos y bibliotecas instaladas. La reproducción de un proyecto propio ocurre dentro de Studio. No vuelven Música, Canciones, catálogo de canciones MIDI, reproductor antiguo, letras, karaoke, Juego, Partitura ni la app player.

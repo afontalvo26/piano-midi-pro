@@ -18,6 +18,14 @@ const libraries = [
     licenseUrl: "https://creativecommons.org/publicdomain/zero/1.0/",
   },
   {
+    name: "TR-808 Fischer / Technopolis",
+    creator: "Grabación de Michael Fischer / Technopolis · Roland TR-808 serial 103852",
+    role: "Kit 808 y bajo afinado · 17 grabaciones WAV locales verificadas por manifiesto/hash",
+    license: "CC0 1.0",
+    source: "https://github.com/tidalcycles/sounds-tr808-fischer",
+    licenseUrl: "https://creativecommons.org/publicdomain/zero/1.0/",
+  },
+  {
     name: "FreePats Hand Clap",
     creator: "Grabación de Roberto para FreePats World Percussion",
     role: "Clap del rack · 9 variaciones locales OGG con AAC de respaldo",
@@ -41,6 +49,6 @@ export function ProjectSoundLibrariesPanel() {
     <p>Los instrumentos FluidR3 se cargan desde la red bajo su <a
       href="https://github.com/musescore/MuseScore/blob/main/share/sound/FluidR3Mono_License.md"
       target="_blank" rel="noopener noreferrer">licencia distribuida por MuseScore</a>; son una opción adicional y no forman parte del núcleo local.</p>
-    <p>Las muestras que importas permanecen en este navegador. Necesitas autorización propia para distribuir sus bytes. El kit 808 grabado aún no está incluido.</p>
+    <p>Las muestras que importas permanecen en este navegador. Necesitas autorización propia para distribuir sus bytes. Los bancos locales oficiales se validan por versión, manifiesto y hash antes de empaquetarse.</p>
   </section>;
 }

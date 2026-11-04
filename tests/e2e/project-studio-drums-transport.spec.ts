@@ -4,7 +4,9 @@ test("Studio carga el kit grabado, edita un paso y reproduce el proyecto en móv
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   const projectTempo = page.getByRole("spinbutton", { name: "Tempo inicial del proyecto" });
   await projectTempo.fill("128");
   await projectTempo.blur();

@@ -18,6 +18,28 @@ const groups = {
   QLT: ["quality-gates", 9],
 };
 const release = process.argv.includes("--release");
+const ACCEPTABLE_PROOFS = new Set(["unit","browser","production","physical","license"]);
+/** Requirements involving actual hardware, sound quality, listening or physical measurements
+ * cannot pass using a simulated browser and an arbitrary green screenshot. */
+const PHYSICAL_REQUIRED = new Set([
+  "ENG-01","ENG-02","ENG-03","ENG-04","ENG-07",
+  "MID-01","MID-02","MID-03","MID-04","MID-05","MID-06","MID-07","MID-08",
+  "INS-02","INS-06","INS-07",
+  "QLT-01","QLT-02","QLT-03","QLT-04","QLT-05","QLT-08",
+  "UXP-02","UXP-04",
+]);
+const LICENSE_REQUIRED = new Set(["INS-03","INS-05","INS-08","DRM-03","SMP-07","QLT-09"]);
+function validProof(proof) {
+  if(!proof || proof.result!=="pass" || !ACCEPTABLE_PROOFS.has(proof.kind) ||
+     typeof proof.commit!=="string" || !/^[a-f0-9]{40}$/.test(proof.commit) ||
+     typeof proof.artifact!=="string" || proof.artifact.trim().length<3 ||
+     typeof proof.date!=="string" || !/^\d{4}-\d{2}-\d{2}$/.test(proof.date))return false;
+  // Do not accept impossible dates such as 2026-99-99 or future-dated logs.
+  const parsed=new Date(proof.date+"T00:00:00.000Z");
+  return !Number.isNaN(parsed.valueOf()) &&
+    parsed.toISOString().slice(0,10)===proof.date &&
+    parsed.valueOf()<=Date.now();
+}
 const errors = [];
 const entries = new Map();
 let expectedTotal = 0;
@@ -58,13 +80,19 @@ for (const [prefix, [moduleName, count]] of Object.entries(groups)) {
       continue;
     }
     approved++;
-    const validProof = row.evidence.some((proof) =>
-      proof && proof.result === "pass" &&
-      ["unit", "browser", "production", "physical", "license"].includes(proof.kind) &&
-      typeof proof.commit === "string" && /^[a-f0-9]{40}$/.test(proof.commit) &&
-      typeof proof.artifact === "string" && proof.artifact.length >= 3 &&
-      typeof proof.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(proof.date));
-    if (!validProof) errors.push(`${id}: aprobación sin artefacto probado y commit`);
+    const passes=row.evidence.filter(validProof);
+    if(!passes.length)errors.push(`${id}: aprobación sin artefacto probado y commit`);
+    if(release) {
+      const kinds=new Set(passes.map((proof)=>proof.kind));
+      if(!kinds.has("unit") && !kinds.has("browser"))
+        errors.push(`${id}: falta prueba de contrato/unitario o navegador`);
+      if(!kinds.has("production"))
+        errors.push(`${id}: falta build/corrido de producción con evidencia`);
+      if(PHYSICAL_REQUIRED.has(id) && !kinds.has("physical"))
+        errors.push(`${id}: falta ensayo físico asociado al criterio`);
+      if(LICENSE_REQUIRED.has(id) && !kinds.has("license"))
+        errors.push(`${id}: falta ficha de licencia/origen verificada`);
+    }
   }
 }
 if (entries.size !== expectedTotal || expectedTotal !== 113) {

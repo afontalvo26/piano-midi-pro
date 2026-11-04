@@ -101,6 +101,10 @@ export interface ProjectInstrumentRef {
     readonly glideMs: number;
     readonly attackMs: number;
     readonly releaseMs: number;
+    /** 0..1 soft saturation amount; optional for backwards-compatible projects. */
+    readonly saturation?: number;
+    /** Parallel low-passed reinforcement in dB; absent disables the subgrave path. */
+    readonly subGainDb?: number;
   };
   /** Optional non-destructive region for a user/recorded sample; frames refer to original decoded audio. */
   readonly sampleRegion?: {
@@ -130,6 +134,8 @@ export interface ProjectDrumPad {
   readonly source: ProjectDrumPadSource | null;
   readonly gainDb: number;
   readonly pan: number;
+  /** 0 = velocity casi fija, 1 = respuesta histórica, 2 = contraste más fuerte. */
+  readonly velocitySensitivity?: number;
   readonly pitchSemitones: number;
   readonly startFrame: number;
   /** Exclusive decoded-frame endpoint; omitted means the complete source. */
@@ -166,6 +172,18 @@ export interface ProjectSend {
   readonly gainDb: number;
 }
 
+/** Audio-driven ducking. The detector source is control-only and never adds audio to the target. */
+export interface ProjectSidechain {
+  readonly sourceTrackId: TrackId;
+  readonly thresholdDb: number;
+  readonly ratio: number;
+  readonly attackMs: number;
+  readonly releaseMs: number;
+  /** Delay only the target path so the key can reduce gain before the transient arrives. */
+  readonly lookaheadMs?: number;
+  readonly maxReductionDb: number;
+}
+
 export interface ProjectMixChannel {
   readonly gainDb: number;
   readonly pan: number;
@@ -175,6 +193,8 @@ export interface ProjectMixChannel {
   /** Omitted means the master bus. */
   readonly outputBusTrackId?: TrackId;
   readonly sends: readonly ProjectSend[];
+  /** Optional kick/key detector driving gain reduction after inserts and pan. */
+  readonly sidechain?: ProjectSidechain;
   readonly effects: readonly ProjectEffect[];
 }
 
@@ -198,6 +218,8 @@ interface ClipBase {
   readonly transpose: number;
   readonly gainDb: number;
   readonly muted: boolean;
+  /** Optional arrangement edit group. Group membership never changes playback authority. */
+  readonly groupId?: string;
 }
 
 export type ProjectClip =
@@ -380,8 +402,10 @@ export interface ProjectAutomationLane {
   readonly target: {
     readonly scope: "track" | "clip" | "master";
     readonly ownerId?: string;
-    /** Exact insert in the owner chain; parameterId names one numeric parameter of that insert. */
+    /** Exact insert in the owner chain; mutually exclusive with sendId. */
     readonly effectId?: string;
+    /** Exact post-fader send on a track; currently automates that send's gainDb. */
+    readonly sendId?: string;
     readonly parameterId: string;
   };
   readonly points: readonly ProjectAutomationPoint[];

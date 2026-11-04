@@ -38,6 +38,7 @@ test("rack real de 16 pads edita pasos, fuente y ciclo a 320 px con teclado y un
       patterns: [pattern], clips: [clip], assets: [asset] };
     let undo = null;
     let redo = null;
+    let learnAction = null;
     const root = ReactDOM.createRoot(mount);
     const apply = (command) => {
       const result = applyCommand(documentSnapshot, command);
@@ -72,11 +73,14 @@ test("rack real de 16 pads edita pasos, fuente y ciclo a 320 px con teclado y un
         document: documentSnapshot, track: current, pattern: documentSnapshot.patterns[0],
         pads: [], padStatuses: statuses, sourceOptions: [{ id: "own-kick", label: "Kick propio", source }],
         saveState: "clean", onCommand: apply, onUndo: undoEdit, onRedo: redoEdit,
-        canUndo: !!undo, canRedo: !!redo,
+        canUndo: !!undo, canRedo: !!redo, midiLearnAction: learnAction,
+        onMidiLearnPad: (padId) => { learnAction = `drum.pad:${padId}`; render(); },
+        onCancelMidiLearn: () => { learnAction = null; render(); },
       }));
     }
     render();
     window.__rackE2eDocument = () => documentSnapshot;
+    window.__rackE2eLearnAction = () => learnAction;
   });
   const rack = page.locator("#rack-e2e-mount .drum-rack");
   await expect(rack).toBeVisible();
@@ -96,6 +100,11 @@ test("rack real de 16 pads edita pasos, fuente y ciclo a 320 px con teclado y un
   await rack.getByRole("button", { name: "Configurar Pad 1", exact: true }).click();
   const inspector = rack.getByRole("region", { name: "Configuración de pad" });
   await expect(inspector).toBeVisible();
+  await inspector.getByRole("button", { name: "MIDI Learn de este pad" }).click();
+  await expect(inspector.getByRole("button", { name: "Cancelar MIDI Learn" })).toBeVisible();
+  expect(await page.evaluate(() => window.__rackE2eLearnAction())).toBe("drum.pad:pad-0");
+  await inspector.getByRole("button", { name: "Cancelar MIDI Learn" }).click();
+  await expect(inspector.getByRole("button", { name: "MIDI Learn de este pad" })).toBeVisible();
   await inspector.getByLabel("Ganancia dB").fill("-5");
   await inspector.getByLabel("Pan −1 a 1").fill("0.25");
   await inspector.getByLabel("Tono semitonos").fill("-3");

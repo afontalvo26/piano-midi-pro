@@ -99,3 +99,13 @@
   .drum-rack__pad-inspector form { grid-template-columns: 1fr; }
   .drum-rack__inspector .piano-roll__fields { grid-template-columns: 1fr; }
 }
+
+.drum-rack__midi-learn { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr);
+  align-items: center; gap: 8px; padding: 9px; border: 1px solid #705982; border-radius: 7px;
+  background: #211929; }
+.drum-rack__midi-learn button { min-height: 44px; }
+.drum-rack__midi-learn small { color: #cfbcdb; font-size: 11px; line-height: 1.4; }
+@media (max-width: 520px) {
+  .drum-rack__midi-learn { grid-template-columns: 1fr; }
+  .drum-rack__midi-learn button { width: 100%; }
+}

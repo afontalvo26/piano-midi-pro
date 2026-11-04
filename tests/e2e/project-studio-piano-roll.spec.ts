@@ -5,7 +5,9 @@ test("proyecto real y piano roll sobreviven recarga en móvil", async ({ page })
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   const roll = page.getByRole("region", { name: "Piano roll" });
   await expect(roll).toBeVisible();
   await expect(roll.locator(".piano-roll__facts")).toContainText("0 notas");

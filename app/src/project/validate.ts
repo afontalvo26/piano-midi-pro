@@ -393,8 +393,17 @@ function validateTracks(value: unknown, allIds: Set<string>): Map<string, JsonOb
         finite(voice.glideMs, `${path}.instrument.sampleVoice.glideMs`, 0, 2000);
         finite(voice.attackMs, `${path}.instrument.sampleVoice.attackMs`, 0, 5000);
         finite(voice.releaseMs, `${path}.instrument.sampleVoice.releaseMs`, 0, 5000);
-        if (voice.mode === "poly" && (voice.retrigger !== "always" || voice.glideMs !== 0)) {
-          invalid(`${path}.instrument.sampleVoice`, "polifonía requiere retrigger always y glide cero");
+        if (voice.saturation !== undefined) {
+          finite(voice.saturation, `${path}.instrument.sampleVoice.saturation`, 0, 1);
+        }
+        if (voice.subGainDb !== undefined) {
+          finite(voice.subGainDb, `${path}.instrument.sampleVoice.subGainDb`, -36, 0);
+        }
+        if (voice.mode === "poly" && (voice.retrigger !== "always" || voice.glideMs !== 0 ||
+            (voice.saturation as number | undefined) !== undefined ||
+            (voice.subGainDb as number | undefined) !== undefined)) {
+          invalid(`${path}.instrument.sampleVoice`,
+            "polifonía requiere retrigger always, glide cero y procesamiento mono desactivado");
         }
         if (voice.retrigger === "legato" && (voice.mode !== "mono" ||
             instrument.sampleRegion === undefined)) {
@@ -431,6 +440,19 @@ function validateTracks(value: unknown, allIds: Set<string>): Map<string, JsonOb
     finite(mix.pan, `${path}.mix.pan`, -1, 1);
     for (const field of ["mute", "solo", "armed"] as const) boolean(mix[field], `${path}.mix.${field}`);
     if (mix.outputBusTrackId !== undefined) id(mix.outputBusTrackId, `${path}.mix.outputBusTrackId`);
+    if (mix.sidechain !== undefined) {
+      if (track.kind === "bus") invalid(`${path}.mix.sidechain`, "un bus no puede ser destino sidechain");
+      const sidechain = object(mix.sidechain, `${path}.mix.sidechain`);
+      id(sidechain.sourceTrackId, `${path}.mix.sidechain.sourceTrackId`);
+      finite(sidechain.thresholdDb, `${path}.mix.sidechain.thresholdDb`, -60, 0);
+      finite(sidechain.ratio, `${path}.mix.sidechain.ratio`, 1, 20);
+      finite(sidechain.attackMs, `${path}.mix.sidechain.attackMs`, 0.1, 250);
+      finite(sidechain.releaseMs, `${path}.mix.sidechain.releaseMs`, 1, 2000);
+      if (sidechain.lookaheadMs !== undefined) {
+        finite(sidechain.lookaheadMs, `${path}.mix.sidechain.lookaheadMs`, 0, 50);
+      }
+      finite(sidechain.maxReductionDb, `${path}.mix.sidechain.maxReductionDb`, 0, 36);
+    }
     array(mix.sends, `${path}.mix.sends`, 128).forEach((sendValue, sendIndex) => {
       const sendPath = `${path}.mix.sends[${sendIndex}]`;
       const send = object(sendValue, sendPath);
@@ -514,6 +536,9 @@ function validateDrumRacks(tracks: Map<string, JsonObject>, assets: Map<string, 
       triggers.add(trigger);
       finite(pad.gainDb, `${padPath}.gainDb`, -120, 24);
       finite(pad.pan, `${padPath}.pan`, -1, 1);
+      if (pad.velocitySensitivity !== undefined) {
+        finite(pad.velocitySensitivity, `${padPath}.velocitySensitivity`, 0, 2);
+      }
       finite(pad.pitchSemitones, `${padPath}.pitchSemitones`, -24, 24);
       const first = integer(pad.startFrame, `${padPath}.startFrame`, 0);
       const last = pad.endFrame === undefined ? undefined :
@@ -580,6 +605,7 @@ function validateClips(value: unknown, tracks: Map<string, JsonObject>, patterns
     integer(clip.transpose, `${path}.transpose`, -127, 127);
     finite(clip.gainDb, `${path}.gainDb`, -120, 24);
     boolean(clip.muted, `${path}.muted`);
+    if (clip.groupId !== undefined) id(clip.groupId, `${path}.groupId`);
     const sourceId = id(clip.sourceId, `${path}.sourceId`);
     if (clip.kind === "pattern") {
       if (track.kind !== "instrument" && track.kind !== "drum") invalid(path, "patrón en pista no MIDI");
@@ -797,12 +823,30 @@ function validateAutomation(value: unknown, tracks: Map<string, JsonObject>, cli
       if (target.scope === "clip" && !clips.has(owner)) invalid(`${path}.target.ownerId`, "clip inexistente");
     }
     const effectId = target.effectId === undefined ? undefined : id(target.effectId, `${path}.target.effectId`);
+    const sendId = target.sendId === undefined ? undefined : id(target.sendId, `${path}.target.sendId`);
+    if (effectId !== undefined && sendId !== undefined) {
+      invalid(`${path}.target`, "effectId y sendId son destinos excluyentes");
+    }
+    if (sendId !== undefined && target.scope !== "track") {
+      invalid(`${path}.target.sendId`, "un send pertenece únicamente a una pista");
+    }
     const ownerClip = target.scope === "clip" ? clips.get(target.ownerId as string) : undefined;
-    const destination = JSON.stringify([target.scope, target.ownerId, effectId, target.parameterId]);
+    const destination = JSON.stringify([target.scope, target.ownerId, effectId, sendId,
+      target.parameterId]);
     if (destinations.has(destination)) invalid(path, "dos curvas gobiernan el mismo parámetro");
     destinations.add(destination);
     let valueRange: readonly [number, number] = [-1e12, 1e12];
-    if (effectId !== undefined) {
+    if (sendId !== undefined) {
+      if (target.parameterId !== "gainDb") {
+        invalid(`${path}.target.parameterId`, "un send sólo admite automatización gainDb");
+      }
+      const track = tracks.get(target.ownerId as string);
+      const mix = object(track?.mix, `tracks.${target.ownerId}.mix`);
+      const sends = array(mix.sends, `${path}.target.sendId.chain`, 128);
+      const sendValue = sends.find((candidate) => object(candidate, "send").id === sendId);
+      if (!sendValue) invalid(`${path}.target.sendId`, "send automatizado inexistente");
+      valueRange = [-120, 24];
+    } else if (effectId !== undefined) {
       if (target.scope === "clip") invalid(`${path}.target.effectId`, "un clip no tiene cadena de efectos");
       const mix = target.scope === "master" ? object(masterMix, "mix") :
         object(tracks.get(target.ownerId as string)?.mix, `tracks.${target.ownerId}.mix`);
@@ -817,6 +861,10 @@ function validateAutomation(value: unknown, tracks: Map<string, JsonObject>, cli
       }
       const descriptor = numericProjectEffectParameter(effect.kind as string,
         target.parameterId as string);
+      if (effect.kind === "saturation" && target.parameterId === "drive") {
+        invalid(`${path}.target.parameterId`,
+          "drive de saturación reconstruye la curva y no admite automatización continua");
+      }
       if (descriptor) valueRange = [descriptor.min, descriptor.max];
       else if (projectEffectParameters(effect.kind as string)) {
         invalid(`${path}.target.parameterId`, "parámetro de efecto no automatizable");
@@ -845,6 +893,7 @@ function validateAutomation(value: unknown, tracks: Map<string, JsonObject>, cli
 
 function validateRouting(tracks: Map<string, JsonObject>): void {
   const edges = new Map<string, string[]>();
+  const sidechainEdges = new Map<string, string>();
   for (const [trackId, track] of tracks) {
     const mix = object(track.mix, `tracks.${trackId}.mix`);
     const destinations: string[] = [];
@@ -857,8 +906,32 @@ function validateRouting(tracks: Map<string, JsonObject>): void {
       if (tracks.get(destination)?.kind !== "bus") invalid(`tracks.${trackId}.mix`, "bus destino inexistente");
       if (destination === trackId) invalid(`tracks.${trackId}.mix`, "retroalimentación directa");
     }
+    if (mix.sidechain !== undefined) {
+      const sidechain = object(mix.sidechain, `tracks.${trackId}.mix.sidechain`);
+      const sourceTrackId = sidechain.sourceTrackId as string;
+      const source = tracks.get(sourceTrackId);
+      if (!source || source.kind === "bus") {
+        invalid(`tracks.${trackId}.mix.sidechain.sourceTrackId`, "la fuente sidechain debe ser una pista de audio/MIDI existente");
+      }
+      if (sourceTrackId === trackId) {
+        invalid(`tracks.${trackId}.mix.sidechain.sourceTrackId`, "una pista no puede detectarse a sí misma");
+      }
+      sidechainEdges.set(trackId, sourceTrackId);
+    }
     edges.set(trackId, destinations);
   }
+  const sidechainVisiting = new Set<string>();
+  const sidechainVisited = new Set<string>();
+  const visitSidechain = (trackId: string): void => {
+    if (sidechainVisiting.has(trackId)) invalid("tracks.mix.sidechain", "ciclo de detectores sidechain");
+    if (sidechainVisited.has(trackId)) return;
+    sidechainVisiting.add(trackId);
+    const source = sidechainEdges.get(trackId);
+    if (source) visitSidechain(source);
+    sidechainVisiting.delete(trackId);
+    sidechainVisited.add(trackId);
+  };
+  for (const trackId of tracks.keys()) visitSidechain(trackId);
   const visiting = new Set<string>();
   const visited = new Set<string>();
   const visit = (trackId: string): void => {

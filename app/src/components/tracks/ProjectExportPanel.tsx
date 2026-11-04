@@ -20,7 +20,7 @@ export function ProjectExportPanel({ busy, progress, notice, onExport,
   const [dither, setDither] = useState(true);
   return <section className="project-export" aria-label="Exportar audio del proyecto">
     <div className="project-export__intro"><h2>Exportar audio</h2>
-      <p>Renderiza el arreglo guardado en WAV estéreo. El master y los stems usan la misma línea de tiempo y el limitador del proyecto.</p></div>
+      <p>Renderiza el arreglo guardado en WAV estéreo. Master y stems comparten la misma línea de tiempo; sólo el master atraviesa la cadena master/limitador.</p></div>
     <div className="project-export__fields">
       <label>Frecuencia
         <select aria-label="Frecuencia WAV" disabled={busy} value={sampleRate}
@@ -50,7 +50,7 @@ export function ProjectExportPanel({ busy, progress, notice, onExport,
       <label><input type="checkbox" checked={dither} disabled={busy || format !== "pcm16"}
         onChange={(event) => setDither(event.target.checked)} /> Dither al cuantizar a 16 bits</label>
     </div>
-    <p className="project-export__detail">Los stems incluyen su ruta de mezcla, efectos, automatización base y limitador; por esa limitación no siempre suman exactamente el master. Los envíos y las curvas de clip, efecto o Bézier aún no se exportan.</p>
+    <p className="project-export__detail">Los stems comparten el mismo origen temporal e incluyen la ruta soportada de mezcla, inserts, sends, automatización de pista/master, gain de clip, parámetros continuos de efectos, curvas lineales/step/Bézier y sidechain. Por rutas paralelas y procesadores no lineales no siempre suman exactamente el master. Un target o DSP sin soporte bloquea el preflight en vez de desaparecer del WAV.</p>
     <div className="project-export__actions">
       <button type="button" className="project-export__start" disabled={busy || !Number.isFinite(tailSeconds) || tailSeconds < 0 || tailSeconds > 5}
         onClick={() => onExport({ sampleRate, format, stems, tailSeconds,

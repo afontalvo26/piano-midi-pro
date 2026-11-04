@@ -4,13 +4,14 @@ import type { ProjectClip, ProjectDocumentV1, ProjectPattern, ProjectScene } fro
 import type { ProjectCommand } from "../../project/commands.ts";
 import { addArrangementSection, captureArrangementPerformance, captureArrangementScene, createArrangementClip,
   duplicateArrangementClip, duplicateArrangementSection, editArrangementClip,
-  editArrangementScene, editArrangementSection, removeArrangementScene,
-  removeArrangementSection, splitArrangementClip, uniqueArrangementClip,
+  editArrangementScene, editArrangementSection, groupArrangementClips, moveArrangementClipGroup,
+  removeArrangementScene, removeArrangementSection, splitArrangementClip, ungroupArrangementClip,
+  uniqueArrangementClip,
   type EditableClipFields, type PerformedSceneSegment } from "../../composition/arrangementModel.ts";
 import { quantizeSceneLaunchTick } from "../../composition/resolveProjectTimeline.ts";
 import { addArrangementAudioCrossfade, duplicateArrangementAudioClip,
   editArrangementAudioClip, removeArrangementAudioClip, removeArrangementAudioCrossfade,
-  shiftArrangementAudioClip, splitArrangementAudioClip } from "../../composition/audioArrangement.ts";
+  splitArrangementAudioClip } from "../../composition/audioArrangement.ts";
 import { AudioClipInspector } from "./AudioClipInspector.tsx";
 import { ClipInspector } from "./ClipInspector.tsx";
 import { SceneInspector } from "./SceneInspector.tsx";
@@ -124,6 +125,8 @@ function ArrangementEditor({ document, playheadTick = 0, readPlayheadTick, saveS
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
+  const [groupMode, setGroupMode] = useState(false);
+  const [groupSelection, setGroupSelection] = useState<readonly string[]>([]);
   const [flushedPerformanceKey, setFlushedPerformanceKey] = useState("");
   const [trackChoice, setTrackChoice] = useState("");
   const [patternChoice, setPatternChoice] = useState("");
@@ -276,7 +279,7 @@ function ArrangementEditor({ document, playheadTick = 0, readPlayheadTick, saveS
   }
 
   function beginDrag(event: PointerEvent<HTMLElement>, clip: ProjectClip, mode: "move" | "resize"): void {
-    if (busy || event.button !== 0) return;
+    if (busy || groupMode || event.button !== 0) return;
     event.stopPropagation();
     setSelectedClipId(clip.id);
     setSelectedSectionId(null);
@@ -289,29 +292,39 @@ function ArrangementEditor({ document, playheadTick = 0, readPlayheadTick, saveS
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const raw = (event.clientX - drag.startX) / pxPerTick;
-    const minimum = drag.mode === "move" ? -drag.clip.startTick : 1 - drag.clip.lengthTicks;
+    const groupId = drag.clip.groupId;
+    const members = groupId ? document.clips.filter((clip) => clip.groupId === groupId) : [drag.clip];
+    const minimum = drag.mode === "move"
+      ? -Math.min(...members.map((clip) => clip.startTick))
+      : 1 - drag.clip.lengthTicks;
     drag.deltaTick = Math.max(minimum, snapTick(raw, snap));
-    if (drag.mode === "move") drag.element.style.transform = `translateX(${drag.deltaTick * pxPerTick}px)`;
-    else drag.element.style.width = `${Math.max(26, (drag.clip.lengthTicks + drag.deltaTick) * pxPerTick)}px`;
+    if (drag.mode === "move") {
+      for (const member of members) {
+        const element = globalThis.document.querySelector<HTMLElement>(`[data-arrangement-clip-id="${CSS.escape(member.id)}"]`);
+        if (element) element.style.transform = `translateX(${drag.deltaTick * pxPerTick}px)`;
+      }
+    } else drag.element.style.width = `${Math.max(26, (drag.clip.lengthTicks + drag.deltaTick) * pxPerTick)}px`;
   }
 
   function endDrag(event: PointerEvent<HTMLElement>): void {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     dragRef.current = null;
-    drag.element.style.transform = "";
+    const groupId = drag.clip.groupId;
+    for (const member of groupId ? document.clips.filter((clip) => clip.groupId === groupId) : [drag.clip]) {
+      const element = globalThis.document.querySelector<HTMLElement>(`[data-arrangement-clip-id="${CSS.escape(member.id)}"]`);
+      if (element) element.style.transform = "";
+    }
     drag.element.style.width = "";
     if (event.type === "pointercancel") return;
     if (drag.deltaTick === 0) return;
-    if (drag.clip.kind === "audio") {
-      perform(() => shiftArrangementAudioClip(document, drag.clip.id, drag.deltaTick));
+    if (drag.mode === "move") {
+      perform(() => moveArrangementClipGroup(document, drag.clip.id, drag.deltaTick));
       return;
     }
     const fields = fieldsOf(drag.clip);
     perform(() => editArrangementClip(document, drag.clip.id, {
-      ...fields,
-      ...(drag.mode === "move" ? { startTick: drag.clip.startTick + drag.deltaTick }
-        : { lengthTicks: drag.clip.lengthTicks + drag.deltaTick }),
+      ...fields, lengthTicks: drag.clip.lengthTicks + drag.deltaTick,
     }));
   }
 
@@ -389,6 +402,21 @@ function ArrangementEditor({ document, playheadTick = 0, readPlayheadTick, saveS
         {onUndo && <button type="button" disabled={!canUndo || busy} onClick={() => void history(onUndo)}>Deshacer</button>}
         {onRedo && <button type="button" disabled={!canRedo || busy} onClick={() => void history(onRedo)}>Rehacer</button>}
       </div>}
+      <div className="arrangement__group-tools" role="group" aria-label="Agrupación de clips">
+        {!groupMode ? <button type="button" disabled={busy}
+          onClick={() => { setGroupMode(true); setGroupSelection([]); }}>Agrupar clips</button> :
+          <>
+            <button type="button" disabled={busy || groupSelection.length < 2}
+              onClick={() => perform(() => groupArrangementClips(document, groupSelection),
+                () => { setGroupMode(false); setGroupSelection([]); })}>
+              Crear grupo · {groupSelection.length}</button>
+            <button type="button" disabled={busy}
+              onClick={() => { setGroupMode(false); setGroupSelection([]); }}>Cancelar</button>
+          </>}
+        {selectedClip?.groupId && <button type="button" disabled={busy}
+          onClick={() => perform(() => ungroupArrangementClip(document, selectedClip.id))}>
+          Desagrupar seleccionado</button>}
+      </div>
     </div>
     <p className="arrangement__hint">Arrastra un clip para moverlo; arrastra su borde derecho para recortarlo. Toca un clip para editar ticks exactos.</p>
     {!midiTracks.length && <p className="arrangement__hint">Agrega una pista de instrumento o batería para colocar patrones.</p>}
@@ -426,31 +454,40 @@ function ArrangementEditor({ document, playheadTick = 0, readPlayheadTick, saveS
                 : "Arreglo"}
             </small></span>
           {(visibleClipsByTrack.get(track.id) ?? []).map((clip) => <div key={clip.id} role="button" tabIndex={0}
-            aria-label={`${sourceName(clip, patterns)}, tick ${clip.startTick}, duración ${clip.lengthTicks}`}
-            aria-pressed={selectedClipId === clip.id}
-            className={`arrangement__clip arrangement__clip--${clip.kind} ${clip.muted ? "is-muted" : ""} ${selectedClipId === clip.id ? "is-selected" : ""}`}
+            data-arrangement-clip-id={clip.id}
+            aria-label={`${sourceName(clip, patterns)}, tick ${clip.startTick}, duración ${clip.lengthTicks}${clip.groupId ? ", agrupado" : ""}`}
+            aria-pressed={groupMode ? groupSelection.includes(clip.id) : selectedClipId === clip.id}
+            className={`arrangement__clip arrangement__clip--${clip.kind} ${clip.muted ? "is-muted" : ""} ${clip.groupId ? "is-grouped" : ""} ${groupSelection.includes(clip.id) ? "is-group-selected" : ""} ${selectedClipId === clip.id ? "is-selected" : ""}`}
             style={{ left: LABEL_WIDTH + clip.startTick * pxPerTick,
               width: Math.max(26, clip.lengthTicks * pxPerTick) }}
             onPointerDown={(event) => beginDrag(event, clip, "move")}
             onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
+            onClick={() => {
+              if (groupMode) {
+                setGroupSelection((current) => current.includes(clip.id)
+                  ? current.filter((id) => id !== clip.id) : [...current, clip.id]);
+              } else { setSelectedClipId(clip.id); setSelectedSectionId(null); }
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault(); setSelectedClipId(clip.id); setSelectedSectionId(null);
+                event.preventDefault();
+                if (groupMode) setGroupSelection((current) => current.includes(clip.id)
+                  ? current.filter((id) => id !== clip.id) : [...current, clip.id]);
+                else { setSelectedClipId(clip.id); setSelectedSectionId(null); }
               } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
                 event.preventDefault();
                 const delta = event.key === "ArrowRight" ? snap : -snap;
-                if (clip.kind === "audio") {
-                  perform(() => shiftArrangementAudioClip(document, clip.id,
-                    Math.max(-clip.startTick, delta)));
-                } else {
-                  perform(() => editArrangementClip(document, clip.id,
-                    { ...fieldsOf(clip), startTick: Math.max(0, clip.startTick + delta) }));
-                }
+                const group = clip.groupId
+                  ? document.clips.filter((item) => item.groupId === clip.groupId) : [clip];
+                const allowedDelta = Math.max(-Math.min(...group.map((item) => item.startTick)), delta);
+                if (allowedDelta !== 0) perform(() =>
+                  moveArrangementClipGroup(document, clip.id, allowedDelta));
               }
             }}>
             <span className="arrangement__clip-title">{sourceName(clip, patterns)}</span>
             <span className="arrangement__clip-detail">{clip.kind === "pattern" ? `v${clip.sourceVersion}` :
-              `audio ${clip.timeMode === "absolute" ? "absoluto" : "musical"}`}{clip.muted ? " · mute" : ""}</span>
+              `audio ${clip.timeMode === "absolute" ? "absoluto" : "musical"}`}{clip.muted ? " · mute" : ""}
+              {clip.groupId ? " · grupo" : ""}</span>
             {clip.kind === "pattern" && <span className="arrangement__trim" title="Arrastrar para recortar"
               onPointerDown={(event) => beginDrag(event, clip, "resize")}
               onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} />}

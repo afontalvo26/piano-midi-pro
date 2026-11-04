@@ -4,6 +4,10 @@ import type { ProjectLauncherSnapshot, ProjectRecordingSchedule } from "./audio/
 import { PROJECT_808_INSTRUMENT, PROJECT_CLAP_INSTRUMENT, PROJECT_DRUM_INSTRUMENT,
   PROJECT_PIANO_INSTRUMENT } from "./audio/projectAudioSink";
 import { PianoKeyboard } from "./components/studio/PianoKeyboard";
+import { ReferenceStudio } from "./components/studio/ReferenceStudio";
+import { studioLoopBarRange } from "./components/studio/studioMusicalBars";
+import { StudioScore } from "./components/studio/StudioScore";
+import { applyStudioMacro } from "./components/studio/studioMacros";
 import { LivePerformanceReadout } from "./components/studio/LivePerformanceReadout";
 import { publishLiveStrike } from "./components/studio/livePerformanceStore";
 import { MidiControlPanel } from "./components/midi/MidiControlPanel";
@@ -25,6 +29,7 @@ import { ProjectRepository, type ProjectListItem } from "./project/repository";
 import type { ProjectAssetStatus } from "./project/assets";
 import { inspectProjectAssets, relocalizeProjectAsset } from "./project/assetRelocation";
 import { ProjectSession, type ProjectSessionSnapshot } from "./project/session";
+import { selectMidiRecordingTarget } from "./project/midiRecordingTarget";
 import { exportProjectBundle, importProjectBundle, previewProjectBundle } from "./project/bundle";
 import { convertRecordedTake } from "./project/smfImport";
 import { prepareRecordedTakeImport } from "./project/takeImport";
@@ -64,10 +69,16 @@ import {
   saveMidiBindings, upsertMidiBinding, type MidiBinding, type MidiProfileId,
   type MidiValueMode,
 } from "./midi/profile";
+import { advancePickup, automationBaseValue, automationMidiAction, automationMidiValueMode,
+  parseAutomationMidiAction, scaleAutomationMidiValue,
+  type PickupState } from "./midi/automationMidi";
+import { drumPadMidiAction, parseDrumPadMidiAction } from "./midi/drumPadMidi";
+import { projectAutomationParameter, projectAutomationTargets } from "./project/automationParameters";
 import { MidiRecorder, type MidiRecorderSnapshot } from "./midi/recorder";
 import { RecordingLibrary, type RecordedTakeSummary, type SaveRecordingOptions } from "./midi/recordingLibrary";
 import { InstrumentBrowser } from "./components/studio/InstrumentBrowser";
 import { DEFAULT_INSTRUMENT_ID, getInstrument } from "./instruments/catalog";
+import { getProjectInstrument } from "./instruments/projectCatalog";
 import { pianoKeyboardStore } from "./state/pianoKeyboardStore";
 import { midiToLabel } from "./utils/audioMidiUtils";
 import { useLocalStorageState } from "./utils/settings";
@@ -102,8 +113,18 @@ const ACTIVE_MIDI_ACTIONS = new Set([
   "effect.reverbDecay", "effect.chorusDepth",
 ]);
 
+function isActiveMidiAction(action: string): boolean {
+  return ACTIVE_MIDI_ACTIONS.has(action) || parseAutomationMidiAction(action) !== null ||
+    parseDrumPadMidiAction(action) !== null;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+/** Timestamp helper kept outside render: commands read the clock on user actions. */
+function nowEpochMs(): number {
+  return Date.now();
 }
 
 function level(value: number, mode: MidiValueMode, current: number): number {
@@ -185,9 +206,34 @@ function starterDrumPads(): ProjectDrumPad[] {
   }));
 }
 
-function createStarterProject(name: string, bpm: number): ProjectDocumentV1 {
+function starterDemoNotes(): { piano: ProjectNote[]; drums: ProjectNote[] } {
+  const note = (startTick: number, durationTick: number, pitch: number, velocity: number,
+    channel = 0): ProjectNote => ({
+    id: crypto.randomUUID(), startTick, durationTick, pitch, velocity,
+    releaseVelocity: channel === 9 ? 0 : 64, channel, origin: { kind: "drawn" },
+  });
+  const bar = PROJECT_PPQ * 4;
+  const piano: ProjectNote[] = [];
+  const drums: ProjectNote[] = [];
+  const chords = [[60, 64, 67], [57, 60, 64], [53, 57, 60], [55, 59, 62]];
+  chords.forEach((chord, index) => {
+    const barStart = index * bar;
+    for (const pitch of chord) piano.push(note(barStart, bar - 120, pitch, 88));
+    drums.push(note(barStart, 120, 36, 112, 9));
+    drums.push(note(barStart + bar / 2, 120, 36, 96, 9));
+    drums.push(note(barStart + bar / 4, 120, 38, 100, 9));
+    drums.push(note(barStart + (3 * bar) / 4, 120, 38, 100, 9));
+    for (let step = 0; step < 8; step++) {
+      drums.push(note(barStart + (step * bar) / 8, 60, 42, 54 + (step % 2) * 12, 9));
+    }
+  });
+  return { piano, drums };
+}
+
+function createStarterProject(name: string, bpm: number, withDemoBeat = false): ProjectDocumentV1 {
   const now = Date.now();
   const document = createProjectDocument({ name, at: now, microsPerQuarter: Math.round(60_000_000 / bpm) });
+  const demo = withDemoBeat ? starterDemoNotes() : null;
   const trackId = crypto.randomUUID();
   const patternId = crypto.randomUUID();
   const drumTrackId = crypto.randomUUID();
@@ -212,8 +258,10 @@ function createStarterProject(name: string, bpm: number): ProjectDocumentV1 {
       instrument: PROJECT_808_INSTRUMENT,
       mix: { gainDb: -3, pan: 0, mute: false, solo: false, armed: false, sends: [], effects: [] },
     }],
-    patterns: [{ id: patternId, name: "Patrón de piano", version: 1, lengthTicks, notes: [], expression: [] },
-      { id: drumPatternId, name: "Patrón TR-808", version: 1, lengthTicks, notes: [], expression: [] },
+    patterns: [{ id: patternId, name: "Patrón de piano", version: 1, lengthTicks,
+      notes: demo?.piano ?? [], expression: [] },
+      { id: drumPatternId, name: "Patrón TR-808", version: 1, lengthTicks,
+        notes: demo?.drums ?? [], expression: [] },
       { id: bassPatternId, name: "Patrón de bajo 808", version: 1, lengthTicks, notes: [], expression: [] }],
     clips: [{ id: crypto.randomUUID(), kind: "pattern", trackId, sourceId: patternId, sourceVersion: 1,
       startTick: 0, lengthTicks, sourceOffsetTick: 0, loopMode: "none", tailPolicy: "cut",
@@ -273,6 +321,7 @@ export default function PianoApp() {
   const [reverbDecay, setReverbDecay] = useLocalStorageState("piano_reverb_decay", 1.4);
   const [chorusWet, setChorusWet] = useLocalStorageState("piano_chorus_depth", 0);
   const [metronomeOn, setMetronomeOn] = useState(false);
+  const [metronomeError, setMetronomeError] = useState("");
   const [bpm, setBpm] = useLocalStorageState("piano_studio_bpm", 120);
   const [storedInputId, setSelectedInputId] = useLocalStorageState("piano_selected_midi_input_id", AUTO_MIDI_INPUT_ID);
   // The old app stored __all__ as a default. Only an explicit new choice enables all ports.
@@ -322,8 +371,15 @@ export default function PianoApp() {
   const [projectAssetNotice, setProjectAssetNotice] = useState("");
   const [projectSwitching, setProjectSwitching] = useState(false);
   const [workspace, setWorkspace] = useState<"performance" | "piano-roll" | "drums" | "arrangement" | "sampler" | "audio" | "mixer" | "automation" | "export">("performance");
+  const [referenceStudioOpen, setReferenceStudioOpen] = useState(true);
+  const [referenceProjectsOpen, setReferenceProjectsOpen] = useState(false);
+  const [studioLoopEnabled, setStudioLoopEnabled] = useState(false);
+  const [studioLoopStartBar, setStudioLoopStartBar] = useState(5);
+  const [studioLoopEndBar, setStudioLoopEndBar] = useState(12);
+  const [studioPendingSeek, setStudioPendingSeek] = useState<number | null>(null);
   const [editorPatternId, setEditorPatternId] = useState<string | null>(null);
   const [editorTrackId, setEditorTrackId] = useState<string | null>(null);
+  const [studioSelectedTrackId, setStudioSelectedTrackId] = useState<string | null>(null);
   const [projectAudioPreparing, setProjectAudioPreparing] = useState(false);
   const [preparedProjectDocument, setPreparedProjectDocument] = useState<ProjectDocumentV1 | null>(null);
   const [projectAudioStatus, setProjectAudioStatus] = useState("");
@@ -411,8 +467,14 @@ export default function PianoApp() {
   const mouseHeldRef = useRef(new Set<number>());
   const activeVelocityRef = useRef(new Map<number, number>());
   const consumedNotesRef = useRef(new Map<string, number>());
+  const consumedPadVoicesRef = useRef(new Map<string, {
+    ownerId: string; playedNote: number; playedChannel: number; releaseOnNoteOff: boolean;
+  }[]>());
   const pedalSourcesRef = useRef(new Map<string, boolean>());
   const lastTriggerRef = useRef(new Map<string, number>());
+  const automationPickupRef = useRef(new Map<string, PickupState>());
+  /** MIDI CC has no release event; inactivity ends physical ownership per lane. */
+  const automationMidiReleaseTimersRef = useRef(new Map<string, number>());
   const calibrationBankRef = useRef(calibrationBank);
   const calibrationTimerRef = useRef<number | null>(null);
   const traceTimerRef = useRef<number | null>(null);
@@ -438,6 +500,10 @@ export default function PianoApp() {
       masterVolume, releaseSeconds, reverbDecay, chorusWet, bpm, metronomeOn, recording,
       calibrateNextKey, calibratedPortId, screen };
   });
+  useEffect(() => () => {
+    for (const timer of automationMidiReleaseTimersRef.current.values()) window.clearTimeout(timer);
+    automationMidiReleaseTimersRef.current.clear();
+  }, []);
 
   const selectedInput = midiInputs.find((input) => input.id === selectedInputId);
   const listeningInputs = midiInputs.filter((input) => attachedInputIds.includes(input.id));
@@ -580,7 +646,7 @@ export default function PianoApp() {
     queueMicrotask(() => {
       try {
         const loaded = loadMidiBindings(localStorage, bindingScope).filter((binding) =>
-          ACTIVE_MIDI_ACTIONS.has(binding.action));
+          isActiveMidiAction(binding.action));
         setBindings(loaded);
         setLearnAction(null);
       } catch { setBindings([]); }
@@ -653,8 +719,13 @@ export default function PianoApp() {
     }
     const now = performance.now();
     const project = projectSessionRef.current?.getSnapshot().document;
-    const rollable = project?.tracks.filter((track) => track.kind === "instrument" || track.kind === "drum") ?? [];
-    const targetTrack = rollable.find((track) => track.id === editorTrackId) ?? rollable[0];
+    let targetTrack: ProjectDocumentV1["tracks"][number] | null;
+    try {
+      targetTrack=selectMidiRecordingTarget(project??null,editorTrackId);
+    } catch(cause) {
+      setMidiError(cause instanceof Error?cause.message:"Pista MIDI de grabación ambigua");
+      return;
+    }
     const position = engine.projectPlaybackSnapshot()?.transport;
     const startTick = position?.state === "playing" || position?.state === "paused" ? position.tick : 0;
     const clock = project ? new MusicalClock(project.tempoMap, project.meterMap) : null;
@@ -735,7 +806,64 @@ export default function PianoApp() {
   };
 
   const applyBinding = useCallback((binding: MidiBinding, event: MidiEvent): boolean => {
-    const value = bindingValue(event, binding.valueMode);
+    const automationAction = parseAutomationMidiAction(binding.action);
+    const drumPadAction = parseDrumPadMidiAction(binding.action);
+    const effectiveMode = automationAction
+      ? automationMidiValueMode(automationAction.takeover) : binding.valueMode;
+    const value = bindingValue(event, effectiveMode);
+    if (automationAction) {
+      if (event.kind !== "cc" && event.kind !== "pitchBend") return false;
+      const document = projectSessionRef.current?.getSnapshot().document;
+      const lane = document?.automation.find((item) => item.id === automationAction.laneId);
+      const descriptor = lane && document ? projectAutomationParameter(document, lane.target) : undefined;
+      if (!document || !lane || !descriptor) return false;
+      const live = engine.projectAutomationSnapshot().find((item) => item.laneId === lane.id)?.value;
+      const currentValue = live ?? automationBaseValue(lane, document);
+      if (automationAction.takeover === "pickup") {
+        const normalizedTarget = (currentValue - descriptor.min) / (descriptor.max - descriptor.min);
+        const physical = Math.max(0, Math.min(127, value)) / 127;
+        const advanced = advancePickup(automationPickupRef.current.get(binding.id), physical, normalizedTarget);
+        automationPickupRef.current.set(binding.id, advanced.state);
+        if (!advanced.acquired) return true;
+      }
+      const next = scaleAutomationMidiValue(value, effectiveMode, currentValue, descriptor);
+      if (!engine.setProjectAutomationLiveOverride(lane.id, next)) return false;
+      const previousRelease = automationMidiReleaseTimersRef.current.get(lane.id);
+      if (previousRelease !== undefined) window.clearTimeout(previousRelease);
+      const releaseTimer = window.setTimeout(() => {
+        automationMidiReleaseTimersRef.current.delete(lane.id);
+        engine.releaseProjectAutomationLiveOverride(lane.id);
+      }, 180);
+      automationMidiReleaseTimersRef.current.set(lane.id, releaseTimer);
+      return true;
+    }
+    if (drumPadAction) {
+      if (event.kind !== "noteOn") return false;
+      const document = projectSessionRef.current?.getSnapshot().document;
+      let target: { trackId: string; pad: ProjectDrumPad } | null = null;
+      for (const track of document?.tracks ?? []) {
+        const pad = track.drumRack?.pads.find((item) => item.id === drumPadAction.padId);
+        if (pad) { target = { trackId: track.id, pad }; break; }
+      }
+      if (!target) return false;
+      const ownerId = `midi-pad/${binding.id}/${event.inputId}/${event.channel}/${event.note}/${crypto.randomUUID()}`;
+      const key = `${event.inputId}:${event.channel}:${event.note}`;
+      const stack = consumedPadVoicesRef.current.get(key) ?? [];
+      stack.push({ ownerId, playedNote: target.pad.midiNote,
+        playedChannel: target.pad.channel, releaseOnNoteOff: target.pad.playMode === "gate" });
+      consumedPadVoicesRef.current.set(key, stack);
+      recorder.record(event, { playedNote: target.pad.midiNote, playedChannel: target.pad.channel });
+      if (engine.projectPlaybackSnapshot()) {
+        void engine.previewProjectRackPad(target.trackId, target.pad.id,
+          event.velocity / 127, ownerId).then((played) => {
+            if (!played) setMidiError(`${target!.pad.name}: no se pudo disparar el pad aprendido.`);
+          }).catch((cause: unknown) => setMidiError(cause instanceof Error
+            ? cause.message : "Falló el pad MIDI aprendido"));
+      } else {
+        setMidiError("Prepara el audio del proyecto antes de tocar un pad aprendido.");
+      }
+      return true;
+    }
     const isTrigger = ["recording.toggle", "metronome.toggle", "bank.prev", "bank.next", "drum.pad"].includes(binding.action);
     const relative = binding.valueMode === "relative-twos-complement" || binding.valueMode === "relative-binary-offset";
     if (isTrigger && (relative ? value === 0 : value <= 0 || (event.kind === "cc" && event.value < 64))) return false;
@@ -830,6 +958,14 @@ export default function PianoApp() {
     const key = "channel" in event && "note" in event
       ? `${event.inputId}:${event.channel}:${event.note}` : "";
     if (event.kind === "noteOff" && (consumedNotesRef.current.get(key) ?? 0) > 0) {
+      const padStack = consumedPadVoicesRef.current.get(key);
+      const learnedPad = padStack?.shift();
+      if (padStack?.length === 0) consumedPadVoicesRef.current.delete(key);
+      if (learnedPad) {
+        recorder.record(event, { playedNote: learnedPad.playedNote,
+          playedChannel: learnedPad.playedChannel });
+        if (learnedPad.releaseOnNoteOff) engine.releaseProjectPreview(learnedPad.ownerId);
+      }
       const left = consumedNotesRef.current.get(key)! - 1;
       if (left) consumedNotesRef.current.set(key, left);
       else consumedNotesRef.current.delete(key);
@@ -837,10 +973,20 @@ export default function PianoApp() {
     }
     const pending = latestRef.current.learnAction;
     if (pending && !["noteOff", "clock", "activeSensing", "systemReset"].includes(event.kind)) {
+      const automationPending = parseAutomationMidiAction(pending);
+      const drumPending = parseDrumPadMidiAction(pending);
+      if (automationPending && event.kind !== "cc" && event.kind !== "pitchBend") {
+        setMidiError("MIDI Learn de automatización espera un CC, fader, knob o pitch bend observado.");
+      } else if (drumPending && event.kind !== "noteOn") {
+        setMidiError("MIDI Learn de pad espera que golpees una nota/pad físico.");
+      } else {
       const bankScoped = !["bank.prev", "bank.next", "recording.toggle", "metronome.toggle"].includes(pending);
-      const learned = learnMidiBinding(event, { id: `${pending}:${Date.now()}`,
+      const learned = learnMidiBinding(event, {
+        id: automationPending || drumPending ? crypto.randomUUID() : `${pending}:${Date.now()}`,
         action: pending, bank: bankScoped ? String(latestRef.current.bank) : undefined,
-        consumeNote: event.kind === "noteOn" });
+        valueMode: automationPending ? automationMidiValueMode(automationPending.takeover)
+          : drumPending ? "trigger" : undefined,
+        consumeNote: automationPending ? false : drumPending ? true : event.kind === "noteOn" });
       if (learned) {
         const proposed = upsertMidiBinding(latestRef.current.bindings, learned, "reject");
         if (proposed.conflicts.length) setMidiError(`El mensaje ya está asignado a ${proposed.conflicts[0]!.first.action}.`);
@@ -858,6 +1004,7 @@ export default function PianoApp() {
         if (event.kind === "noteOn") consumedNotesRef.current.set(key, (consumedNotesRef.current.get(key) ?? 0) + 1);
         return;
       }
+      }
     }
     let consumed = false;
     for (const binding of resolveBindings(event, latestRef.current.bindings, { bank: String(latestRef.current.bank) })) {
@@ -867,7 +1014,7 @@ export default function PianoApp() {
         consumedNotesRef.current.set(key, (consumedNotesRef.current.get(key) ?? 0) + 1);
         consumed = true;
       }
-      if (binding.action === "drum.pad") consumed = true;
+      if (binding.action === "drum.pad" || parseDrumPadMidiAction(binding.action)) consumed = true;
     }
     if (consumed) return;
     if (event.kind !== "noteOn" && event.kind !== "noteOff") {
@@ -885,9 +1032,18 @@ export default function PianoApp() {
         });
       }
       if (event.kind === "cc" && (event.controller === 120 || event.controller === 123)) {
+        const prefix = `${event.inputId}:${event.channel}:`;
         pianoKeyboardStore.releaseSource(`${event.inputId}:${event.channel}`);
         for (const heldKey of activeNotesRef.current.keys()) {
-          if (heldKey.startsWith(`${event.inputId}:${event.channel}:`)) activeNotesRef.current.delete(heldKey);
+          if (heldKey.startsWith(prefix)) activeNotesRef.current.delete(heldKey);
+        }
+        for (const [heldKey, voices] of consumedPadVoicesRef.current) {
+          if (!heldKey.startsWith(prefix)) continue;
+          for (const voice of voices) if (voice.releaseOnNoteOff) {
+            engine.releaseProjectPreview(voice.ownerId);
+          }
+          consumedPadVoicesRef.current.delete(heldKey);
+          consumedNotesRef.current.delete(heldKey);
         }
       }
       return;
@@ -1000,6 +1156,14 @@ export default function PianoApp() {
           }
           for (const heldKey of activeNotesRef.current.keys()) {
             if (heldKey.startsWith(`${port.id}:`)) activeNotesRef.current.delete(heldKey);
+          }
+          for (const [heldKey, voices] of consumedPadVoicesRef.current) {
+            if (!heldKey.startsWith(`${port.id}:`)) continue;
+            for (const voice of voices) if (voice.releaseOnNoteOff) {
+              engine.releaseProjectPreview(voice.ownerId);
+            }
+            consumedPadVoicesRef.current.delete(heldKey);
+            consumedNotesRef.current.delete(heldKey);
           }
         }
         refreshInputs();
@@ -1303,6 +1467,7 @@ export default function PianoApp() {
     setProjectBpmDraft(null);
     setEditorPatternId(null);
     setEditorTrackId(null);
+    setStudioSelectedTrackId(null);
     setSavedOverdubTarget(null);
     recordingTargetRef.current = null;
     setTakeImportNotice("");
@@ -1337,6 +1502,10 @@ export default function PianoApp() {
         projectSessionRef.current = null;
         setProjectView(null);
       }
+      setStudioLoopEnabled(false);
+      setStudioLoopStartBar(5);
+      setStudioLoopEndBar(12);
+      setStudioPendingSeek(null);
       activateProject(await open());
       await refreshProjects();
     } finally {
@@ -1345,8 +1514,53 @@ export default function PianoApp() {
     }
   };
 
-  const createProject = async (name: string) => {
-    await switchProject(() => ProjectSession.create(projectRepository, createStarterProject(name, bpm)));
+  const createProject = async (name: string, withDemoBeat = false) => {
+    await switchProject(() => ProjectSession.create(projectRepository,
+      createStarterProject(name, bpm, withDemoBeat)));
+  };
+
+  const toggleMetronome = async (): Promise<void> => {
+    const next = !metronomeOn;
+    setMetronomeOn(next);
+    setMetronomeError("");
+    try {
+      const ok = await engine.setMetronome({ enabled: next, bpm });
+      if (!ok && next) {
+        setMetronomeOn(false);
+        setMetronomeError("No se pudo iniciar el metrónomo: otra pestaña puede tener el audio o la muestra no está disponible.");
+      }
+    } catch (cause) {
+      if (next) setMetronomeOn(false);
+      setMetronomeError(cause instanceof Error ? cause.message : "No se pudo cambiar el metrónomo");
+    }
+  };
+
+  /** One-click audible sketch for projects whose three patterns are still empty. */
+  const seedDemoBeat = async (): Promise<void> => {
+    const session = projectSessionRef.current;
+    if (!session) return;
+    try {
+      const document = session.getSnapshot().document;
+      const demo = starterDemoNotes();
+      const pianoTrack = document.tracks.find((track) => track.kind === "instrument" && track.name === "Piano");
+      const drumTrack = document.tracks.find((track) => track.kind === "drum");
+      const seeds: readonly [string | undefined, ProjectNote[]][] = [
+        [pianoTrack?.id, demo.piano], [drumTrack?.id, demo.drums]];
+      for (const [trackId, notes] of seeds) {
+        if (!trackId) continue;
+        const clip = document.clips.find((item) => item.trackId === trackId && item.kind === "pattern");
+        const pattern = clip ? document.patterns.find((item) => item.id === clip.sourceId) : undefined;
+        if (!clip || !pattern || pattern.notes.length > 0) continue;
+        // replacePattern itself bumps the sourceVersion of every clip that
+        // references the pattern, so no extra replaceClips command is needed.
+        session.dispatch({ kind: "replacePattern", expectedVersion: pattern.version,
+          pattern: { ...pattern, version: pattern.version + 1, notes }, at: nowEpochMs() });
+      }
+      await session.save();
+      setProjectsError("");
+    } catch (cause) {
+      setProjectsError(cause instanceof Error ? cause.message : "No se pudo cargar el beat de ejemplo");
+    }
   };
 
   const openProject = async (id: string) => {
@@ -1922,7 +2136,7 @@ export default function PianoApp() {
     const active = projectSessionRef.current;
     if (!active) throw new Error("No hay proyecto activo");
     const name = `${active.getSnapshot().document.name.slice(0, 80)} copia recuperada`;
-    const copy = await active.saveAsCopy({ id: crypto.randomUUID(), name, at: Date.now() });
+    const copy = await active.saveAsCopy({ id: crypto.randomUUID(), name, at: nowEpochMs() });
     projectUnsubscribeRef.current?.();
     projectUnsubscribeRef.current = null;
     const captured = pendingAudioTakeRef.current;
@@ -2064,8 +2278,11 @@ export default function PianoApp() {
     setProjectAudioPreparing(true);
     setProjectAudioStatus("Cargando muestras grabadas…");
     try {
+      const loopRange = studioLoopEnabled
+        ? studioLoopBarRange(document.meterMap, studioLoopStartBar, studioLoopEndBar)
+        : undefined;
       const playback = await engine.prepareProjectPlayback(document, createArrangementResolver(document),
-        undefined, projectRepository);
+        loopRange, projectRepository);
       if (request !== projectAudioRequestRef.current || projectSessionRef.current?.getSnapshot().document !== document) {
         if (playback && engine.projectPlaybackSnapshot()?.audio.projectId === document.id) engine.stopProjectPlayback();
         return false;
@@ -2113,7 +2330,8 @@ export default function PianoApp() {
       return;
     }
     if (!(await prepareProjectAudio())) return;
-    const played = await engine.playProjectPlayback();
+    const played = await engine.playProjectPlayback(studioPendingSeek ?? undefined);
+    if (played) setStudioPendingSeek(null);
     setProjectTransport(played ? "playing" : engine.projectPlaybackSnapshot()?.transport.state ?? "blocked");
     refreshProjectLauncher();
     if (!played) setProjectAudioStatus("No se pudo iniciar el transporte. Activa el audio y vuelve a intentar.");
@@ -2128,6 +2346,7 @@ export default function PianoApp() {
     engine.stopProjectPlayback();
     setProjectTransport("stopped");
     setProjectTick(0);
+    setStudioPendingSeek(null);
     refreshProjectLauncher();
   };
 
@@ -2250,7 +2469,8 @@ export default function PianoApp() {
       const wasPrepared = preparedProjectRef.current === previous &&
         engine.projectPlaybackSnapshot()?.audio.projectId === previous.id;
       const canApplyLive = track.mix.outputBusTrackId === mix.outputBusTrackId &&
-        track.mix.effects === mix.effects && track.mix.sends === mix.sends;
+        track.mix.effects === mix.effects && track.mix.sends === mix.sends &&
+        track.mix.sidechain === mix.sidechain;
       const snapshot = session.dispatch({ kind: "replaceTrackMix", trackId,
         expected: track.mix, mix, at: Date.now() });
       if (wasPrepared && canApplyLive && engine.syncProjectMixRevision(snapshot.document) !== null) {
@@ -2378,22 +2598,27 @@ export default function PianoApp() {
     }
   };
 
-  const visibleProjectMeters = workspace === "mixer"
+  const visibleProjectMeters = (referenceStudioOpen || workspace === "mixer")
     ? engine.projectPlaybackSnapshot()?.audio : undefined;
   const trackMeters = visibleProjectMeters && Object.fromEntries(visibleProjectMeters.tracks.map((track) =>
     [track.trackId, track.meter]));
-  const automationTargets: readonly BaseAutomationTarget[] = projectView ? [
-    { scope: "master", parameterId: "masterGainDb" },
-    ...projectView.document.tracks.flatMap((track): BaseAutomationTarget[] => [
-      { scope: "track", ownerId: track.id, parameterId: "gainDb" },
-      { scope: "track", ownerId: track.id, parameterId: "pan" },
-    ]),
-  ] : [];
+  const trackSidechains = visibleProjectMeters && Object.fromEntries(visibleProjectMeters.tracks.map((track) =>
+    [track.trackId, { sourceTrackId: track.sidechainSourceTrackId,
+      reductionDb: track.sidechainReductionDb, peakReductionDb: track.sidechainReductionPeakDb,
+      error: track.sidechainError }]));
+  const trackEffectComparisons = visibleProjectMeters && Object.fromEntries(
+    visibleProjectMeters.tracks.map((track) => [track.trackId, {
+      mode: track.effectComparisonMode, originalDb: track.effectComparisonOriginalDb,
+      processedDb: track.effectComparisonProcessedDb,
+    }]));
+  const automationTargets: readonly BaseAutomationTarget[] = projectView
+    ? projectAutomationTargets(projectView.document) as readonly BaseAutomationTarget[]
+    : [];
   const effectiveAutomationValues = workspace === "automation"
     ? engine.projectAutomationSnapshot() : undefined;
 
   return (
-    <div className="piano-app">
+    <div className={screen === "studio" && referenceStudioOpen ? "piano-app piano-app--reference" : "piano-app"}>
       <header className="piano-app__header">
         <div className="piano-app__brand"><span className="piano-app__brand-mark">♪</span><div><strong>Piano MIDI Pro</strong><small>Studio para SMK-37 y MIDI</small></div></div>
         <nav className="piano-app__nav" aria-label="Secciones principales">
@@ -2411,7 +2636,419 @@ export default function PianoApp() {
       </header>
 
       <main className="piano-app__main">
-        {screen === "studio" && <div className="piano-app__studio">
+        {screen === "studio" && referenceStudioOpen && <ReferenceStudio
+          key={projectView?.document.id ?? "empty-project"}
+          document={projectView?.document ?? null}
+          workspace={workspace}
+          loopEnabled={studioLoopEnabled}
+          loopStartBar={studioLoopStartBar}
+          loopEndBar={studioLoopEndBar}
+          onLoopChange={(enabled) => {
+            const range = enabled && projectView
+              ? studioLoopBarRange(projectView.document.meterMap, studioLoopStartBar, studioLoopEndBar)
+              : null;
+            engine.setProjectLoopRange(range);
+            setStudioLoopEnabled(enabled);
+            if(range) setStudioPendingSeek((current)=>
+              current !== null && current >= range.endTick ? range.startTick : current);
+            setProjectTick(engine.projectTransportTick() ?? projectTick);
+          }}
+          onLoopRangeChange={(startBar,endBar)=>{
+            const range = projectView
+              ? studioLoopBarRange(projectView.document.meterMap,startBar,endBar) : null;
+            if(studioLoopEnabled) engine.setProjectLoopRange(range);
+            setStudioLoopStartBar(startBar);
+            setStudioLoopEndBar(endBar);
+            if(range && studioLoopEnabled) setStudioPendingSeek((current)=>
+              current!==null && current>=range.endTick ? range.startTick : current);
+            setProjectTick(engine.projectTransportTick() ?? projectTick);
+          }}
+          onSeekTick={(requested) => {
+            const range = studioLoopEnabled && projectView
+              ? studioLoopBarRange(projectView.document.meterMap,studioLoopStartBar,studioLoopEndBar)
+              : null;
+            const tick = range && requested >= range.endTick
+              ? range.startTick : requested;
+            if (engine.projectPlaybackSnapshot()) {
+              engine.seekProjectPlayback(tick);
+              setStudioPendingSeek(null);
+            } else {
+              setStudioPendingSeek(tick);
+            }
+            setProjectTick(tick);
+          }}
+          onArrangementCommand={(command) => {
+            if (!projectSessionRef.current) throw new Error("Abre un proyecto para editar el arreglo");
+            projectSessionRef.current.dispatch(command);
+          }}
+          onMacroChange={(trackId, macro, value) => {
+            const session = projectSessionRef.current;
+            const track = session?.getSnapshot().document.tracks.find((item)=>item.id===trackId);
+            if(!session || !track) throw new Error("Selecciona una pista para editar sus efectos");
+            // Do not swallow CAS/validation errors: the visible macro must not
+            // silently claim that a processor was saved when it was rejected.
+            const effects = applyStudioMacro(track.mix.effects, trackId, macro, value);
+            session.dispatch({kind:"replaceTrackEffects",trackId,
+              expected:track.mix.effects,effects,at:Date.now()});
+            setProjectsError("");
+          }}
+          activeTrackId={studioSelectedTrackId ?? projectTrack?.id}
+          saveStatus={projectView?.status ?? "none"}
+          problem={projectView?.error || projectsError || instrumentError || midiError || metronomeError || undefined}
+          loadingLabel={projectSwitching ? "Abriendo proyecto…" :
+            projectAudioPreparing ? "Preparando audio del proyecto…" :
+            loadingInstrumentId ? "Cargando instrumento…" : undefined}
+          onRetrySave={() => {
+            void projectSessionRef.current?.save().catch((cause:unknown)=>{
+              setProjectsError(cause instanceof Error?cause.message:"No se pudo reintentar el guardado");
+            });
+          }}
+          transport={projectTransport}
+          tick={projectTick}
+          bpm={visibleProjectBpm || String(bpm)}
+          metronome={metronomeOn}
+          recording={recording}
+          midiConnected={midiListening}
+          midiStatus={liveMidiStatus}
+          outputLatencyEstimateMs={engine.outputBufferLatencyEstimateMs()}
+          instrumentName={getInstrument(activeInstrumentId)?.engineId === "salamander"
+            ? "Piano de concierto" : getInstrument(activeInstrumentId)?.label ?? "Instrumento"}
+          instrumentCategory={getInstrument(activeInstrumentId)?.engineId === "salamander"
+            ? "Gran Piano Clásico" : getInstrument(activeInstrumentId)?.category ?? "Seleccionar instrumento"}
+          masterLevel={visibleProjectMeters?.masterMeter}
+          trackLevels={trackMeters}
+          projectAudioTracks={visibleProjectMeters?.tracks}
+          onPrepareProjectAudio={()=>{
+            void prepareProjectAudio().catch((cause:unknown)=>
+              setProjectsError(cause instanceof Error?cause.message:
+                "No se pudo preparar el audio del proyecto"));
+          }}
+          onWorkspace={(id) => setWorkspace(id)}
+          onLibrary={() => { setWorkspace("performance"); setReferenceStudioOpen(false); }}
+          onProjects={() => {setReferenceProjectsOpen(true); void refreshProjects();}}
+          onCloseProjects={() => setReferenceProjectsOpen(false)}
+          projectsOpen={referenceProjectsOpen}
+          onSettings={() => { setScreen("settings"); setObservations(monitor.snapshot()); void refreshStorageHealth(); }}
+          onNew={() => { void createProject("Proyecto sin título").catch((cause: unknown) =>
+            setProjectsError(cause instanceof Error ? cause.message : "No se pudo crear el proyecto")); }}
+          onNewIdea={() => { void createProject("Proyecto sin título", true).catch((cause: unknown) =>
+            setProjectsError(cause instanceof Error ? cause.message : "No se pudo crear el proyecto")); }}
+          onSeedDemoBeat={() => { void seedDemoBeat(); }}
+          onPlay={() => { void toggleProjectPlayback(); }}
+          onStop={stopProjectPlayback}
+          onRecord={() => { if (recording) void stopRecording(); else startRecording(); }}
+          onMetronome={() => { void toggleMetronome(); }}
+          onTempoDraft={setProjectBpmDraft}
+          onTempoCommit={commitProjectBpm}
+          onTrackSelect={(track) => {
+            setStudioSelectedTrackId(track.id);
+            if(track.kind==="instrument" || track.kind==="drum") {
+              setEditorTrackId(track.id);
+              setEditorPatternId(null);
+            }
+          }}
+          onOpenPattern={(trackId, patternId) => {
+            setStudioSelectedTrackId(trackId);
+            setEditorTrackId(trackId); setEditorPatternId(patternId); setWorkspace("piano-roll");
+          }}
+          onTrackMix={commitTrackMix}
+          onTrackInstrumentChange={(trackId,instrumentId)=>{
+            const session=projectSessionRef.current;
+            const track=session?.getSnapshot().document.tracks.find((item)=>item.id===trackId);
+            if(!session || !track || track.kind!=="instrument") {
+              throw new Error("Selecciona una pista de instrumento válida");
+            }
+            const descriptor=getProjectInstrument(instrumentId);
+            if(!descriptor || descriptor.packageState!=="installed") {
+              throw new RangeError("Banco de proyecto no autorizado o aún no instalado");
+            }
+            const bank=descriptor.ref;
+            if(track.instrument?.instrumentId===bank.instrumentId &&
+               track.instrument.packageVersion===bank.packageVersion &&
+               track.instrument.presetId===bank.presetId) return;
+            session.dispatch({kind:"replaceTrackInstrument",trackId,expected:track.instrument,
+              instrument:bank,at:Date.now()});
+            setProjectsError("");
+          }}
+          onUndo={() => {
+            try {projectSessionRef.current?.undo();setProjectsError("");}
+            catch(error){setProjectsError(error instanceof Error?error.message:"No se pudo deshacer");}
+          }}
+          onRedo={() => {
+            try {projectSessionRef.current?.redo();setProjectsError("");}
+            catch(error){setProjectsError(error instanceof Error?error.message:"No se pudo rehacer");}
+          }}
+          canUndo={projectView?.canUndo ?? false}
+          canRedo={projectView?.canRedo ?? false}
+          onMasterGain={(gainDb) => {
+            if (projectView) commitMasterMix({ ...projectView.document.mix, masterGainDb: gainDb });
+          }}
+          onFullEditor={() => setReferenceStudioOpen(false)}
+          onFullMixer={() => { setWorkspace("mixer"); setReferenceStudioOpen(false); }}
+          notationPanel={<StudioScore pattern={projectPattern} meter={projectView?.document.meterMap[0]}
+            onOpenEditor={()=>{setWorkspace("piano-roll");setReferenceStudioOpen(false);}} />}
+          projectPanel={<div className="ref-project-library"><ProjectBrowser projects={projects} loading={projectsLoading}
+            error={projectsError} activeProjectId={projectView?.document.id}
+            onCreate={async(name)=>{await createProject(name);setReferenceProjectsOpen(false);}}
+            onOpen={async(id)=>{await openProject(id);setReferenceProjectsOpen(false);}}
+            onRename={(id,name)=>mutateProject(id,{kind:"renameProject",name,at:Date.now()})}
+            onDuplicate={duplicateProject} onSetArchived={setProjectArchived}
+            onExport={exportProject} onPreview={previewProjectBundle} onImport={importProject}
+            onListDrafts={(projectId)=>projectRepository.listDrafts(projectId)}
+            onRecoverDraft={async(projectId,sessionId)=>{
+              await recoverProjectDraft(projectId,sessionId);setReferenceProjectsOpen(false);
+            }}
+            onDiscardDraft={(projectId,sessionId)=>projectRepository.discardDraft(projectId,sessionId)} />
+            <RecordedTracks takes={takes} loading={takesLoading} error={takesError}
+              onRename={async(id,name)=>{await library.rename(id,name);await refreshTakes();}}
+              onExport={exportTake}
+              onDelete={async(id)=>{await library.delete(id);await refreshTakes();}}
+              onImportToProject={projectView?importTakeToProject:undefined} />
+          </div>}
+          recordingPanel={projectView && projectTrack && projectPattern ? (
+            <RecordedOverdubPanel key={`${projectView.document.id}:${projectTrack.id}:${projectPattern.id}`}
+                document={projectView.document} trackId={projectTrack.id} patternId={projectPattern.id}
+                projectStartTick={projectTick}
+                startTickForTake={(recordingId) => savedOverdubTarget?.projectId === projectView.document.id &&
+                  savedOverdubTarget.trackId === projectTrack.id &&
+                  savedOverdubTarget.recordingId === recordingId
+                  ? savedOverdubTarget.startTick : projectTick}
+                activeSceneId={projectLauncher?.activeSceneId} recording={recording || unsavedRecording}
+                takes={takes}
+                onLoadTake={(recordingId) => convertRecordedTake(library, recordingId, {
+                  patternId: crypto.randomUUID(), patternName: "Toma MIDI para overdub",
+                })}
+                onCommit={(request) => commitRecordedOverdub(projectView.document.id, request)} />
+          ) : <div className="ref-takes-empty">
+            <strong>Selecciona un patrón MIDI</strong>
+            <p>Abre un proyecto y selecciona una pista con patrón para añadir una toma propia.</p>
+          </div>}
+          unsavedRecording={unsavedRecording}
+          onRetryRecordingSave={()=>{void saveUnsavedRecording();}}
+          onExportRecording={exportLatest}
+          performancePanel={<div className="ref-performance" aria-label="Teclado interactivo de 37 teclas">
+            <div className="ref-performance-toolbar">
+              <button type="button" onClick={() => {
+                const next = Math.max(MIN_MIDI, rangeStart - 12);
+                latestRef.current.rangeStart = next;
+                setRangeStart(next);
+                engine.setVisibleRangeStart(next);
+              }} aria-label="Octava anterior">− Octava</button>
+              <span>{midiToLabel(visibleNotes[0]!)} – {midiToLabel(visibleNotes[KEY_COUNT-1]!)}</span>
+              <button type="button" onClick={() => {
+                const next = Math.min(MAX_MIDI - KEY_COUNT + 1, rangeStart + 12);
+                latestRef.current.rangeStart = next;
+                setRangeStart(next);
+                engine.setVisibleRangeStart(next);
+              }} aria-label="Octava siguiente">+ Octava</button>
+              <span className="ref-performance-hint">Toca con ratón, pantalla o MIDI</span>
+            </div>
+            <div className="ref-performance-keys" role="group" aria-label="Piano virtual">
+              <PianoKeyboard visibleNotes={visibleNotes}
+                activeNoteVelocitiesRef={activeVelocityRef}
+                showNoteNames={showNoteNames} keyFxColor="#8b5cf6" keyFxGlow={0.55}
+                onKeyMouseDown={(note) => {
+                  if (mouseHeldRef.current.has(note)) return;
+                  mouseHeldRef.current.add(note);
+                  pressVirtual("mouse",note,String(note));
+                }}
+                onKeyMouseUp={(note) => {
+                  if (!mouseHeldRef.current.delete(note)) return;
+                  releaseVirtual("mouse",note,String(note));
+                }} />
+            </div>
+            <div className="ref-performance-pedals" role="group" aria-label="Pedales virtuales">
+              {([["unaCorda","Una corda"],["sostenuto","Sostenuto"],["sustain","Sustain"]] as const)
+                .map(([id,label])=><button key={id} type="button" aria-pressed={pedals[id]}
+                  onPointerDown={()=>setPedal(id,true,"studio")}
+                  onPointerUp={()=>setPedal(id,false,"studio")}
+                  onPointerCancel={()=>setPedal(id,false,"studio")}
+                  onPointerLeave={()=>{if(pedals[id])setPedal(id,false,"studio");}}>
+                  {label}
+                </button>)}
+            </div>
+          </div>}
+          instrumentPicker={<InstrumentBrowser initialOpen activeId={activeInstrumentId} loadingId={loadingInstrumentId}
+              loadingProgress={instrumentLoadingProgress} onCancel={cancelInstrumentLoad}
+              failedId={failedInstrumentId} error={instrumentError} notice={instrumentNotice}
+              onSelect={(id) => { void chooseInstrument(id); }} />}
+          editor={workspace === "drums" && drumPattern ? (<DrumMachine pattern={drumPattern} pads={drumPads} document={projectView?.document}
+              track={drumTrack} padStatuses={drumTrack?.drumRack &&
+                preparedProjectDocument === projectView?.document
+                ? engine.projectPadStatus(drumTrack.id) : undefined}
+              sourceOptions={drumSourceOptions} projectName={projectView?.document.name}
+              trackName={drumTrack?.name} meter={projectView?.document.meterMap[0]}
+              saveState={projectView?.status} externalError={projectView?.error ?? undefined}
+              midiLearnAction={learnAction}
+              onMidiLearnPad={(padId) => {
+                const action = drumPadMidiAction(padId);
+                latestRef.current.learnAction = action;
+                setLearnAction(action);
+                setMidiError("");
+                void prepareProjectAudio();
+              }}
+              onCancelMidiLearn={() => {
+                latestRef.current.learnAction = null;
+                setLearnAction(null);
+              }}
+              onCommand={(command: ProjectCommand) => {
+                if (!projectSessionRef.current) throw new Error("Abre un proyecto antes de editar batería");
+                projectSessionRef.current.dispatch(command);
+              }}
+              onUndo={() => { projectSessionRef.current?.undo(); }}
+              onRedo={() => { projectSessionRef.current?.redo(); }}
+              canUndo={projectView?.canUndo} canRedo={projectView?.canRedo}
+              onPreviewPad={(pad, ownerId) => {
+                const padNote = pad.midiNote;
+                if (!drumTrack || padNote === null || !projectView) return;
+                const projectId = projectView.document.id;
+                const owner = `preview/${ownerId}`;
+                void (async () => {
+                  if (!(await prepareProjectAudio()) ||
+                      projectSessionRef.current?.getSnapshot().document.id !== projectId) return;
+                  const played = await engine.previewProjectPad(drumTrack.id, padNote, 0.78, owner);
+                  if (played) releaseProjectPreviewLater(owner, 600);
+                  else setProjectAudioStatus("No se pudo escuchar este pad.");
+                })().catch((cause: unknown) => setProjectAudioStatus(cause instanceof Error
+                  ? cause.message : "Falló la preescucha del pad"));
+              }} onPreviewRackPad={(pad, ownerId) => {
+                if (!drumTrack || !projectView) return;
+                const projectId = projectView.document.id;
+                const owner = `preview/${ownerId}`;
+                void (async () => {
+                  if (!(await prepareProjectAudio()) ||
+                      projectSessionRef.current?.getSnapshot().document.id !== projectId) return;
+                  const played = await engine.previewProjectRackPad(drumTrack.id, pad.id, 0.78, owner);
+                  if (played) releaseProjectPreviewLater(owner, 600);
+                  else setProjectAudioStatus("No se pudo escuchar este pad.");
+                })().catch((cause: unknown) => setProjectAudioStatus(cause instanceof Error
+                  ? cause.message : "Falló la preescucha del pad"));
+              }} />) :
+            workspace === "mixer" && projectView ? (<ProjectMixer document={projectView.document}
+            meter={trackMeters} masterPreMeter={visibleProjectMeters?.masterPreMeter}
+            masterMeter={visibleProjectMeters?.masterMeter}
+            sidechainStatus={trackSidechains}
+            effectComparisonStatus={trackEffectComparisons}
+            onTrackEffectComparison={(trackId, mode) => {
+              void (async () => {
+                if (!engine.projectPlaybackSnapshot() && !(await prepareProjectAudio())) {
+                  throw new Error("No se pudo preparar el audio para comparar A/B");
+                }
+                const result = engine.setProjectTrackEffectComparison(trackId, mode);
+                if (!result) throw new Error("La comparación A/B no está disponible");
+                setProjectsError("");
+              })().catch((cause: unknown) => setProjectsError(cause instanceof Error
+                ? cause.message : "No se pudo cambiar la comparación A/B"));
+            }}
+            onTrackMix={commitTrackMix} onMasterMix={commitMasterMix}
+            onTrackEffects={commitTrackEffects} onMasterEffects={commitMasterEffects}
+            onCreateBus={createProjectBus} onRemoveBus={removeProjectBus}
+            onUndo={() => { projectSessionRef.current?.undo(); }}
+            onRedo={() => { projectSessionRef.current?.redo(); }}
+            canUndo={projectView.canUndo} canRedo={projectView.canRedo} />) : 
+            workspace === "automation" && projectView ? (<AutomationEditor
+            document={projectView.document} readPlaybackReady={true}
+            availableTargets={automationTargets} effectiveValues={effectiveAutomationValues}
+            playheadTick={projectTick} readPlayheadTick={readProjectTick}
+            saveState={projectView.status}
+            midiLearnAction={learnAction}
+            onMidiLearn={(laneId, takeover) => {
+              const action = automationMidiAction(laneId, takeover);
+              latestRef.current.learnAction = action;
+              setLearnAction(action);
+              setMidiError("");
+            }}
+            onCancelMidiLearn={() => { latestRef.current.learnAction = null; setLearnAction(null); }}
+            onTouchPreview={(laneId, _target, value) => {
+              engine.setProjectAutomationLiveOverride(laneId, value);
+            }}
+            onTouchRelease={(laneId) => {
+              engine.releaseProjectAutomationLiveOverride(laneId);
+            }}
+            onCommand={(command) => commitAutomationEdit((session) => session.dispatch(command))}
+            onUndo={() => commitAutomationEdit((session) => session.undo())}
+            onRedo={() => commitAutomationEdit((session) => session.redo())}
+            canUndo={projectView.canUndo} canRedo={projectView.canRedo} />) : 
+            workspace === "export" && projectView ? (<ProjectExportPanel busy={exportingWav}
+            progress={wavExportProgress} notice={wavExportNotice}
+            onExport={(options) => { void exportActiveProjectWav(options); }}
+            onCancel={() => wavExportAbortRef.current?.abort()} />) : 
+            workspace === "arrangement" && projectView ? (<Arrangement document={projectView?.document ?? null}
+            playheadTick={projectTick} readPlayheadTick={readProjectTick} saveState={projectView?.status}
+            onLaunchScene={launchProjectScene} onStopScene={stopProjectScene}
+            activeSceneId={projectLauncher?.activeSceneId}
+            queuedSceneId={projectLauncher?.queuedSceneId}
+            queuedStartTick={projectLauncher?.queuedStartTick}
+            performedSceneSegments={projectLauncher?.performedSceneSegments}
+            performanceRevision={projectLauncher?.performanceRevision}
+            onPerformanceCaptured={() => {
+              engine.clearProjectPerformedSceneSegments();
+              refreshProjectLauncher();
+            }}
+            externalError={projectView?.error ?? undefined}
+            onCommand={(command: ProjectCommand) => {
+              if (!projectSessionRef.current) throw new Error("Abre un proyecto antes de editar el arreglo");
+              projectSessionRef.current.dispatch(command);
+            }}
+            onUndo={() => { projectSessionRef.current?.undo(); }}
+            onRedo={() => { projectSessionRef.current?.redo(); }}
+            canUndo={projectView?.canUndo} canRedo={projectView?.canRedo}
+            onOpenPattern={(patternId, trackId) => {
+              setEditorTrackId(trackId);
+              setEditorPatternId(patternId);
+              setWorkspace(trackId === drumTrack?.id ? "drums" : "piano-roll");
+            }} />) : 
+            projectView ? (<PianoRoll pattern={projectPattern} projectName={projectView?.document.name}
+            trackName={projectTrack?.name} meter={projectView?.document.meterMap[0]}
+            ghostPatterns={rollVisuals.ghostPatterns} allowedPadTriggers={rollVisuals.padTriggers}
+            padNames={rollVisuals.padNames}
+            captureOverlay={captureOverlay}
+            playheadTick={projectTick} readPlayheadTick={readProjectTick}
+            saveState={projectView?.status} externalError={projectView?.error ?? undefined}
+            onCommand={(command: ProjectCommand) => {
+              if (!projectSessionRef.current) throw new Error("Abre un proyecto antes de editar notas");
+              projectSessionRef.current.dispatch(command);
+            }}
+            onUndo={() => { projectSessionRef.current?.undo(); }}
+            onRedo={() => { projectSessionRef.current?.redo(); }}
+            canUndo={projectView?.canUndo} canRedo={projectView?.canRedo}
+            onPreviewNote={(note, ownerId) => {
+              if (!projectTrack || !projectView) return;
+              const trackId = projectTrack.id;
+              const projectId = projectView.document.id;
+              const owner = `preview/${ownerId}`;
+              void (async () => {
+                if (!(await prepareProjectAudio()) ||
+                    projectSessionRef.current?.getSnapshot().document.id !== projectId) return;
+                const pad = projectTrack.drumRack?.pads.find((entry) =>
+                  entry.midiNote === note.pitch && entry.channel === note.channel);
+                const played = pad ? await engine.previewProjectRackPad(trackId, pad.id,
+                  note.velocity / 127, owner) : projectTrack.kind === "drum"
+                  ? await engine.previewProjectPad(trackId, note.pitch, note.velocity / 127, owner)
+                  : projectTrack.instrument?.instrumentId === "user-sampler"
+                    ? await engine.previewProjectSample(trackId, note.pitch, note.velocity / 127, owner)
+                    : await engine.previewProjectNote(trackId, note.pitch, note.velocity / 127, owner);
+                if (!played) { setProjectAudioStatus("No se pudo escuchar la nota seleccionada."); return; }
+                const clock = new MusicalClock(projectView.document.tempoMap, projectView.document.meterMap);
+                const durationMs = Math.max(120, Math.min(2500, Math.round(clock.secondsBetween(
+                  note.startTick, note.startTick + note.durationTick) * 1000)));
+                releaseProjectPreviewLater(owner, durationMs);
+              })().catch((cause: unknown) => setProjectAudioStatus(cause instanceof Error
+                ? cause.message : "Falló la preescucha de la nota"));
+            }} />) : (
+            <div className="ref-editor-empty"><strong>Tu piano roll está listo</strong>
+              <span>Abre o crea un proyecto para comenzar a componer.</span>
+              <button type="button" onClick={() => {
+                void createProject("Proyecto sin título").catch((cause: unknown) =>
+                  setProjectsError(cause instanceof Error ? cause.message : "No se pudo crear el proyecto"));
+              }}>Nuevo proyecto</button>
+            </div>
+          )}
+        />}
+        {screen === "studio" && !referenceStudioOpen && <div className="piano-app__studio">
+          <div className="piano-app__reference-return">
+            <button type="button" onClick={() => setReferenceStudioOpen(true)}>← Volver al nuevo Studio</button>
+          </div>
           <div className="piano-app__hero">
             <div><p className="piano-app__eyebrow">Instrumento en vivo</p><h1>Studio</h1>
               <p>Toca con el SMK-37, un controlador MIDI o el teclado en pantalla.</p></div>
@@ -2567,6 +3204,18 @@ export default function PianoApp() {
               sourceOptions={drumSourceOptions} projectName={projectView?.document.name}
               trackName={drumTrack?.name} meter={projectView?.document.meterMap[0]}
               saveState={projectView?.status} externalError={projectView?.error ?? undefined}
+              midiLearnAction={learnAction}
+              onMidiLearnPad={(padId) => {
+                const action = drumPadMidiAction(padId);
+                latestRef.current.learnAction = action;
+                setLearnAction(action);
+                setMidiError("");
+                void prepareProjectAudio();
+              }}
+              onCancelMidiLearn={() => {
+                latestRef.current.learnAction = null;
+                setLearnAction(null);
+              }}
               onCommand={(command: ProjectCommand) => {
                 if (!projectSessionRef.current) throw new Error("Abre un proyecto antes de editar batería");
                 projectSessionRef.current.dispatch(command);
@@ -2663,6 +3312,11 @@ export default function PianoApp() {
                     playMode: event.target.value === "loop" ? "gate" : sampleRegionDraft.playMode })}>
                   <option value="none">Sin loop</option><option value="loop">Repetir región</option>
                 </select></label>
+                <label>Motor de duración<select aria-label="Motor de duración de muestra" value="repitch"
+                  onChange={() => undefined}>
+                  <option value="repitch">Repitch · tono y duración vinculados</option>
+                  <option value="stretch" disabled>Time-stretch · no disponible</option>
+                </select><small>El sampler actual usa repitch explícito. Time-stretch de calidad está deshabilitado en vez de simularse cambiando el tono.</small></label>
                 <label className="piano-app__sample-check"><input type="checkbox" checked={sampleRegionDraft.reverse}
                   onChange={(event) => setSampleRegionDraft({ ...sampleRegionDraft, reverse: event.target.checked })} /> Reversa</label>
               </div>
@@ -2711,7 +3365,21 @@ export default function PianoApp() {
               Reintentar guardado de audio</button>}
           </>}
           {workspace === "mixer" && projectView && <ProjectMixer document={projectView.document}
-            meter={trackMeters} masterMeter={visibleProjectMeters?.masterMeter}
+            meter={trackMeters} masterPreMeter={visibleProjectMeters?.masterPreMeter}
+            masterMeter={visibleProjectMeters?.masterMeter}
+            sidechainStatus={trackSidechains}
+            effectComparisonStatus={trackEffectComparisons}
+            onTrackEffectComparison={(trackId, mode) => {
+              void (async () => {
+                if (!engine.projectPlaybackSnapshot() && !(await prepareProjectAudio())) {
+                  throw new Error("No se pudo preparar el audio para comparar A/B");
+                }
+                const result = engine.setProjectTrackEffectComparison(trackId, mode);
+                if (!result) throw new Error("La comparación A/B no está disponible");
+                setProjectsError("");
+              })().catch((cause: unknown) => setProjectsError(cause instanceof Error
+                ? cause.message : "No se pudo cambiar la comparación A/B"));
+            }}
             onTrackMix={commitTrackMix} onMasterMix={commitMasterMix}
             onTrackEffects={commitTrackEffects} onMasterEffects={commitMasterEffects}
             onCreateBus={createProjectBus} onRemoveBus={removeProjectBus}
@@ -2723,6 +3391,20 @@ export default function PianoApp() {
             availableTargets={automationTargets} effectiveValues={effectiveAutomationValues}
             playheadTick={projectTick} readPlayheadTick={readProjectTick}
             saveState={projectView.status}
+            midiLearnAction={learnAction}
+            onMidiLearn={(laneId, takeover) => {
+              const action = automationMidiAction(laneId, takeover);
+              latestRef.current.learnAction = action;
+              setLearnAction(action);
+              setMidiError("");
+            }}
+            onCancelMidiLearn={() => { latestRef.current.learnAction = null; setLearnAction(null); }}
+            onTouchPreview={(laneId, _target, value) => {
+              engine.setProjectAutomationLiveOverride(laneId, value);
+            }}
+            onTouchRelease={(laneId) => {
+              engine.releaseProjectAutomationLiveOverride(laneId);
+            }}
             onCommand={(command) => commitAutomationEdit((session) => session.dispatch(command))}
             onUndo={() => commitAutomationEdit((session) => session.undo())}
             onRedo={() => commitAutomationEdit((session) => session.redo())}
@@ -2768,8 +3450,7 @@ export default function PianoApp() {
               if (metronomeOn) void engine.setMetronome({ enabled: true, bpm: next });
             }} /><span>BPM</span></div>
             <button type="button" className={metronomeOn ? "is-active" : ""} aria-pressed={metronomeOn}
-              onClick={() => { const next = !metronomeOn; setMetronomeOn(next);
-                void engine.setMetronome({ enabled: next, bpm }); }}>Metrónomo</button>
+              onClick={() => { void toggleMetronome(); }}>Metrónomo</button>
             <button type="button" className={recording ? "is-recording" : "piano-app__primary"}
               onClick={() => { if (recording) void stopRecording(); else startRecording(); }}>
               {recording ? "■ Detener grabación" : "● Grabar MIDI"}</button>

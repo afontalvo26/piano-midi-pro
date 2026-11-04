@@ -4,7 +4,9 @@ test("Studio crea arreglo y escena propia, deshace y recarga en móvil", async (
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await page.getByRole("button", { name: "Arreglo", exact: true }).click();
   const arrangement = page.getByRole("region", { name: "Arreglo" });
   await expect(arrangement).toBeVisible();

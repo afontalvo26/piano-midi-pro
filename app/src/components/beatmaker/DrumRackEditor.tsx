@@ -8,6 +8,7 @@ import { removeDrumStep } from "../../composition/drumPattern.ts";
 import { editPianoRollNoteWithPerformance, pianoRollReplaceCommand,
   type EditableNoteFields, type EditablePerformanceFields } from "../../composition/pianoRollModel.ts";
 import { NoteInspector } from "./NoteInspector.tsx";
+import { parseDrumPadMidiAction } from "../../midi/drumPadMidi.ts";
 import "./DrumRackEditor.css";
 
 export interface DrumRackPadStatus {
@@ -41,6 +42,9 @@ export interface DrumRackEditorProps {
   readonly canUndo?: boolean;
   readonly canRedo?: boolean;
   readonly onPreviewRackPad?: (pad: ProjectDrumPad, ownerId: string) => void;
+  readonly midiLearnAction?: string | null;
+  readonly onMidiLearnPad?: (padId: string) => void;
+  readonly onCancelMidiLearn?: () => void;
 }
 
 const PAGE_SIZE = 16;
@@ -62,7 +66,8 @@ function sourceId(source: ProjectDrumPadSource | null,
 
 export function DrumRackEditor(props: DrumRackEditorProps) {
   const { document, track, pattern, padStatuses = [], sourceOptions = [], saveState,
-    externalError, onCommand, onUndo, onRedo, canUndo, canRedo, onPreviewRackPad } = props;
+    externalError, onCommand, onUndo, onRedo, canUndo, canRedo, onPreviewRackPad,
+    midiLearnAction, onMidiLearnPad, onCancelMidiLearn } = props;
   const [page, setPage] = useState(0);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -88,6 +93,8 @@ export function DrumRackEditor(props: DrumRackEditorProps) {
   const selectedNotePad = selectedNote ? pads.find((pad) =>
     pad.midiNote === selectedNote.pitch && pad.channel === selectedNote.channel) : undefined;
   const selectedPad = selectedPadId ? pads.find((pad) => pad.id === selectedPadId) : undefined;
+  const pendingPadLearn = parseDrumPadMidiAction(midiLearnAction ?? "");
+  const learningSelectedPad = !!selectedPad && pendingPadLearn?.padId === selectedPad.id;
   const readyCount = pads.filter((pad) => statuses.get(pad.id)?.assetStatus === "ready").length;
 
   async function commit(command: ProjectCommand, nextPattern?: ProjectPattern): Promise<boolean> {
@@ -168,6 +175,7 @@ export function DrumRackEditor(props: DrumRackEditorProps) {
         channel: numberField(form, "channel", 1, 16, true) - 1,
         source, gainDb: numberField(form, "gainDb", -120, 24),
         pan: numberField(form, "pan", -1, 1),
+        velocitySensitivity: numberField(form, "velocitySensitivity", 0, 2),
         pitchSemitones: numberField(form, "pitchSemitones", -24, 24),
         startFrame: numberField(form, "startFrame", 0, Number.MAX_SAFE_INTEGER, true),
         ...(endFrame === undefined ? {} : { endFrame }), attackMs: numberField(form, "attackMs", 0, 10000),
@@ -310,6 +318,10 @@ export function DrumRackEditor(props: DrumRackEditorProps) {
           step="any" defaultValue={selectedPad.gainDb} required /></label>
         <label>Pan −1 a 1<input name="pan" type="number" inputMode="decimal" min={-1} max={1}
           step="any" defaultValue={selectedPad.pan} required /></label>
+        <label>Sensibilidad velocity<input name="velocitySensitivity" aria-label="Sensibilidad velocity del pad"
+          type="number" inputMode="decimal" min={0} max={2} step={0.05}
+          defaultValue={selectedPad.velocitySensitivity ?? 1} required />
+          <small>0 = casi fija · 1 = normal · 2 = más dinámica</small></label>
         <label>Tono semitonos<input name="pitchSemitones" type="number" inputMode="decimal"
           min={-24} max={24} step="any" defaultValue={selectedPad.pitchSemitones} required /></label>
         <label>Inicio frame<input name="startFrame" type="number" inputMode="numeric" min={0}
@@ -331,6 +343,14 @@ export function DrumRackEditor(props: DrumRackEditorProps) {
           defaultValue={selectedPad.stepCount} required /></label>
         <label className="drum-rack__check"><input name="mute" type="checkbox" defaultChecked={selectedPad.mute} />Silenciar</label>
         <label className="drum-rack__check"><input name="solo" type="checkbox" defaultChecked={selectedPad.solo} />Solo</label>
+        {onMidiLearnPad && <div className="drum-rack__midi-learn">
+          {!learningSelectedPad ? <button type="button" disabled={busy || !!previewPattern}
+            onClick={() => onMidiLearnPad(selectedPad.id)}>MIDI Learn de este pad</button>
+            : <button type="button" onClick={onCancelMidiLearn}>Cancelar MIDI Learn</button>}
+          <small>{learningSelectedPad
+            ? "Golpea ahora el pad/tecla física que debe disparar este pad. Se guardarán puerto, canal, nota y banco observados."
+            : "No se presupone ningún mapa del controlador; Learn usa el mensaje físico real."}</small>
+        </div>}
         <div className="drum-rack__actions"><button type="submit" disabled={busy || !!previewPattern}>Guardar pad</button>
           <span>Ciclo: {drumPadCycleTicks(selectedPad)} ticks</span></div>
       </form>

@@ -13,6 +13,81 @@ function clipById(document: ProjectDocumentV1, clipId: string): ProjectClip {
   return clip;
 }
 
+export function groupArrangementClips(document: ProjectDocumentV1, clipIds: readonly string[],
+  at = Date.now(), groupId = crypto.randomUUID()): ProjectCommand {
+  const ids = [...new Set(clipIds)];
+  if (ids.length < 2 || !/^[a-zA-Z0-9_.:-]{1,80}$/.test(groupId)) {
+    throw new RangeError("Selecciona al menos dos clips para agrupar");
+  }
+  const selected = ids.map((clipId) => clipById(document, clipId));
+  if (selected.some((clip) => clip.groupId !== undefined)) {
+    throw new RangeError("Desagrupa primero los clips que ya pertenecen a otro grupo");
+  }
+  const wanted = new Set(ids);
+  const clips = document.clips.map((clip) => wanted.has(clip.id) ? { ...clip, groupId } : clip);
+  return { kind: "replaceClips", expected: document.clips, clips, at };
+}
+
+export function ungroupArrangementClip(document: ProjectDocumentV1, clipId: string,
+  at = Date.now()): ProjectCommand {
+  const clip = clipById(document, clipId);
+  if (!clip.groupId) throw new RangeError("El clip no pertenece a un grupo");
+  const groupId = clip.groupId;
+  const clips = document.clips.map((item) => {
+    if (item.groupId !== groupId) return item;
+    const copy = { ...item };
+    delete (copy as { groupId?: string }).groupId;
+    return copy;
+  });
+  return { kind: "replaceClips", expected: document.clips, clips, at };
+}
+
+/** Move a clip or its complete edit group in one CAS/Undo operation. */
+export function moveArrangementClipGroup(document: ProjectDocumentV1, clipId: string,
+  deltaTicks: number, at = Date.now()): ProjectCommand {
+  const anchor = clipById(document, clipId);
+  if (!Number.isSafeInteger(deltaTicks) || deltaTicks === 0) {
+    throw new RangeError("Movimiento de grupo inválido");
+  }
+  const members = anchor.groupId
+    ? document.clips.filter((clip) => clip.groupId === anchor.groupId) : [anchor];
+  if (members.some((clip) => clip.startTick + deltaTicks < 0)) {
+    throw new RangeError("El grupo no puede moverse antes del tick cero");
+  }
+  const memberIds = new Set(members.map((clip) => clip.id));
+  for (const fade of document.audioCrossfades ?? []) {
+    const outgoing = memberIds.has(fade.outgoingClipId);
+    const incoming = memberIds.has(fade.incomingClipId);
+    if (outgoing !== incoming) {
+      throw new RangeError("Incluye ambos clips del crossfade en el grupo antes de moverlo");
+    }
+  }
+  const clock = new MusicalClock(document.tempoMap, document.meterMap);
+  const clips = document.clips.map((clip): ProjectClip => {
+    if (!memberIds.has(clip.id)) return clip;
+    const requestedStart = clip.startTick + deltaTicks;
+    if (clip.kind !== "audio" || clip.timeMode !== "absolute") {
+      return { ...clip, startTick: requestedStart };
+    }
+    const deltaUs = Math.round((clock.tickToSeconds(requestedStart) -
+      clock.tickToSeconds(clip.startTick)) * 1_000_000);
+    const absoluteStartUs = clip.absoluteStartUs! + deltaUs;
+    const absoluteEndUs = clip.absoluteEndUs! + deltaUs;
+    if (!Number.isSafeInteger(absoluteStartUs) || absoluteStartUs < 0 ||
+        !Number.isSafeInteger(absoluteEndUs) || absoluteEndUs <= absoluteStartUs) {
+      throw new RangeError("Movimiento absoluto del grupo fuera del rango seguro");
+    }
+    const projectedStart = clock.secondsToTick(absoluteStartUs / 1_000_000);
+    const projectedEnd = clock.secondsToTick(absoluteEndUs / 1_000_000);
+    if (projectedStart !== requestedStart || projectedEnd <= projectedStart) {
+      throw new RangeError("El audio absoluto no puede conservar su ancla al mover el grupo");
+    }
+    return { ...clip, startTick: projectedStart, lengthTicks: projectedEnd - projectedStart,
+      absoluteStartUs, absoluteEndUs };
+  });
+  return { kind: "replaceClips", expected: document.clips, clips, at };
+}
+
 export function editArrangementClip(document: ProjectDocumentV1, clipId: string,
   fields: EditableClipFields, at = Date.now()): ProjectCommand {
   const clip = clipById(document, clipId);

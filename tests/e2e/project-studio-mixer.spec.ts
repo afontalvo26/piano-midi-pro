@@ -4,7 +4,9 @@ test("Mezclador guarda niveles y mute sin reiniciar el transporte en móvil", as
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  const referenceStudio = page.getByTestId("reference-studio");
+  await referenceStudio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await referenceStudio.getByRole("button", { name: "Editor de arreglo completo" }).click();
   await page.getByRole("button", { name: "Reproducir" }).click();
   await expect(page.getByRole("button", { name: "Pausar" })).toBeVisible({ timeout: 20_000 });
   await page.getByRole("button", { name: "Mezclador" }).click();

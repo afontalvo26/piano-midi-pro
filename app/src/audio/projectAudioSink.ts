@@ -1,6 +1,7 @@
 import * as Tone from "tone";
 import { DrumKitEngine } from "../engine/DrumKitEngine";
-import type { ProjectAssetRef, ProjectDocumentV1, ProjectMixChannel, ProjectTrack } from "../project/model";
+import type { ProjectAssetRef, ProjectAutomationLane, ProjectDocumentV1, ProjectEffect,
+  ProjectMixChannel, ProjectTrack } from "../project/model";
 import type { OwnedVoiceHandle } from "./ownedVoiceRegistry";
 import { LiveVoiceController } from "./liveVoiceController";
 import { DecodedPianoSampleBank, ToneSampleVoiceFactory } from "./toneSampleVoiceFactory";
@@ -11,7 +12,8 @@ import { UserSampleEngine, defaultUserSampleRegion } from "./userSampleEngine";
 import { MonoUserSampleEngine } from "./monoUserSampleEngine";
 import { DrumRackEngine, type DrumRackPadStatus } from "./drumRackEngine";
 import { AudioClipEngine } from "./audioClipEngine";
-import { connectProjectEffects } from "./projectEffects.ts";
+import { connectProjectEffects, projectEffectAutomationParam } from "./projectEffects.ts";
+import { projectAutomationBaseValue, projectAutomationParameter } from "../project/automationParameters.ts";
 import { assertSafeAudioRouting } from "../project/mixRouting.ts";
 import { SALAMANDER_CORE_PACKAGE_VERSION } from "./verifiedSalamanderCore";
 import { TR808_FISCHER_VERSION, loadTr808FischerBass,
@@ -41,6 +43,19 @@ const MAX_PROJECT_PIANO_SOURCES = 64;
 const MAX_PROJECT_DRUM_SOURCES = 48;
 const MAX_PROJECT_SAMPLE_SOURCES = 32;
 const MAX_PROJECT_AUDIO_CLIP_SOURCES = 24;
+const SIDECHAIN_PROCESSOR_NAME = "pmp-sidechain-detector-v1";
+const sidechainWorkletLoads = new WeakMap<BaseAudioContext, Promise<void>>();
+
+async function loadSidechainWorklet(context: ReturnType<typeof Tone.getContext>): Promise<void> {
+  const key = context.rawContext as BaseAudioContext;
+  let task = sidechainWorkletLoads.get(key);
+  if (!task) {
+    task = context.addAudioWorkletModule(new URL("./sidechainDetectorProcessor.js", import.meta.url).href);
+    sidechainWorkletLoads.set(key, task);
+  }
+  try { await task; }
+  catch (error) { sidechainWorkletLoads.delete(key); throw error; }
+}
 
 export interface ProjectTrackAudioStatus {
   readonly trackId: string;
@@ -54,6 +69,14 @@ export interface ProjectTrackAudioStatus {
   readonly solo: boolean;
   readonly gainDb: number;
   readonly pan: number;
+  readonly sidechainSourceTrackId: string | null;
+  readonly sidechainLookaheadMs: number;
+  readonly sidechainReductionDb: number;
+  readonly sidechainReductionPeakDb: number;
+  readonly sidechainError: string | null;
+  readonly effectComparisonMode: "off" | "original" | "processed";
+  readonly effectComparisonOriginalDb: number;
+  readonly effectComparisonProcessedDb: number;
   readonly meter: ProjectMeterSnapshot;
   readonly activeVoices: number;
   readonly allocatedVoices: number;
@@ -78,6 +101,9 @@ export interface ProjectAudioDiagnostics {
   readonly tracks: readonly ProjectTrackAudioStatus[];
   readonly metronome: { readonly ready: boolean; readonly error: string | null };
   readonly masterGainDb: number;
+  /** Level entering the master insert chain, before a limiter can hide overload. */
+  readonly masterPreMeter: ProjectMeterSnapshot;
+  /** Level leaving the complete master chain. */
   readonly masterMeter: ProjectMeterSnapshot;
   readonly masterError: string | null;
   readonly unsupportedControls: number;
@@ -98,11 +124,33 @@ interface TrackSlot {
   readonly volume: Tone.Volume;
   readonly panner: Tone.Panner;
   readonly muteGate: Tone.Gain;
+  /** Post-fader main output can be isolated independently from auxiliary sends. */
+  readonly mainGate: Tone.Gain;
+  /** Target-only delay provides actual detector lookahead without delaying the key source. */
+  readonly sidechainDelay: Tone.Delay;
+  /** Audio-rate gain controlled by the sidechain detector; unity when sidechain is disabled. */
+  readonly sidechainGate: Tone.Gain;
   readonly meter: Tone.Analyser;
   readonly meterState: MeterState;
+  readonly originalEffectMeter: Tone.Analyser;
+  readonly originalEffectMeterState: MeterState;
+  readonly processedEffectMeter: Tone.Analyser;
+  readonly processedEffectMeterState: MeterState;
+  readonly originalEffectGain: Tone.Gain;
+  readonly processedEffectGain: Tone.Gain;
+  effectComparisonMode: "off" | "original" | "processed";
+  effectComparisonOriginalDb: number;
+  effectComparisonProcessedDb: number;
   readonly effects: Tone.ToneAudioNode[];
+  readonly effectNodes: ReadonlyMap<string, Tone.ToneAudioNode>;
   /** Independent post-fader, post-insert sends to bus inputs. */
   readonly sends: Tone.Gain[];
+  readonly sendNodes: Map<string, Tone.Gain>;
+  sidechainNode: AudioWorkletNode | null;
+  sidechainSource: Tone.Analyser | null;
+  sidechainReductionDb: number;
+  sidechainReductionPeakDb: number;
+  sidechainError: string | null;
   piano: LiveVoiceController | null;
   drums: DrumKitEngine | null;
   sampler: UserSampleEngine | MonoUserSampleEngine | null;
@@ -175,8 +223,14 @@ export class ProjectAudioSink implements SequencerSink {
   readonly projectId: string;
   readonly rootOwnerId: string;
   private readonly master: Tone.Volume;
+  private readonly masterPreMeter: Tone.Analyser;
   private readonly masterMeter: Tone.Analyser;
   private readonly masterEffects: Tone.ToneAudioNode[] = [];
+  private readonly masterEffectNodes = new Map<string, Tone.ToneAudioNode>();
+  private readonly masterPreMeterState: MeterState = {
+    lastAt: -Infinity, clippedLastRead: false,
+    snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 },
+  };
   private readonly masterMeterState: MeterState = {
     lastAt: -Infinity, clippedLastRead: false,
     snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 },
@@ -187,6 +241,11 @@ export class ProjectAudioSink implements SequencerSink {
   private readonly effectiveMute = new Map<string, boolean>();
   private readonly handles = new Map<OwnedVoiceHandle, TrackSlot>();
   private readonly automatedParameters = new Set<string>();
+  private readonly automationTargetsByKey = new Map<string, ProjectAutomationLane["target"]>();
+  /** Parameters temporarily owned by a physical/Touch control; timeline events must not overwrite them. */
+  private readonly liveAutomationOverrides = new Map<string, number>();
+  /** First read event after a physical release must crossfade back instead of snapping. */
+  private readonly physicalAutomationReturns = new Set<string>();
   private automationReplanAt: number | null = null;
   private readonly pendingAutomationReturn = new Set<string>();
   private readonly replannedAutomation = new Set<string>();
@@ -210,12 +269,22 @@ export class ProjectAudioSink implements SequencerSink {
   constructor(document: ProjectDocumentV1, destination: Tone.ToneAudioNode,
     pianoBank: DecodedPianoSampleBank, ownsAudio: () => boolean,
     assetReader?: UserSampleReader,
-    /** Offline-only, pre-master capture of exactly one bus or direct source outlets. */
-    renderTap?: { readonly busTrackId?: string; readonly directMaster?: boolean }) {
+    /** Offline-only graph hints: isolated taps plus detector-only tracks for sidechain stems. */
+    renderTap?: { readonly trackId?: string; readonly busTrackId?: string;
+      readonly directMaster?: boolean; readonly silentTrackIds?: readonly string[] }) {
     if (document.ppq !== 960) throw new RangeError("project audio requires 960 PPQ");
     assertSafeAudioRouting(document);
+    const tappedTrackId = renderTap?.trackId;
     const tappedBusId = renderTap?.busTrackId;
-    if ((tappedBusId && renderTap?.directMaster) ||
+    const silentTrackIds = new Set(renderTap?.silentTrackIds ?? []);
+    if ([...silentTrackIds].some((id) => !document.tracks.some((track) =>
+      track.id === id && track.kind !== "bus"))) {
+      throw new RangeError("Pista silenciosa de detector inválida");
+    }
+    if ([tappedTrackId, tappedBusId, renderTap?.directMaster ? "direct" : undefined]
+        .filter(Boolean).length > 1 ||
+        (tappedTrackId && !document.tracks.some((track) =>
+          track.id === tappedTrackId && track.kind !== "bus")) ||
         (tappedBusId && !document.tracks.some((track) =>
           track.id === tappedBusId && track.kind === "bus"))) {
       throw new RangeError("Punto de captura de audio inválido");
@@ -227,17 +296,24 @@ export class ProjectAudioSink implements SequencerSink {
     this.ownsAudio = ownsAudio;
     this.assetReader = assetReader;
     this.master = new Tone.Volume(document.mix.masterGainDb);
+    this.masterPreMeter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
     this.masterMeter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
+    this.master.connect(this.masterPreMeter);
     // In a tapped offline render the master graph is deliberately silent.
     // Connecting a chosen bus's post-fader meter straight to the destination
     // excludes all other parallel paths, parent buses and master processing.
-    if (!renderTap?.busTrackId && !renderTap?.directMaster) {
+    if (!renderTap?.trackId && !renderTap?.busTrackId && !renderTap?.directMaster) {
       this.masterMeter.connect(destination);
     }
     let masterError: string | null = null;
     try {
-      this.masterEffects.push(...connectProjectEffects(document.mix.masterEffects,
-        this.master, this.masterMeter));
+      const masterNodes = connectProjectEffects(document.mix.masterEffects,
+        this.master, this.masterMeter);
+      this.masterEffects.push(...masterNodes);
+      document.mix.masterEffects.filter((effect) => effect.enabled).forEach((effect, index) => {
+        const node = masterNodes[index];
+        if (node) this.masterEffectNodes.set(effect.id, node);
+      });
     } catch (error) {
       masterError = error instanceof Error ? error.message : String(error);
     }
@@ -253,12 +329,19 @@ export class ProjectAudioSink implements SequencerSink {
         if (slot.track.mix.outputBusTrackId && (!target || target.track.kind !== "bus")) {
           throw new Error(`Pista ${slot.track.id}: bus de salida inexistente`);
         }
-        slot.panner.connect(slot.meter);
-        slot.meter.connect(target?.volume ?? this.master);
-        if (renderTap?.busTrackId === slot.track.id ||
+        slot.panner.connect(slot.sidechainDelay);
+        slot.sidechainDelay.connect(slot.sidechainGate);
+        slot.sidechainGate.connect(slot.meter);
+        slot.meter.connect(slot.mainGate);
+        const detectorOnly = silentTrackIds.has(slot.track.id);
+        if (!detectorOnly) slot.mainGate.connect(target?.volume ?? this.master);
+        if (!detectorOnly && (renderTap?.trackId === slot.track.id ||
+            renderTap?.busTrackId === slot.track.id ||
             (renderTap?.directMaster && slot.track.kind !== "bus" &&
-              !slot.track.mix.outputBusTrackId)) {
-          slot.meter.connect(destination);
+              !slot.track.mix.outputBusTrackId))) {
+          // Track/bus taps hear exactly one post-channel outlet. Direct-master
+          // tap keeps the main gate so route mute/solo semantics remain intact.
+          (renderTap?.directMaster ? slot.mainGate : slot.meter).connect(destination);
         }
         for (const send of slot.track.mix.sends) {
           const bus = this.slots.get(send.busTrackId);
@@ -267,8 +350,9 @@ export class ProjectAudioSink implements SequencerSink {
           }
           const sendGain = new Tone.Gain(10 ** (send.gainDb / 20));
           slot.sends.push(sendGain);
+          slot.sendNodes.set(send.id, sendGain);
           slot.meter.connect(sendGain);
-          sendGain.connect(bus.volume);
+          if (!detectorOnly) sendGain.connect(bus.volume);
         }
       }
       this.refreshMute();
@@ -281,12 +365,31 @@ export class ProjectAudioSink implements SequencerSink {
   private createSlot(track: ProjectTrack): TrackSlot {
     const panner = new Tone.Panner(track.mix.pan);
     const muteGate = new Tone.Gain(1).connect(panner);
+    const mainGate = new Tone.Gain(1);
+    const lookaheadMs = track.mix.sidechain?.lookaheadMs ?? 0;
+    const sidechainDelay = new Tone.Delay(lookaheadMs / 1000, 0.05);
+    const sidechainGate = new Tone.Gain(1);
     const volume = new Tone.Volume(track.mix.gainDb);
     const meter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
     const meterState: MeterState = { lastAt: -Infinity, clippedLastRead: false,
       snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 } };
-    const slot: TrackSlot = { track, volume, panner, muteGate, meter, meterState, effects: [],
-      sends: [], piano: null, drums: null,
+    const originalEffectMeter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
+    const processedEffectMeter = new Tone.Analyser({ type: "waveform", size: 2048, channels: 2 });
+    const originalEffectMeterState: MeterState = { lastAt: -Infinity, clippedLastRead: false,
+      snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 } };
+    const processedEffectMeterState: MeterState = { lastAt: -Infinity, clippedLastRead: false,
+      snapshot: { peak: 0, rms: 0, clipped: false, clipEvents: 0 } };
+    const originalEffectGain = new Tone.Gain(0).connect(muteGate);
+    const processedEffectGain = new Tone.Gain(1).connect(muteGate);
+    originalEffectMeter.connect(originalEffectGain);
+    processedEffectMeter.connect(processedEffectGain);
+    const slot: TrackSlot = { track, volume, panner, muteGate, mainGate, sidechainDelay, sidechainGate, meter, meterState,
+      originalEffectMeter, originalEffectMeterState, processedEffectMeter, processedEffectMeterState,
+      originalEffectGain, processedEffectGain, effectComparisonMode: "off",
+      effectComparisonOriginalDb: 0, effectComparisonProcessedDb: 0, effects: [],
+      effectNodes: new Map(), sends: [], sendNodes: new Map(), sidechainNode: null,
+      sidechainSource: null, sidechainReductionDb: 0,
+      sidechainReductionPeakDb: 0, sidechainError: null, piano: null, drums: null,
       sampler: null, rack: null, audioClips: null, sampleAsset: null,
       status: "loading", error: null, muteOverride: null, soloOverride: null,
       gainOverride: null, panOverride: null,
@@ -378,7 +481,14 @@ export class ProjectAudioSink implements SequencerSink {
     }
     if (slot.status !== "error") {
       try {
-        slot.effects.push(...connectProjectEffects(track.mix.effects, volume, muteGate));
+        volume.connect(originalEffectMeter);
+        const effectNodes = connectProjectEffects(track.mix.effects, volume, processedEffectMeter);
+        slot.effects.push(...effectNodes);
+        const map = slot.effectNodes as Map<string, Tone.ToneAudioNode>;
+        track.mix.effects.filter((effect) => effect.enabled).forEach((effect, index) => {
+          const node = effectNodes[index];
+          if (node) map.set(effect.id, node);
+        });
       } catch (error) {
         slot.status = "error";
         slot.error = error instanceof Error ? error.message : String(error);
@@ -390,7 +500,10 @@ export class ProjectAudioSink implements SequencerSink {
   /** Prepare every approved kit piece before the scheduler can make a hit. */
   async prepare(options: { readonly metronome?: boolean } = {}): Promise<ProjectAudioDiagnostics> {
     await Promise.all([...this.slots.values()].map(async (slot) => {
-      if (matchesRef(slot.track, PROJECT_808_INSTRUMENT) && slot.status === "loading") {
+      // A drum track can carry a drumRack and still reference the 808 bass
+      // package; the rack branch must own preparation in that case.
+      if (matchesRef(slot.track, PROJECT_808_INSTRUMENT) && !slot.track.drumRack &&
+          slot.status === "loading") {
         try {
           const sample = await loadTr808FischerBass(Tone.getContext().rawContext);
           if (this.disposed) return;
@@ -456,6 +569,7 @@ export class ProjectAudioSink implements SequencerSink {
         slot.error = error instanceof Error ? error.message : String(error);
       }
     }));
+    await this.prepareSidechains();
     if (options.metronome !== false) {
       try {
         await this.metronomeDrums.load(56);
@@ -465,6 +579,113 @@ export class ProjectAudioSink implements SequencerSink {
       }
     }
     return this.diagnostics();
+  }
+
+  private async prepareSidechains(): Promise<void> {
+    const targets = [...this.slots.values()].filter((slot) => slot.track.mix.sidechain);
+    if (!targets.length || this.disposed) return;
+    // Tone wraps the native BaseAudioContext; AudioWorkletNode must be created
+    // through Tone so the node belongs to the same (possibly offline) context.
+    const context = Tone.getContext();
+    try {
+      await loadSidechainWorklet(context);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      for (const slot of targets) {
+        slot.sidechainError = reason;
+        slot.error = slot.error ?? `Sidechain: ${reason}`;
+      }
+      return;
+    }
+    for (const slot of targets) {
+      if (this.disposed || slot.sidechainNode) continue;
+      const config = slot.track.mix.sidechain!;
+      const source = this.slots.get(config.sourceTrackId);
+      if (!source || source === slot || source.track.kind === "bus") {
+        slot.sidechainError = "Fuente sidechain no disponible";
+        slot.error = slot.error ?? `Sidechain: ${slot.sidechainError}`;
+        continue;
+      }
+      if (source.status === "error") {
+        slot.sidechainError = `Fuente sidechain con error: ${source.error ?? source.track.name}`;
+        slot.error = slot.error ?? `Sidechain: ${slot.sidechainError}`;
+        continue;
+      }
+      try {
+        const node = context.createAudioWorkletNode(SIDECHAIN_PROCESSOR_NAME, {
+          numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1],
+          channelCount: 2, channelCountMode: "max",
+          processorOptions: { thresholdDb: config.thresholdDb, ratio: config.ratio,
+            attackMs: config.attackMs, releaseMs: config.releaseMs,
+            maxReductionDb: config.maxReductionDb },
+        });
+        node.port.onmessage = (event: MessageEvent<{ reductionDb?: number; peakReductionDb?: number }>) => {
+          const reduction = event.data?.reductionDb;
+          const peak = event.data?.peakReductionDb;
+          if (typeof reduction === "number" && Number.isFinite(reduction)) {
+            slot.sidechainReductionDb = bounded(reduction, 0, config.maxReductionDb);
+          }
+          if (typeof peak === "number" && Number.isFinite(peak)) {
+            slot.sidechainReductionPeakDb = bounded(peak, 0, config.maxReductionDb);
+          }
+        };
+        source.meter.connect(node);
+        // AudioNode -> AudioParam is additive in Web Audio. Zero the intrinsic
+        // value so the detector's 0..1 signal becomes the complete gain law.
+        slot.sidechainGate.gain.value = 0;
+        Tone.connect(node, slot.sidechainGate.gain);
+        slot.sidechainNode = node;
+        slot.sidechainSource = source.meter;
+        slot.sidechainError = null;
+      } catch (error) {
+        slot.sidechainError = error instanceof Error ? error.message : String(error);
+        slot.error = slot.error ?? `Sidechain: ${slot.sidechainError}`;
+      }
+    }
+  }
+
+  /** Temporary, non-persistent A/B monitor. Both branches are level-matched by RMS using attenuation only. */
+  setTrackEffectComparison(trackId: string, mode: "off" | "original" | "processed"):
+    { readonly mode: "off" | "original" | "processed";
+      readonly originalCompensationDb: number; readonly processedCompensationDb: number } {
+    const slot = this.slots.get(trackId);
+    if (!slot || slot.disposed) throw new RangeError(`Pista inexistente: ${trackId}`);
+    if (mode !== "off" && !slot.track.mix.effects.some((effect) => effect.enabled)) {
+      throw new Error("La pista no tiene efectos activos para comparar");
+    }
+    const ramp = (gain: Tone.Gain, value: number) => {
+      const now = Tone.immediate();
+      gain.gain.cancelAndHoldAtTime(now);
+      gain.gain.linearRampToValueAtTime(value, now + 0.015);
+    };
+    if (mode === "off") {
+      slot.effectComparisonMode = "off";
+      slot.effectComparisonOriginalDb = 0;
+      slot.effectComparisonProcessedDb = 0;
+      ramp(slot.originalEffectGain, 0);
+      ramp(slot.processedEffectGain, 1);
+      return { mode, originalCompensationDb: 0, processedCompensationDb: 0 };
+    }
+    if (slot.effectComparisonMode === "off") {
+      const original = readMeter(slot.originalEffectMeter, slot.originalEffectMeterState).rms;
+      const processed = readMeter(slot.processedEffectMeter, slot.processedEffectMeterState).rms;
+      const floor = 1e-5;
+      if (original > floor && processed > floor) {
+        const target = Math.min(original, processed);
+        slot.effectComparisonOriginalDb = bounded(20 * Math.log10(target / original), -18, 0);
+        slot.effectComparisonProcessedDb = bounded(20 * Math.log10(target / processed), -18, 0);
+      } else {
+        slot.effectComparisonOriginalDb = 0;
+        slot.effectComparisonProcessedDb = 0;
+      }
+    }
+    slot.effectComparisonMode = mode;
+    const originalGain = 10 ** (slot.effectComparisonOriginalDb / 20);
+    const processedGain = 10 ** (slot.effectComparisonProcessedDb / 20);
+    ramp(slot.originalEffectGain, mode === "original" ? originalGain : 0);
+    ramp(slot.processedEffectGain, mode === "processed" ? processedGain : 0);
+    return { mode, originalCompensationDb: slot.effectComparisonOriginalDb,
+      processedCompensationDb: slot.effectComparisonProcessedDb };
   }
 
   hasAudioOwnership(): boolean { return !this.disposed && !this.masterError && this.ownsAudio(); }
@@ -635,33 +856,167 @@ export class ProjectAudioSink implements SequencerSink {
     }
   }
 
-  private automationParameter(event: ScheduledAutomation):
-    Tone.Param<"decibels"> | Tone.Param<"audioRange"> {
-    if (event.target.scope === "master") {
-      if (event.target.parameterId !== "masterGainDb") {
-        throw new RangeError("Parámetro master no automatizable");
-      }
-      return this.master.volume;
-    }
-    const slot = this.slots.get(event.target.ownerId);
-    if (!slot) throw new RangeError(`Pista ${event.target.ownerId} inexistente`);
-    if (event.target.parameterId === "gainDb") return slot.volume.volume;
-    if (event.target.parameterId === "pan") return slot.panner.pan;
-    throw new RangeError("Parámetro de pista no automatizable");
+  private automationTargetKey(target: ProjectAutomationLane["target"]): string {
+    const key = JSON.stringify([target.scope, target.ownerId ?? null,
+      target.effectId ?? null, target.sendId ?? null, target.parameterId]);
+    this.automationTargetsByKey.set(key, { ...target });
+    return key;
   }
 
-  private automationKey(event: ScheduledAutomation): string {
-    return event.target.scope === "master" ? "master:masterGainDb" :
-      `${event.target.ownerId}:${event.target.parameterId}`;
+  private automationControl(target: ProjectAutomationLane["target"]): {
+    readonly min: number;
+    readonly max: number;
+    readonly cancel: (time: number) => void;
+    readonly set: (value: number, time: number) => void;
+    readonly ramp: (value: number, time: number) => void;
+  } {
+    const descriptor = projectAutomationParameter(this.document, target);
+    if (!descriptor) {
+      throw new RangeError("Parámetro no automatizable en vivo");
+    }
+    if (target.scope === "clip" && target.ownerId && !target.effectId &&
+        target.parameterId === "gainDb") {
+      const clip = this.document.clips.find((item) => item.id === target.ownerId);
+      const slot = clip ? this.slots.get(clip.trackId) : undefined;
+      if (!clip || clip.kind !== "audio" || (clip.timeMode ?? "beat") !== "beat" ||
+          !slot?.audioClips) {
+        throw new RangeError("Clip de audio no automatizable en este grafo");
+      }
+      return {
+        min: descriptor.min, max: descriptor.max,
+        cancel: (time) => { slot.audioClips!.cancelClipGainAutomation(clip.id, time); },
+        set: (value, time) => { slot.audioClips!.setClipGainAtTime(clip.id, value, time); },
+        ramp: (value, time) => { slot.audioClips!.rampClipGainToValueAtTime(clip.id, value, time); },
+      };
+    }
+    if (target.scope === "track" && target.ownerId && target.sendId &&
+        !target.effectId && target.parameterId === "gainDb") {
+      const slot = this.slots.get(target.ownerId);
+      const send = slot?.track.mix.sends.find((item) => item.id === target.sendId);
+      const node = slot?.sendNodes.get(target.sendId);
+      if (!slot || !send || !node) throw new RangeError("Send automatizado no está activo en el grafo");
+      const linear = (db: number) => 10 ** (Math.max(-120, Math.min(24, db)) / 20);
+      return {
+        min: descriptor.min, max: descriptor.max,
+        cancel: (time) => { node.gain.cancelAndHoldAtTime(time); },
+        set: (value, time) => { node.gain.setValueAtTime(linear(value), time); },
+        ramp: (value, time) => { node.gain.exponentialRampToValueAtTime(linear(value), time); },
+      };
+    }
+    if (target.effectId) {
+      let effect: ProjectEffect | undefined;
+      let node: Tone.ToneAudioNode | undefined;
+      if (target.scope === "master") {
+        effect = this.document.mix.masterEffects.find((item) => item.id === target.effectId);
+        node = this.masterEffectNodes.get(target.effectId);
+      } else {
+        const slot = target.ownerId ? this.slots.get(target.ownerId) : undefined;
+        effect = slot?.track.mix.effects.find((item) => item.id === target.effectId);
+        node = slot?.effectNodes.get(target.effectId);
+      }
+      if (!effect || !node) throw new RangeError("Efecto automatizado no está activo en el grafo");
+      const binding = projectEffectAutomationParam(effect, node, target.parameterId);
+      if (!binding) throw new RangeError("Parámetro de efecto no automatizable");
+      return {
+        min: descriptor.min, max: descriptor.max,
+        cancel: (time) => { binding.param.cancelAndHoldAtTime(time); },
+        set: (value, time) => { binding.param.setValueAtTime(binding.toAudioValue(value), time); },
+        ramp: (value, time) => { binding.param.linearRampToValueAtTime(binding.toAudioValue(value), time); },
+      };
+    }
+    if (target.scope === "master" && target.parameterId === "masterGainDb") {
+      return {
+        min: descriptor.min, max: descriptor.max,
+        cancel: (time) => { this.master.volume.cancelAndHoldAtTime(time); },
+        set: (value, time) => { this.master.volume.setValueAtTime(value, time); },
+        ramp: (value, time) => { this.master.volume.exponentialRampToValueAtTime(value, time); },
+      };
+    }
+    if (target.scope === "track" && target.ownerId) {
+      const slot = this.slots.get(target.ownerId);
+      if (!slot) throw new RangeError(`Pista ${target.ownerId} inexistente`);
+      if (target.parameterId === "gainDb") {
+        return {
+          min: descriptor.min, max: descriptor.max,
+          cancel: (time) => { slot.volume.volume.cancelAndHoldAtTime(time); },
+          set: (value, time) => { slot.volume.volume.setValueAtTime(value, time); },
+          ramp: (value, time) => { slot.volume.volume.exponentialRampToValueAtTime(value, time); },
+        };
+      }
+      if (target.parameterId === "pan") {
+        return {
+          min: descriptor.min, max: descriptor.max,
+          cancel: (time) => { slot.panner.pan.cancelAndHoldAtTime(time); },
+          set: (value, time) => { slot.panner.pan.setValueAtTime(value, time); },
+          ramp: (value, time) => { slot.panner.pan.linearRampToValueAtTime(value, time); },
+        };
+      }
+    }
+    throw new RangeError("Parámetro de automatización no disponible");
+  }
+
+  private automationBaseValue(target: ProjectAutomationLane["target"]): number {
+    if (!target.effectId && !target.sendId &&
+        target.scope === "master" && target.parameterId === "masterGainDb") {
+      return this.masterGainOverride ?? this.document.mix.masterGainDb;
+    }
+    if (!target.effectId && !target.sendId && target.scope === "track" && target.ownerId) {
+      const slot = this.slots.get(target.ownerId);
+      if (!slot) throw new RangeError(`Pista ${target.ownerId} inexistente`);
+      if (target.parameterId === "gainDb") return slot.gainOverride ?? slot.track.mix.gainDb;
+      if (target.parameterId === "pan") return slot.panOverride ?? slot.track.mix.pan;
+    }
+    const value = projectAutomationBaseValue(this.document, target);
+    if (value === undefined) throw new RangeError("Valor base de automatización no disponible");
+    return value;
+  }
+
+  /** Physical/Touch ownership cancels future timeline writes until explicitly released. */
+  setAutomationLiveOverride(target: ProjectAutomationLane["target"], value: number,
+    audioTime = Tone.immediate()): void {
+    const key = this.automationTargetKey(target);
+    const control = this.automationControl(target);
+    this.physicalAutomationReturns.delete(key);
+    validMixNumber(value, control.min, control.max, "Control físico");
+    if (!this.liveAutomationOverrides.has(key)) {
+      control.cancel(audioTime);
+      this.automatedParameters.delete(key);
+      this.pendingAutomationReturn.delete(key);
+      this.replannedAutomation.delete(key);
+    }
+    this.liveAutomationOverrides.set(key, value);
+    control.ramp(value, audioTime + 0.015);
+  }
+
+  /** Release physical ownership and return smoothly to the resolved read/base value. */
+  releaseAutomationLiveOverride(target: ProjectAutomationLane["target"], returnValue: number,
+    audioTime = Tone.immediate()): void {
+    const key = this.automationTargetKey(target);
+    if (!this.liveAutomationOverrides.delete(key)) return;
+    const control = this.automationControl(target);
+    validMixNumber(returnValue, control.min, control.max, "Retorno de automatización");
+    control.cancel(audioTime);
+    // Also works while stopped/paused. If transport is playing, the immediate
+    // automation replan will cancel this short return and schedule the exact curve.
+    control.ramp(returnValue, audioTime + 0.015);
+    this.physicalAutomationReturns.add(key);
+  }
+
+  isAutomationLiveOverride(target: ProjectAutomationLane["target"]): boolean {
+    return this.liveAutomationOverrides.has(this.automationTargetKey(target));
+  }
+
+  automationLiveOverrideValue(target: ProjectAutomationLane["target"]): number | null {
+    return this.liveAutomationOverrides.get(this.automationTargetKey(target)) ?? null;
   }
 
   automation(event: ScheduledAutomation): void {
     if (this.disposed || !this.hasAudioOwnership()) return;
-    const isDb = event.target.parameterId !== "pan";
-    validMixNumber(event.startValue, isDb ? -120 : -1, isDb ? 24 : 1, "Automatización");
-    validMixNumber(event.endValue, isDb ? -120 : -1, isDb ? 24 : 1, "Automatización");
-    const param = this.automationParameter(event);
-    const key = this.automationKey(event);
+    const key = this.automationTargetKey(event.target);
+    if (this.liveAutomationOverrides.has(key)) return;
+    const control = this.automationControl(event.target);
+    validMixNumber(event.startValue, control.min, control.max, "Automatización");
+    validMixNumber(event.endValue, control.min, control.max, "Automatización");
     const now = Math.max(Tone.immediate(), this.automationReplanAt ?? 0);
     const start = Math.max(now, event.audioTime);
     const duration = event.endAudioTime - event.audioTime;
@@ -670,50 +1025,31 @@ export class ProjectAudioSink implements SequencerSink {
       ? event.startValue + (event.endValue - event.startValue) * fraction : event.startValue;
     const firstAfterReplan = this.automationReplanAt !== null &&
       !this.replannedAutomation.has(key);
+    const physicalReturn = firstAfterReplan && this.physicalAutomationReturns.has(key);
     if (firstAfterReplan) {
-      if (!this.pendingAutomationReturn.has(key)) param.cancelAndHoldAtTime(now);
+      if (!this.pendingAutomationReturn.has(key)) control.cancel(now);
       this.pendingAutomationReturn.delete(key);
       this.replannedAutomation.add(key);
     }
-    if (event.target.parameterId === "pan") {
-      const pan = param as Tone.Param<"audioRange">;
-      if (firstAfterReplan && start > now) pan.linearRampToValueAtTime(startValue, start);
-      else pan.setValueAtTime(startValue, start);
-      if (event.shape === "linear" && event.endAudioTime > start) {
-        pan.linearRampToValueAtTime(event.endValue, event.endAudioTime);
-      }
-    } else {
-      const gain = param as Tone.Param<"decibels">;
-      if (firstAfterReplan && start > now) gain.exponentialRampToValueAtTime(startValue, start);
-      else gain.setValueAtTime(startValue, start);
-      if (event.shape === "linear" && event.endAudioTime > start) {
-        // Exponential linear-gain ramp is linear in dB, the persisted parameter unit.
-        gain.exponentialRampToValueAtTime(event.endValue, event.endAudioTime);
-      }
+    const reentryAt = physicalReturn ? Math.max(start, now + 0.015) : start;
+    if (physicalReturn || (firstAfterReplan && start > now)) {
+      control.ramp(startValue, reentryAt);
+    } else control.set(startValue, start);
+    if (event.shape === "linear" && event.endAudioTime > reentryAt) {
+      control.ramp(event.endValue, event.endAudioTime);
     }
+    if (physicalReturn) this.physicalAutomationReturns.delete(key);
     this.automatedParameters.add(key);
   }
 
   private restoreAutomationParameter(key: string, audioTime: number,
     smooth: boolean): void {
-    if (key === "master:masterGainDb") {
-      const base = this.masterGainOverride ?? this.document.mix.masterGainDb;
-      if (smooth) this.master.volume.exponentialRampToValueAtTime(base, audioTime + 0.015);
-      else this.master.volume.setValueAtTime(base, audioTime);
-      return;
-    }
-    const separator = key.lastIndexOf(":");
-    const slot = this.slots.get(key.slice(0, separator));
-    if (!slot) return;
-    if (key.slice(separator + 1) === "gainDb") {
-      const base = slot.gainOverride ?? slot.track.mix.gainDb;
-      if (smooth) slot.volume.volume.exponentialRampToValueAtTime(base, audioTime + 0.015);
-      else slot.volume.volume.setValueAtTime(base, audioTime);
-    } else {
-      const base = slot.panOverride ?? slot.track.mix.pan;
-      if (smooth) slot.panner.pan.linearRampToValueAtTime(base, audioTime + 0.015);
-      else slot.panner.pan.setValueAtTime(base, audioTime);
-    }
+    const target = this.automationTargetsByKey.get(key);
+    if (!target) return;
+    const control = this.automationControl(target);
+    const base = this.automationBaseValue(target);
+    if (smooth) control.ramp(base, audioTime + 0.015);
+    else control.set(base, audioTime);
   }
 
   cancelAutomationEpoch(rootOwnerId: string, _epoch: number, audioTime: number,
@@ -722,15 +1058,9 @@ export class ProjectAudioSink implements SequencerSink {
     this.pendingAutomationReturn.clear();
     this.replannedAutomation.clear();
     for (const key of this.automatedParameters) {
-      if (key === "master:masterGainDb") {
-        this.master.volume.cancelAndHoldAtTime(audioTime);
-      } else {
-        const separator = key.lastIndexOf(":");
-        const slot = this.slots.get(key.slice(0, separator));
-        if (!slot) continue;
-        if (key.slice(separator + 1) === "gainDb") slot.volume.volume.cancelAndHoldAtTime(audioTime);
-        else slot.panner.pan.cancelAndHoldAtTime(audioTime);
-      }
+      const target = this.automationTargetsByKey.get(key);
+      if (!target) continue;
+      this.automationControl(target).cancel(audioTime);
       if (restoreBase) this.restoreAutomationParameter(key, audioTime, false);
       else this.pendingAutomationReturn.add(key);
     }
@@ -836,12 +1166,44 @@ export class ProjectAudioSink implements SequencerSink {
     return false;
   }
 
+  /** Route-aware solo gating: source mute is not enough when the same signal
+   * reaches master directly AND a soloed auxiliary bus in parallel. */
+  private soloAllowsOutlet(slot: TrackSlot, destinationBusId: string | null,
+    soloBusIds: readonly string[], soloSourceIds: readonly string[]): boolean {
+    if (!soloBusIds.length && !soloSourceIds.length) return true;
+    if (slot.soloOverride ?? slot.track.mix.solo) return true;
+    // A bus carrying a soloed instrument must pass its mixed input downstream.
+    if (soloSourceIds.some((id)=>{
+      const source = this.slots.get(id);
+      return !!source && this.routesThrough(source,slot.track.id);
+    })) return true;
+    if (!destinationBusId) return false;
+    const target = this.slots.get(destinationBusId);
+    return soloBusIds.some((id)=>destinationBusId === id ||
+      (!!target && this.routesThrough(target,id)));
+  }
+
   private refreshMute(audioTime = Tone.immediate()): void {
     this.effectiveMute.clear();
+    const soloSlots = [...this.slots.values()].filter((slot)=>
+      slot.soloOverride ?? slot.track.mix.solo);
+    const soloBusIds = soloSlots.filter((slot)=>slot.track.kind==="bus").map((slot)=>slot.track.id);
+    const soloSourceIds = soloSlots.filter((slot)=>slot.track.kind!=="bus").map((slot)=>slot.track.id);
     for (const slot of this.slots.values()) {
       const muted = this.computeMuted(slot);
       this.effectiveMute.set(slot.track.id, muted);
       slot.muteGate.gain.rampTo(muted ? 0 : 1, 0.008, audioTime);
+      slot.mainGate.gain.rampTo(!muted && this.soloAllowsOutlet(slot,
+        slot.track.mix.outputBusTrackId ?? null,soloBusIds,soloSourceIds) ? 1 : 0,
+      0.008,audioTime);
+      for (let index=0;index<slot.track.mix.sends.length;index++){
+        const send = slot.track.mix.sends[index]!;
+        const sendGain=slot.sends[index];
+        if (!sendGain) continue;
+        const active = !muted && this.soloAllowsOutlet(slot,send.busTrackId,
+          soloBusIds,soloSourceIds);
+        sendGain.gain.rampTo(active ? 10 ** (send.gainDb / 20) : 0,0.008,audioTime);
+      }
     }
   }
 
@@ -1011,6 +1373,8 @@ export class ProjectAudioSink implements SequencerSink {
       projectAudioClipSources: this.projectAudioClipSources,
       projectAudioClipSourceLimit: MAX_PROJECT_AUDIO_CLIP_SOURCES,
       masterGainDb: this.masterGainOverride ?? this.document.mix.masterGainDb,
+      masterPreMeter: this.masterDisposed ? this.masterPreMeterState.snapshot
+        : readMeter(this.masterPreMeter, this.masterPreMeterState),
       masterMeter: this.masterDisposed ? this.masterMeterState.snapshot
         : readMeter(this.masterMeter, this.masterMeterState),
       masterError: this.masterError,
@@ -1029,6 +1393,14 @@ export class ProjectAudioSink implements SequencerSink {
           solo: slot.soloOverride ?? slot.track.mix.solo,
           gainDb: slot.gainOverride ?? slot.track.mix.gainDb,
           pan: slot.panOverride ?? slot.track.mix.pan,
+          sidechainSourceTrackId: slot.track.mix.sidechain?.sourceTrackId ?? null,
+          sidechainLookaheadMs: slot.track.mix.sidechain?.lookaheadMs ?? 0,
+          sidechainReductionDb: slot.sidechainReductionDb,
+          sidechainReductionPeakDb: slot.sidechainReductionPeakDb,
+          sidechainError: slot.sidechainError,
+          effectComparisonMode: slot.effectComparisonMode,
+          effectComparisonOriginalDb: slot.effectComparisonOriginalDb,
+          effectComparisonProcessedDb: slot.effectComparisonProcessedDb,
           meter: slot.disposed ? slot.meterState.snapshot : readMeter(slot.meter, slot.meterState),
           activeVoices: (piano?.active ?? 0) + (drums?.active ?? 0) + (sample?.active ?? 0) +
             (rack?.active ?? 0) + (audio?.active ?? 0),
@@ -1083,6 +1455,7 @@ export class ProjectAudioSink implements SequencerSink {
   private disposeMaster(): void {
     if (this.masterDisposed) return;
     this.masterDisposed = true;
+    this.masterPreMeter.dispose();
     this.masterMeter.dispose();
     for (const effect of this.masterEffects) effect.dispose();
     this.master.dispose();
@@ -1098,8 +1471,24 @@ export class ProjectAudioSink implements SequencerSink {
     slot.audioClips?.dispose();
     for (const effect of slot.effects) effect.dispose();
     for (const send of slot.sends) send.dispose();
+    if (slot.sidechainNode) {
+      try { slot.sidechainSource?.disconnect(slot.sidechainNode); } catch { /* already disconnected */ }
+      try { Tone.disconnect(slot.sidechainNode, slot.sidechainGate.gain); } catch { /* already disconnected */ }
+      slot.sidechainNode.port.onmessage = null;
+      slot.sidechainNode.port.close();
+      slot.sidechainNode.disconnect();
+      slot.sidechainNode = null;
+      slot.sidechainSource = null;
+    }
     slot.volume.dispose();
+    slot.originalEffectMeter.dispose();
+    slot.processedEffectMeter.dispose();
+    slot.originalEffectGain.dispose();
+    slot.processedEffectGain.dispose();
     slot.muteGate.dispose();
+    slot.mainGate.dispose();
+    slot.sidechainDelay.dispose();
+    slot.sidechainGate.dispose();
     slot.panner.dispose();
     slot.meter.dispose();
     this.retired.delete(slot);

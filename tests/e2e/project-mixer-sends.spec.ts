@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("post-fader send contributes to live-like offline WAV and one-track stem", async ({ page }) => {
+test("post-fader send contributes to master but not the isolated post-track stem", async ({ page }) => {
   test.setTimeout(180_000);
   page.setDefaultTimeout(20_000);
   await page.goto("/", { waitUntil: "domcontentloaded", timeout: 15_000 });
@@ -59,7 +59,8 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
     });
     const dryPcm = await renderProjectPcm(dry, options, reader);
     const wetPcm = await renderProjectPcm(wet, options, reader);
-    const stemPcm = await renderProjectPcm(wet, { ...options, trackId: source.id }, reader);
+    const stemPcm = await renderProjectPcm(wet,
+      { ...options, trackId: source.id, tapTrackOutput: true }, reader);
     const energy = (pcm: Float32Array): number => pcm.reduce((sum, sample) => sum + sample * sample, 0);
     const allFinite = (pcm: Float32Array): boolean => pcm.every(Number.isFinite);
     return {
@@ -72,6 +73,7 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
       renderedSendsIncluded: wav.sendsIncluded,
       wavKinds: wav.files.map((file) => file.kind),
       wavFrames: wav.files.map((file) => file.pcm.frames),
+      wavPeaks: wav.files.map((file) => file.pcm.outputPeak),
       busStemKinds: busWav.files.map((file) => file.kind),
       busStemIds: busWav.files.map((file) => file.id),
       busStemFrames: busWav.files.map((file) => file.pcm.frames),
@@ -82,8 +84,11 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
     };
   });
   expect(result.dryEnergy).toBeGreaterThan(0.01);
-  expect(result.wetEnergy).toBeGreaterThan(result.dryEnergy * 3);
-  expect(result.stemEnergy).toBeCloseTo(result.wetEnergy, 3);
+  // The project limiter is nonlinear, so a doubled signal cannot retain the
+  // ideal 4x energy ratio. This still proves a substantial parallel return;
+  // the isolated bus/direct assertions below verify the actual route.
+  expect(result.wetEnergy).toBeGreaterThan(result.dryEnergy * 2.5);
+  expect(result.stemEnergy).toBeCloseTo(result.dryEnergy, 3);
   expect(result.dryLength).toBe(12_000);
   expect(result.wetLength).toBe(12_000);
   expect(result.finite).toBe(true);
@@ -92,6 +97,7 @@ test("post-fader send contributes to live-like offline WAV and one-track stem", 
   expect(result.renderedSendsIncluded).toBe(true);
   expect(result.wavKinds).toEqual(["master", "track"]);
   expect(result.wavFrames).toEqual([12_000, 12_000]);
+  expect(result.wavPeaks[0]).toBeGreaterThan(result.wavPeaks[1] * 1.3);
   expect(result.busStemKinds).toEqual(["master", "bus", "direct"]);
   expect(result.busStemIds).toEqual(["master", "parallel", "master-direct"]);
   expect(result.busStemFrames).toEqual([12_000, 12_000, 12_000]);
@@ -182,8 +188,11 @@ test("mobile mixer adds, edits and removes an acyclic send at 320 px", async ({ 
   page.setDefaultTimeout(20_000);
   await page.setViewportSize({ width: 320, height: 760 });
   await page.goto("/");
-  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
-  await page.getByRole("button", { name: "Mezclador" }).click();
+  const studio = page.getByTestId("reference-studio");
+  await studio.getByRole("button", { name: "Crear un proyecto" }).click();
+  await expect(studio.locator(".ref-track-row").first()).toBeVisible({ timeout: 20_000 });
+  await studio.getByRole("navigation", { name: "Flujos de trabajo" })
+    .getByRole("button", { name: "Mezcla" }).click();
   const mixer = page.getByRole("region", { name: "Mezclador del proyecto" });
   await mixer.getByRole("textbox", { name: "Nombre del bus" }).fill("Auxiliar");
   await mixer.getByRole("button", { name: "Crear bus" }).click();
@@ -200,14 +209,16 @@ test("mobile mixer adds, edits and removes an acyclic send at 320 px", async ({ 
   await expect(level).toHaveValue("-12");
   await mixer.getByRole("button", { name: "Rehacer" }).click();
   await expect(level).toHaveValue("-9");
-  await expect(page.getByRole("region", { name: "Proyecto de Beatmaker" }))
+  await expect(studio.locator(".ref-save-status"))
     .toContainText("Guardado", { timeout: 20_000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.reload();
-  await page.getByRole("button", { name: "Pistas", exact: true }).click();
+  await page.locator(".ref-project-select").click();
   await page.getByRole("region", { name: "Tus proyectos" })
     .getByRole("button", { name: "Abrir en Studio" }).click();
-  await page.getByRole("button", { name: "Mezclador" }).click();
+  await page.getByTestId("reference-studio")
+    .getByRole("navigation", { name: "Flujos de trabajo" })
+    .getByRole("button", { name: "Mezcla" }).click();
   const reopened = page.getByRole("region", { name: "Mezclador del proyecto" })
     .getByRole("region", { name: "Canal Piano" }).locator(".project-mixer__sends");
   await expect(reopened.getByRole("spinbutton", { name: "Nivel (dB)" })).toHaveValue("-9");
@@ -250,4 +261,139 @@ test("routing graph rejects feedback, missing buses and unsafe send levels", asy
   });
   expect(checks).toEqual({ clean: true, goodSend: true, selfSend: false,
     missing: false, cycle: false, dangerousLevel: false });
+});
+
+
+test("soloing an auxiliary bus silences direct-master leakage without muting its send",async({page})=>{
+  test.setTimeout(150_000);
+  await page.goto("/",{waitUntil:"domcontentloaded"});
+  const energy=await page.evaluate(async()=>{
+    const {analyzeUserSample}=await import("/src/audio/userSampleAsset.ts");
+    const {renderProjectPcm}=await import("/src/audio/renderProjectPcm.ts");
+    const {createProjectDocument}=await import("/src/project/model.ts");
+    const frames=12000,rate=48000;
+    const buffer=new ArrayBuffer(44+frames*2);
+    const view=new DataView(buffer);
+    const ascii=(offset:number,chars:string)=>{for(let i=0;i<chars.length;i++)
+      view.setUint8(offset+i,chars.charCodeAt(i));};
+    ascii(0,"RIFF");view.setUint32(4,buffer.byteLength-8,true);ascii(8,"WAVE");
+    ascii(12,"fmt ");view.setUint32(16,16,true);view.setUint16(20,1,true);
+    view.setUint16(22,1,true);view.setUint32(24,rate,true);
+    view.setUint32(28,rate*2,true);view.setUint16(32,2,true);
+    view.setUint16(34,16,true);ascii(36,"data");view.setUint32(40,frames*2,true);
+    for(let n=0;n<frames;n++)view.setInt16(44+n*2,Math.round(Math.sin(n*.06)*5000),true);
+    const sample=await analyzeUserSample(new Blob([buffer],{type:"audio/wav"}),
+      "solo-send-test",new OfflineAudioContext(1,1,rate));
+    const mix={gainDb:0,pan:0,mute:false,solo:false,armed:false,
+      effects:[],sends:[]};
+    const solo={id:"solo-aux",name:"Solo aux",kind:"bus" as const,
+      mix:{...mix,solo:true}};
+    const source={id:"solo-source",name:"Source",kind:"audio" as const,mix};
+    const clip={id:"clip",trackId:source.id,kind:"audio" as const,
+      sourceId:sample.ref.id,startTick:0,lengthTicks:480,
+      sourceOffsetTick:0,sourceStartFrame:0,sourceEndFrame:frames,
+      fadeInFrames:0,fadeOutFrames:0,gainDb:0,muted:false,transpose:0,
+      loopMode:"none" as const,tailPolicy:"cut" as const};
+    const base=createProjectDocument({id:"solo-postfader",at:1});
+    const directPlusSend={...base,trackOrder:[source.id,solo.id],
+      assets:[sample.ref],clips:[clip],tracks:[
+        {...source,mix:{...mix,sends:[{id:"send-solo",busTrackId:solo.id,gainDb:0}]}},solo]};
+    const auxOnly={...directPlusSend,tracks:[
+      {...source,mix:{...mix,outputBusTrackId:solo.id}},solo]};
+    const noSolo={...directPlusSend,tracks:[
+      directPlusSend.tracks[0]!,{...solo,mix:{...mix,solo:false}}]};
+    const read={readAsset:async()=>sample.data};
+    const options={startTick:0,endTick:480,sampleRate:rate,tailSeconds:0,
+      seed:"solo-send-test"} as const;
+    const [selected,baseline,mixed,direct]=await Promise.all([
+      renderProjectPcm(directPlusSend,options,read),
+      renderProjectPcm(auxOnly,options,read),
+      renderProjectPcm(noSolo,options,read),
+      renderProjectPcm(directPlusSend,{...options,trackIds:[source.id],
+        tapDirectMaster:true},read),
+    ]);
+    const e=(samples:Float32Array)=>samples.reduce((sum,n)=>sum+n*n,0);
+    return {selected:e(selected.left),baseline:e(baseline.left),
+      mixed:e(mixed.left),direct:e(direct.left),
+      missing:selected.report.audio.missingAttacks};
+  });
+  expect(energy.baseline).toBeGreaterThan(0.02);
+  expect(energy.selected/energy.baseline).toBeGreaterThan(.88);
+  expect(energy.selected/energy.baseline).toBeLessThan(1.12);
+  expect(energy.mixed).toBeGreaterThan(energy.selected*2.7);
+  expect(energy.direct).toBeLessThan(energy.selected*.03);
+  expect(energy.missing).toBe(0);
+});
+
+
+test("AUT send lane modula el retorno auxiliar sin confundirlo con gain de pista", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto("/", { waitUntil: "domcontentloaded", timeout: 15_000 });
+  const result = await page.evaluate(async () => {
+    const { analyzeUserSample } = await import("/src/audio/userSampleAsset.ts");
+    const { renderProjectPcm } = await import("/src/audio/renderProjectPcm.ts");
+    const { createProjectDocument } = await import("/src/project/model.ts");
+    const { validateProjectDocument } = await import("/src/project/validate.ts");
+    const rate = 48_000, frames = 24_000;
+    const bytes = new ArrayBuffer(44 + frames * 2);
+    const view = new DataView(bytes);
+    const ascii = (offset: number, value: string) => {
+      for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));
+    };
+    ascii(0, "RIFF"); view.setUint32(4, bytes.byteLength - 8, true); ascii(8, "WAVE");
+    ascii(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true); view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true); ascii(36, "data"); view.setUint32(40, frames * 2, true);
+    for (let frame = 0; frame < frames; frame++) {
+      view.setInt16(44 + frame * 2, Math.round(Math.sin(frame * 0.045) * 4500), true);
+    }
+    const sample = await analyzeUserSample(new Blob([bytes], { type: "audio/wav" }),
+      "send-automation", new OfflineAudioContext(1, 1, rate));
+    const baseMix = { gainDb: -6, pan: 0, mute: false, solo: false,
+      armed: false, effects: [], sends: [] };
+    const source = { id: "source", name: "Source", kind: "audio" as const,
+      mix: { ...baseMix, sends: [{ id: "aux-send", busTrackId: "aux", gainDb: -24 }] } };
+    const bus = { id: "aux", name: "Aux", kind: "bus" as const, mix: baseMix };
+    const clip = { id: "clip", trackId: source.id, kind: "audio" as const,
+      sourceId: sample.ref.id, startTick: 0, lengthTicks: 960, sourceOffsetTick: 0,
+      sourceStartFrame: 0, sourceEndFrame: frames, fadeInFrames: 0, fadeOutFrames: 0,
+      gainDb: 0, muted: false, transpose: 0, loopMode: "none" as const,
+      tailPolicy: "cut" as const };
+    const base = createProjectDocument({ id: "send-aut-pcm", at: 1 });
+    const dry = { ...base, tracks: [source, bus], trackOrder: [source.id, bus.id],
+      assets: [sample.ref], clips: [clip] };
+    const automated = { ...dry, automation: [{
+      id: "lane-send", target: { scope: "track" as const, ownerId: source.id,
+        sendId: "aux-send", parameterId: "gainDb" }, points: [
+        { id: "s0", tick: 0, value: -24, shape: "linear" as const },
+        { id: "s1", tick: 960, value: 0, shape: "step" as const },
+      ],
+    }] };
+    validateProjectDocument(automated);
+    const reader = { readAsset: async () => sample.data };
+    const options = { startTick: 0, endTick: 960, sampleRate: rate,
+      tailSeconds: 0, seed: "send-aut-pcm", trackIds: [source.id],
+      tapBusTrackId: bus.id } as const;
+    const [staticBus, automatedBus, trackTap] = await Promise.all([
+      renderProjectPcm(dry, options, reader),
+      renderProjectPcm(automated, options, reader),
+      renderProjectPcm(automated, { startTick: 0, endTick: 960, sampleRate: rate,
+        tailSeconds: 0, seed: "send-aut-track", trackId: source.id,
+        tapTrackOutput: true }, reader),
+    ]);
+    const energy = (pcm: Float32Array) => pcm.reduce((sum, value) => sum + value * value, 0);
+    return {
+      staticBus: energy(staticBus.left),
+      automatedBus: energy(automatedBus.left),
+      trackTap: energy(trackTap.left),
+      trackGainDb: automated.tracks[0].mix.gainDb,
+      finite: automatedBus.left.every(Number.isFinite),
+    };
+  });
+  expect(result.staticBus).toBeGreaterThan(0);
+  expect(result.automatedBus).toBeGreaterThan(result.staticBus * 4);
+  expect(result.trackTap).toBeGreaterThan(result.automatedBus);
+  expect(result.trackGainDb).toBe(-6);
+  expect(result.finite).toBe(true);
 });

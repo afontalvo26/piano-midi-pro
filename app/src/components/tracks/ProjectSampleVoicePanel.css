@@ -7,3 +7,8 @@
 .sample-voice__actions { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; grid-column: 1 / -1; }
 .sample-voice__actions button { min-height: 44px; padding: 8px 12px; border: 1px solid #8c69c4; border-radius: 8px; background: #593889; color: white; font-weight: 700; }
 .sample-voice__error { grid-column: 1 / -1; color: #ffd89a !important; }
+
+.sample-voice__check { flex-direction: row !important; align-items: center; min-height: 44px; }
+.sample-voice__check input { width: 20px; min-height: 20px; flex: 0 0 auto; }
+.sample-voice__hint { grid-column: 1 / -1; margin: 0; color: #cfc1df; font-size: 11px; line-height: 1.45; }
+.sample-voice input[type="range"] { padding: 0 8px; }

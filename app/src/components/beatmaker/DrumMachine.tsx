@@ -35,6 +35,9 @@ export interface DrumMachineProps {
   /** An audio owner is generated per pad audition; the engine owns its lifecycle. */
   readonly onPreviewPad?: (pad: DrumPadDefinition, ownerId: string) => void;
   readonly onPreviewRackPad?: (pad: ProjectDrumPad, ownerId: string) => void;
+  readonly midiLearnAction?: string | null;
+  readonly onMidiLearnPad?: (padId: string) => void;
+  readonly onCancelMidiLearn?: () => void;
 }
 
 type EditorProps = DrumMachineProps & { readonly pattern: ProjectPattern };
@@ -62,7 +65,9 @@ export function DrumMachine(props: DrumMachineProps) {
       saveState={props.saveState} externalError={props.externalError}
       onCommand={props.onCommand} onUndo={props.onUndo} onRedo={props.onRedo}
       canUndo={props.canUndo} canRedo={props.canRedo}
-      onPreviewRackPad={props.onPreviewRackPad} />;
+      onPreviewRackPad={props.onPreviewRackPad}
+      midiLearnAction={props.midiLearnAction} onMidiLearnPad={props.onMidiLearnPad}
+      onCancelMidiLearn={props.onCancelMidiLearn} />;
   }
   return <DrumMachineEditor key={props.pattern.id} {...props} pattern={props.pattern} />;
 }
