@@ -189,3 +189,12 @@ El dueño del producto ordenó eliminar el CI de GitHub Actions. Se borraron los
 - La política de aceptación por evidencia (113 IDs, `--check`/`--release`) sigue vigente: no se aprueba un criterio sin prueba ejecutada y artefacto asociado, pero **no hay ningún runner de CI que destrabe**.
 - El issue #2 («GitHub Actions falla antes de asignar runner») queda cerrado por decisión de producto: el servicio ya no es parte del flujo.
 - Los focos que antes corrían los workflows se ejecutan con el script local y están listados en este anexo.
+
+
+## Migración E2E del shell de referencia — 2026-11-03
+
+Se migraron las pruebas heredadas que todavía intentaban crear proyectos desde la UI anterior para que entren por el flujo real del shell aprobado: `Crear un proyecto -> Editor de arreglo completo`. La tanda cubre Arrangement, asset repair, audio recording, drums/transport, hot swap, MIDI export, mixer/bus, mixer, piano roll, recorded overdub, recording overlay, sampler, scene launch, take import, WAV/stems, touch targets y mobile layout. También se corrigió el caso de cambio de proyecto durante una toma activa para volver primero al nuevo Studio antes de crear la segunda sesión.
+
+HEAD de la rama tras esta tanda: `d21cc566087e411b71b86153ae2d3be1953566a0`.
+
+**Importante:** estos cambios corrigen la ruta de las pruebas, pero no constituyen una nueva corrida certificada. El entorno actual no pudo clonar el repositorio por resolución DNS, por lo que no se ejecutó Playwright aquí. La última suite completa registrada antes de esta migración seguía en 201 aprobadas / 49 fallidas; debe repetirse `pwsh -File scripts/validate-studio.ps1 -Full` en un checkout con red/Node/Chromium disponibles antes de afirmar que la suite completa está verde.
